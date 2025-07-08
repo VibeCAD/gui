@@ -48,6 +48,14 @@ function App() {
   const [wireframeMode, setWireframeMode] = useState(false)
   const [showGrid, setShowGrid] = useState(true)
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null)
+  const [multiSelectMode, setMultiSelectMode] = useState(false)
+  const [selectedObjectIds, setSelectedObjectIds] = useState<string[]>([])
+  const [snapToGrid, setSnapToGrid] = useState(false)
+  const [gridSize, setGridSize] = useState(1)
+  const [objectVisibility, setObjectVisibility] = useState<{[key: string]: boolean}>({})
+  const [objectLocked, setObjectLocked] = useState<{[key: string]: boolean}>({})
+  const [multiSelectPivot, setMultiSelectPivot] = useState<Mesh | null>(null)
+  const [gridMesh, setGridMesh] = useState<Mesh | null>(null)
   
   // Dropdown state management
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
@@ -56,11 +64,110 @@ function App() {
   const openai = apiKey ? new OpenAI({ apiKey, dangerouslyAllowBrowser: true }) : null
 
   const selectedObject = sceneObjects.find(obj => obj.id === selectedObjectId)
+  const selectedObjects = sceneObjects.filter(obj => selectedObjectIds.includes(obj.id))
+  const hasSelection = selectedObjectId || selectedObjectIds.length > 0
 
   // Keep sceneObjectsRef synchronized with sceneObjects state
   useEffect(() => {
     sceneObjectsRef.current = sceneObjects
   }, [sceneObjects])
+
+  // Add keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Don't trigger shortcuts when typing in input fields
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return
+      }
+
+      switch (event.key.toLowerCase()) {
+        case 'g':
+          if (event.ctrlKey || event.metaKey) {
+            event.preventDefault()
+            setSnapToGrid(!snapToGrid)
+          }
+          break
+        case 'a':
+          if (event.ctrlKey || event.metaKey) {
+            event.preventDefault()
+            selectAllObjects()
+          }
+          break
+        case 'i':
+          if (event.ctrlKey || event.metaKey) {
+            event.preventDefault()
+            invertSelection()
+          }
+          break
+        case 'delete':
+        case 'backspace':
+          if (hasSelection) {
+            event.preventDefault()
+            const objectsToDelete = selectedObjectId ? [selectedObjectId] : selectedObjectIds
+            
+            // Detach gizmo first
+            if (gizmoManagerRef.current) {
+              gizmoManagerRef.current.attachToMesh(null)
+            }
+            
+            setSceneObjects(prev => {
+              const remainingObjects = prev.filter(obj => !objectsToDelete.includes(obj.id))
+              // Dispose meshes
+              prev.filter(obj => objectsToDelete.includes(obj.id)).forEach(obj => {
+                if (obj.mesh) obj.mesh.dispose()
+              })
+              return remainingObjects
+            })
+            
+            setSelectedObjectId(null)
+            setSelectedObjectIds([])
+          }
+          break
+        case 'd':
+          if (event.ctrlKey || event.metaKey) {
+            event.preventDefault()
+            if (hasSelection) {
+              duplicateSelectedObjects()
+            }
+          }
+          break
+        case 't':
+          if (event.ctrlKey || event.metaKey) {
+            event.preventDefault()
+            if (hasSelection) {
+              resetTransforms()
+            }
+          }
+          break
+        case 'r':
+          if (!event.ctrlKey && !event.metaKey) {
+            event.preventDefault()
+            setTransformMode('rotate')
+          }
+          break
+        case 's':
+          if (!event.ctrlKey && !event.metaKey) {
+            event.preventDefault()
+            setTransformMode('scale')
+          }
+          break
+        case 'm':
+          if (!event.ctrlKey && !event.metaKey) {
+            event.preventDefault()
+            setTransformMode('move')
+          }
+          break
+        case 'escape':
+          setSelectedObjectId(null)
+          setSelectedObjectIds([])
+          setActiveDropdown(null)
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [snapToGrid, hasSelection, selectedObjectId, selectedObjectIds])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -78,6 +185,7 @@ function App() {
   useEffect(() => {
     const gizmoManager = gizmoManagerRef.current
     const selectedMesh = selectedObject?.mesh
+    const isMultiSelect = selectedObjectIds.length > 0
     
     if (!gizmoManager) return
 
@@ -93,9 +201,17 @@ function App() {
     gizmoManager.scaleGizmoEnabled = false
     gizmoManager.boundingBoxGizmoEnabled = false
 
-    if (selectedMesh) {
+    // Choose which mesh to attach gizmo to
+    let targetMesh: Mesh | null = null
+    if (isMultiSelect && multiSelectPivot) {
+      targetMesh = multiSelectPivot
+    } else if (selectedMesh) {
+      targetMesh = selectedMesh
+    }
+
+    if (targetMesh) {
       // A mesh is selected, so attach gizmos and add observers
-      gizmoManager.attachToMesh(selectedMesh)
+      gizmoManager.attachToMesh(targetMesh)
 
       // Enable the correct gizmo based on transform mode
       switch (transformMode) {
@@ -118,23 +234,53 @@ function App() {
 
       if (positionGizmo) {
         positionObserver = positionGizmo.onDragEndObservable.add(() => {
-          setSceneObjects(prev => prev.map(obj => 
-            obj.id === selectedObject?.id ? { ...obj, position: selectedMesh.position.clone() } : obj
-          ))
+          if (isMultiSelect && multiSelectPivot) {
+            // Apply transform to all selected objects
+            applyTransformToMultipleObjects(
+              multiSelectPivot.position,
+              multiSelectPivot.rotation,
+              multiSelectPivot.scaling
+            )
+          } else if (selectedMesh) {
+            // Single object transform
+            const newPosition = snapToGridPosition(selectedMesh.position.clone())
+            selectedMesh.position = newPosition
+            setSceneObjects(prev => prev.map(obj => 
+              obj.id === selectedObject?.id ? { ...obj, position: newPosition } : obj
+            ))
+          }
         })
       }
       if (rotationGizmo) {
         rotationObserver = rotationGizmo.onDragEndObservable.add(() => {
-          setSceneObjects(prev => prev.map(obj => 
-            obj.id === selectedObject?.id ? { ...obj, rotation: selectedMesh.rotation.clone() } : obj
-          ))
+          if (isMultiSelect && multiSelectPivot) {
+            // Apply transform to all selected objects
+            applyTransformToMultipleObjects(
+              multiSelectPivot.position,
+              multiSelectPivot.rotation,
+              multiSelectPivot.scaling
+            )
+          } else if (selectedMesh) {
+            setSceneObjects(prev => prev.map(obj => 
+              obj.id === selectedObject?.id ? { ...obj, rotation: selectedMesh.rotation.clone() } : obj
+            ))
+          }
         })
       }
       if (scaleGizmo) {
         scaleObserver = scaleGizmo.onDragEndObservable.add(() => {
-          setSceneObjects(prev => prev.map(obj => 
-            obj.id === selectedObject?.id ? { ...obj, scale: selectedMesh.scaling.clone() } : obj
-          ))
+          if (isMultiSelect && multiSelectPivot) {
+            // Apply transform to all selected objects
+            applyTransformToMultipleObjects(
+              multiSelectPivot.position,
+              multiSelectPivot.rotation,
+              multiSelectPivot.scaling
+            )
+          } else if (selectedMesh) {
+            setSceneObjects(prev => prev.map(obj => 
+              obj.id === selectedObject?.id ? { ...obj, scale: selectedMesh.scaling.clone() } : obj
+            ))
+          }
         })
       }
     }
@@ -152,7 +298,17 @@ function App() {
         scaleGizmo.onDragEndObservable.remove(scaleObserver)
       }
     }
-  }, [selectedObject, transformMode])
+  }, [selectedObject, selectedObjectIds, transformMode, multiSelectPivot])
+
+  // Create/update visual grid when snap settings change
+  useEffect(() => {
+    createVisualGrid()
+  }, [snapToGrid, gridSize])
+
+  // Create/update multi-select pivot when selection changes
+  useEffect(() => {
+    createMultiSelectPivot()
+  }, [selectedObjectIds, sceneObjects])
 
   // Handle object selection visual feedback
   useEffect(() => {
@@ -162,32 +318,47 @@ function App() {
     sceneObjects.forEach(obj => {
       if (obj.mesh?.material && obj.type !== 'ground') {
         const material = obj.mesh.material as StandardMaterial
-        // Subtle glow to indicate all objects are interactive
-        material.emissiveColor = new Color3(0.1, 0.1, 0.1)
+        
+        // Check if object is locked
+        if (objectLocked[obj.id]) {
+          material.emissiveColor = new Color3(0.8, 0.4, 0.4) // Red tint for locked objects
+        } else {
+          // Subtle glow to indicate all objects are interactive
+          material.emissiveColor = new Color3(0.1, 0.1, 0.1)
+        }
       }
     })
 
     // Add hover effect
-    if (hoveredObjectId && hoveredObjectId !== selectedObjectId) {
+    if (hoveredObjectId && hoveredObjectId !== selectedObjectId && !selectedObjectIds.includes(hoveredObjectId)) {
       const hoveredObject = sceneObjects.find(obj => obj.id === hoveredObjectId)
-      if (hoveredObject?.mesh?.material) {
+      if (hoveredObject?.mesh?.material && !objectLocked[hoveredObjectId]) {
         const material = hoveredObject.mesh.material as StandardMaterial
         material.emissiveColor = new Color3(0.3, 0.6, 0.9) // Blue hover
       }
     }
 
-    // Add strong highlight to the selected object
+    // Add strong highlight to the single selected object
     if (selectedObject?.mesh?.material) {
       const material = selectedObject.mesh.material as StandardMaterial
       material.emissiveColor = new Color3(0.6, 1.0, 1.0) // Bright cyan selection
     }
-  }, [selectedObjectId, hoveredObjectId, sceneObjects])
+
+    // Add highlight to multi-selected objects
+    selectedObjectIds.forEach(objectId => {
+      const selectedObj = sceneObjects.find(obj => obj.id === objectId)
+      if (selectedObj?.mesh?.material) {
+        const material = selectedObj.mesh.material as StandardMaterial
+        material.emissiveColor = new Color3(1.0, 0.8, 0.2) // Orange for multi-selection
+      }
+    })
+  }, [selectedObjectId, selectedObjectIds, hoveredObjectId, sceneObjects, objectLocked])
 
   const toggleDropdown = (dropdownName: string) => {
     setActiveDropdown(activeDropdown === dropdownName ? null : dropdownName)
   }
 
-  const handleObjectClick = (pickInfo: PickingInfo) => {
+  const handleObjectClick = (pickInfo: PickingInfo, isCtrlHeld: boolean = false) => {
     console.log('[handleObjectClick] Received pick info:', pickInfo);
 
     if (pickInfo.hit && pickInfo.pickedMesh) {
@@ -204,10 +375,31 @@ function App() {
       }
 
       if (clickedObject && clickedObject.type !== 'ground') {
-        // When an object is clicked, it becomes the new selected object.
-        // This implicitly deselects any previously selected object.
-        console.log(`[handleObjectClick] Selecting object: ${clickedObject.id}`);
-        setSelectedObjectId(clickedObject.id)
+        // Check if object is locked
+        if (objectLocked[clickedObject.id]) {
+          console.log(`[handleObjectClick] Object is locked: ${clickedObject.id}`);
+          return;
+        }
+
+        if (multiSelectMode || isCtrlHeld) {
+          // Multi-select mode
+          setSelectedObjectIds(prev => {
+            if (prev.includes(clickedObject.id)) {
+              // Deselect if already selected
+              return prev.filter(id => id !== clickedObject.id);
+            } else {
+              // Add to selection
+              return [...prev, clickedObject.id];
+            }
+          });
+          // Clear single selection when using multi-select
+          setSelectedObjectId(null);
+        } else {
+          // Single select mode
+          console.log(`[handleObjectClick] Selecting object: ${clickedObject.id}`);
+          setSelectedObjectId(clickedObject.id);
+          setSelectedObjectIds([]); // Clear multi-selection
+        }
         
         // Close any open dropdowns when selecting an object
         setActiveDropdown(null)
@@ -215,11 +407,13 @@ function App() {
         // If the ground or an unmanaged mesh is clicked, deselect everything.
         console.log(`[handleObjectClick] Clicked ground or unmanaged mesh. Deselecting.`);
         setSelectedObjectId(null)
+        setSelectedObjectIds([]);
       }
     } else {
       // If empty space is clicked, deselect everything.
       console.log('[handleObjectClick] Clicked empty space. Deselecting.');
       setSelectedObjectId(null)
+      setSelectedObjectIds([]);
     }
   }
 
@@ -280,11 +474,12 @@ function App() {
     }
 
     // Position the new object
-    newMesh.position = new Vector3(
+    const randomPosition = new Vector3(
       Math.random() * 4 - 2, // Random x between -2 and 2
       type === 'plane' ? 1 : 2, // Planes slightly above ground, others elevated
       Math.random() * 4 - 2  // Random z between -2 and 2
     )
+    newMesh.position = snapToGridPosition(randomPosition)
 
     // Apply material
     const material = new StandardMaterial(`${newId}-material`, scene)
@@ -394,24 +589,32 @@ function App() {
   }
 
   const changeSelectedObjectColor = (color: string) => {
-    if (!selectedObject?.mesh?.material) {
-      console.log('❌ No object selected or no material')
+    const objectsToColor = selectedObjectId ? [selectedObjectId] : selectedObjectIds
+    
+    if (objectsToColor.length === 0) {
+      console.log('❌ No objects selected')
       return
     }
 
-    console.log('🎨 Changing color of', selectedObject.id, 'to', color)
+    console.log('🎨 Changing color of', objectsToColor.length, 'objects to', color)
     
-    const material = selectedObject.mesh.material as StandardMaterial
-    material.diffuseColor = Color3.FromHexString(color)
-    // Maintain strong selection highlight
-    material.emissiveColor = new Color3(0.6, 1.0, 1.0)
-    
-    // Update state
-    setSceneObjects(prev => prev.map(obj => 
-      obj.id === selectedObject.id 
-        ? { ...obj, color: color }
-        : obj
-    ))
+    // Update state and apply color to meshes
+    setSceneObjects(prev => prev.map(obj => {
+      if (objectsToColor.includes(obj.id) && obj.mesh?.material) {
+        const material = obj.mesh.material as StandardMaterial
+        material.diffuseColor = Color3.FromHexString(color)
+        
+        // Maintain appropriate highlight based on selection state
+        if (selectedObjectId === obj.id) {
+          material.emissiveColor = new Color3(0.6, 1.0, 1.0) // Cyan for single selection
+        } else if (selectedObjectIds.includes(obj.id)) {
+          material.emissiveColor = new Color3(1.0, 0.8, 0.2) // Orange for multi-selection
+        }
+        
+        return { ...obj, color: color }
+      }
+      return obj
+    }))
     
     console.log('✅ Color changed successfully')
   }
@@ -484,11 +687,294 @@ function App() {
     const object = sceneObjects.find(obj => obj.id === objectId)
     if (object) {
       setSelectedObjectId(objectId)
+      setSelectedObjectIds([]) // Clear multi-selection
       console.log('📋 Selected from sidebar:', objectId)
       
       // Close any open dropdowns
       setActiveDropdown(null)
     }
+  }
+
+  // Snap position to grid
+  const snapToGridPosition = (position: Vector3): Vector3 => {
+    if (!snapToGrid) return position
+    return new Vector3(
+      Math.round(position.x / gridSize) * gridSize,
+      Math.round(position.y / gridSize) * gridSize,
+      Math.round(position.z / gridSize) * gridSize
+    )
+  }
+
+  // Create visual grid
+  const createVisualGrid = () => {
+    if (!sceneRef.current) return
+
+    const scene = sceneRef.current
+    
+    // Remove existing grid
+    if (gridMesh) {
+      gridMesh.dispose()
+      setGridMesh(null)
+    }
+
+    if (!snapToGrid) return
+
+    // Create grid lines
+    const gridExtent = 20 // Grid extends from -20 to 20
+    const lines = []
+    
+    // Vertical lines (along Z-axis)
+    for (let i = -gridExtent; i <= gridExtent; i += gridSize) {
+      lines.push([
+        new Vector3(i, 0, -gridExtent),
+        new Vector3(i, 0, gridExtent)
+      ])
+    }
+    
+    // Horizontal lines (along X-axis)
+    for (let i = -gridExtent; i <= gridExtent; i += gridSize) {
+      lines.push([
+        new Vector3(-gridExtent, 0, i),
+        new Vector3(gridExtent, 0, i)
+      ])
+    }
+
+    // Create line system
+    const lineSystem = MeshBuilder.CreateLineSystem('grid', { lines }, scene)
+    lineSystem.color = new Color3(0.5, 0.5, 0.5)
+    lineSystem.alpha = 0.3
+    lineSystem.isPickable = false
+    
+    setGridMesh(lineSystem)
+  }
+
+  // Create multi-select pivot point
+  const createMultiSelectPivot = () => {
+    if (!sceneRef.current || selectedObjectIds.length === 0) {
+      // Remove existing pivot
+      if (multiSelectPivot) {
+        multiSelectPivot.dispose()
+        setMultiSelectPivot(null)
+      }
+      return
+    }
+
+    const scene = sceneRef.current
+    const selectedObjs = sceneObjects.filter(obj => selectedObjectIds.includes(obj.id))
+    
+    if (selectedObjs.length === 0) return
+
+    // Calculate center point of selected objects
+    const center = selectedObjs.reduce((acc, obj) => {
+      return acc.add(obj.position)
+    }, new Vector3(0, 0, 0)).scale(1 / selectedObjs.length)
+
+    // Remove existing pivot
+    if (multiSelectPivot) {
+      multiSelectPivot.dispose()
+    }
+
+    // Create invisible pivot mesh
+    const pivot = MeshBuilder.CreateSphere('multi-select-pivot', { diameter: 0.1 }, scene)
+    pivot.position = center
+    pivot.isVisible = false
+    pivot.isPickable = false
+    
+    setMultiSelectPivot(pivot)
+  }
+
+  // Apply transform to multiple objects
+  const applyTransformToMultipleObjects = (pivotPosition: Vector3, pivotRotation: Vector3, pivotScale: Vector3) => {
+    if (!multiSelectPivot) return
+
+    const originalPivotPos = multiSelectPivot.position.clone()
+    const deltaPosition = pivotPosition.subtract(originalPivotPos)
+    
+    setSceneObjects(prev => prev.map(obj => {
+      if (selectedObjectIds.includes(obj.id) && obj.mesh) {
+        // Apply position delta
+        const newPosition = obj.mesh.position.add(deltaPosition)
+        obj.mesh.position = snapToGridPosition(newPosition)
+        
+        // For rotation and scale, we'd need more complex math
+        // For now, just apply the same rotation/scale to all objects
+        obj.mesh.rotation = pivotRotation
+        obj.mesh.scaling = pivotScale
+        
+        return {
+          ...obj,
+          position: obj.mesh.position.clone(),
+          rotation: obj.mesh.rotation.clone(),
+          scale: obj.mesh.scaling.clone()
+        }
+      }
+      return obj
+    }))
+  }
+
+  // Select all objects
+  const selectAllObjects = () => {
+    const selectableObjects = sceneObjects.filter(obj => obj.type !== 'ground' && !objectLocked[obj.id])
+    setSelectedObjectIds(selectableObjects.map(obj => obj.id))
+    setSelectedObjectId(null)
+    setActiveDropdown(null)
+    console.log('🔍 Selected all objects')
+  }
+
+  // Deselect all objects
+  const deselectAllObjects = () => {
+    setSelectedObjectId(null)
+    setSelectedObjectIds([])
+    setActiveDropdown(null)
+    console.log('🔍 Deselected all objects')
+  }
+
+  // Invert selection
+  const invertSelection = () => {
+    const selectableObjects = sceneObjects.filter(obj => obj.type !== 'ground' && !objectLocked[obj.id])
+    const currentlySelected = selectedObjectIds
+    const newSelection = selectableObjects.filter(obj => !currentlySelected.includes(obj.id)).map(obj => obj.id)
+    setSelectedObjectIds(newSelection)
+    setSelectedObjectId(null)
+    setActiveDropdown(null)
+    console.log('🔍 Inverted selection')
+  }
+
+  // Toggle object visibility
+  const toggleObjectVisibility = (objectId: string) => {
+    const object = sceneObjects.find(obj => obj.id === objectId)
+    if (!object || !object.mesh) return
+
+    const isVisible = objectVisibility[objectId] !== false // Default to visible
+    object.mesh.isVisible = !isVisible
+    
+    setObjectVisibility(prev => ({
+      ...prev,
+      [objectId]: !isVisible
+    }))
+    
+    console.log(`👁️ ${!isVisible ? 'Showed' : 'Hidden'} object: ${objectId}`)
+  }
+
+  // Toggle object lock
+  const toggleObjectLock = (objectId: string) => {
+    const isLocked = objectLocked[objectId] || false
+    
+    setObjectLocked(prev => ({
+      ...prev,
+      [objectId]: !isLocked
+    }))
+    
+    // If locking the currently selected object, deselect it
+    if (!isLocked && selectedObjectId === objectId) {
+      setSelectedObjectId(null)
+    }
+    if (!isLocked && selectedObjectIds.includes(objectId)) {
+      setSelectedObjectIds(prev => prev.filter(id => id !== objectId))
+    }
+    
+    console.log(`🔒 ${!isLocked ? 'Locked' : 'Unlocked'} object: ${objectId}`)
+  }
+
+  // Reset transform for selected objects
+  const resetTransforms = () => {
+    const objectsToReset = selectedObjectId ? [selectedObjectId] : selectedObjectIds
+    
+    setSceneObjects(prev => prev.map(obj => {
+      if (objectsToReset.includes(obj.id) && obj.mesh) {
+        obj.mesh.position = new Vector3(0, 1, 0)
+        obj.mesh.rotation = new Vector3(0, 0, 0)
+        obj.mesh.scaling = new Vector3(1, 1, 1)
+        return {
+          ...obj,
+          position: new Vector3(0, 1, 0),
+          rotation: new Vector3(0, 0, 0),
+          scale: new Vector3(1, 1, 1)
+        }
+      }
+      return obj
+    }))
+    
+    setActiveDropdown(null)
+    console.log('🔄 Reset transforms for selected objects')
+  }
+
+  // Duplicate selected objects
+  const duplicateSelectedObjects = () => {
+    if (!sceneRef.current) return
+    
+    const objectsToDuplicate = selectedObjectId ? [selectedObjectId] : selectedObjectIds
+    const scene = sceneRef.current
+    const newObjects: SceneObject[] = []
+    
+    objectsToDuplicate.forEach(objectId => {
+      const originalObject = sceneObjects.find(obj => obj.id === objectId)
+      if (!originalObject) return
+      
+      const newId = `${originalObject.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      let newMesh: Mesh
+      
+      switch (originalObject.type) {
+        case 'cube':
+          newMesh = MeshBuilder.CreateBox(newId, { size: 2 }, scene)
+          break
+        case 'sphere':
+          newMesh = MeshBuilder.CreateSphere(newId, { diameter: 2 }, scene)
+          break
+        case 'cylinder':
+          newMesh = MeshBuilder.CreateCylinder(newId, { diameter: 2, height: 2 }, scene)
+          break
+        case 'plane':
+          newMesh = MeshBuilder.CreatePlane(newId, { size: 2 }, scene)
+          break
+        case 'torus':
+          newMesh = MeshBuilder.CreateTorus(newId, { diameter: 2, thickness: 0.5 }, scene)
+          break
+        case 'cone':
+          newMesh = MeshBuilder.CreateCylinder(newId, { diameterTop: 0, diameterBottom: 2, height: 2 }, scene)
+          break
+        default:
+          return
+      }
+      
+      // Copy properties and offset position
+      const offsetPosition = originalObject.position.clone().add(new Vector3(2, 0, 0))
+      newMesh.position = snapToGridPosition(offsetPosition)
+      newMesh.scaling = originalObject.scale.clone()
+      newMesh.rotation = originalObject.rotation.clone()
+      
+      const material = new StandardMaterial(`${newId}-material`, scene)
+      material.diffuseColor = Color3.FromHexString(originalObject.color)
+      newMesh.material = material
+      newMesh.isPickable = true
+      newMesh.checkCollisions = false
+      
+      const newObj: SceneObject = {
+        id: newId,
+        type: originalObject.type,
+        position: newMesh.position.clone(),
+        scale: newMesh.scaling.clone(),
+        rotation: newMesh.rotation.clone(),
+        color: originalObject.color,
+        mesh: newMesh
+      }
+      
+      newObjects.push(newObj)
+    })
+    
+    setSceneObjects(prev => [...prev, ...newObjects])
+    
+    // Select the new objects
+    if (newObjects.length === 1) {
+      setSelectedObjectId(newObjects[0].id)
+      setSelectedObjectIds([])
+    } else {
+      setSelectedObjectIds(newObjects.map(obj => obj.id))
+      setSelectedObjectId(null)
+    }
+    
+    setActiveDropdown(null)
+    console.log('📋 Duplicated selected objects')
   }
 
   const initializeBabylonScene = () => {
@@ -571,7 +1057,9 @@ function App() {
                     console.log(`[Pointer Up] Is gizmo click? ${isGizmoClick}`);
 
                     if (!isGizmoClick && pickInfo) {
-                        handleObjectClick(pickInfo);
+                        // Check if Ctrl key is held for multi-select
+                        const isCtrlHeld = pointerInfo.event?.ctrlKey || false;
+                        handleObjectClick(pickInfo, isCtrlHeld);
                     }
                 } else {
                     console.log('[Pointer Up] Movement exceeded threshold. Ignoring as drag.');
@@ -641,6 +1129,25 @@ function App() {
     <div className="top-toolbar">
       <div className="toolbar-menu">
         <div className="toolbar-brand">VibeCad Pro</div>
+        
+        <div className="toolbar-status">
+          <span className="status-item">
+            <span className="status-label">Mode:</span>
+            <span className={`status-value ${transformMode}`}>{transformMode.toUpperCase()}</span>
+          </span>
+          <span className="status-item">
+            <span className="status-label">Grid:</span>
+            <span className={`status-value ${snapToGrid ? 'on' : 'off'}`}>
+              {snapToGrid ? `ON (${gridSize})` : 'OFF'}
+            </span>
+          </span>
+          <span className="status-item">
+            <span className="status-label">Selected:</span>
+            <span className="status-value">
+              {selectedObjectId ? '1' : selectedObjectIds.length}
+            </span>
+          </span>
+        </div>
         
         {/* Transform Tools */}
         <div className="toolbar-item">
@@ -743,28 +1250,105 @@ function App() {
         {/* Material Menu */}
         <div className="toolbar-item">
           <button 
-            className={`toolbar-button ${selectedObject ? 'active' : ''}`}
+            className={`toolbar-button ${hasSelection ? 'active' : ''}`}
             onClick={() => toggleDropdown('material')}
           >
             Material <span className="dropdown-arrow">▼</span>
           </button>
           <div className={`dropdown-menu ${activeDropdown === 'material' ? 'show' : ''}`}>
             <div className="dropdown-section">
-              <div className="dropdown-section-title">Color Picker</div>
+              <div className="dropdown-section-title">RGB Color Picker</div>
               <div className="dropdown-controls">
                 <div className="control-row">
-                  <span className="control-label">Current:</span>
+                  <span className="control-label">Color:</span>
                   <input
                     type="color"
                     value={currentColor}
                     onChange={(e) => {
                       setCurrentColor(e.target.value)
-                      if (selectedObject) {
+                      if (hasSelection) {
                         changeSelectedObjectColor(e.target.value)
                       }
                     }}
-                    className="color-picker"
+                    className="color-picker-large"
                   />
+                </div>
+                <div className="control-row">
+                  <span className="control-label">Hex:</span>
+                  <input
+                    type="text"
+                    value={currentColor}
+                    onChange={(e) => {
+                      const hexValue = e.target.value
+                      if (/^#[0-9A-F]{6}$/i.test(hexValue)) {
+                        setCurrentColor(hexValue)
+                        if (hasSelection) {
+                          changeSelectedObjectColor(hexValue)
+                        }
+                      }
+                    }}
+                    className="hex-input"
+                    placeholder="#FFFFFF"
+                  />
+                </div>
+                <div className="control-row">
+                  <span className="control-label">RGB:</span>
+                  <div className="rgb-inputs">
+                    <input
+                      type="number"
+                      min="0"
+                      max="255"
+                      value={parseInt(currentColor.substr(1, 2), 16)}
+                      onChange={(e) => {
+                        const r = Math.max(0, Math.min(255, parseInt(e.target.value) || 0))
+                        const g = parseInt(currentColor.substr(3, 2), 16)
+                        const b = parseInt(currentColor.substr(5, 2), 16)
+                        const newColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+                        setCurrentColor(newColor)
+                        if (hasSelection) {
+                          changeSelectedObjectColor(newColor)
+                        }
+                      }}
+                      className="rgb-input"
+                      placeholder="R"
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      max="255"
+                      value={parseInt(currentColor.substr(3, 2), 16)}
+                      onChange={(e) => {
+                        const r = parseInt(currentColor.substr(1, 2), 16)
+                        const g = Math.max(0, Math.min(255, parseInt(e.target.value) || 0))
+                        const b = parseInt(currentColor.substr(5, 2), 16)
+                        const newColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+                        setCurrentColor(newColor)
+                        if (hasSelection) {
+                          changeSelectedObjectColor(newColor)
+                        }
+                      }}
+                      className="rgb-input"
+                      placeholder="G"
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      max="255"
+                      value={parseInt(currentColor.substr(5, 2), 16)}
+                      onChange={(e) => {
+                        const r = parseInt(currentColor.substr(1, 2), 16)
+                        const g = parseInt(currentColor.substr(3, 2), 16)
+                        const b = Math.max(0, Math.min(255, parseInt(e.target.value) || 0))
+                        const newColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+                        setCurrentColor(newColor)
+                        if (hasSelection) {
+                          changeSelectedObjectColor(newColor)
+                        }
+                      }}
+                      className="rgb-input"
+                      placeholder="B"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -786,15 +1370,28 @@ function App() {
                 </div>
               </div>
             </div>
-            {selectedObject && (
+            {hasSelection && (
               <div className="dropdown-section">
-                <div className="dropdown-section-title">Apply to: {selectedObject.type.toUpperCase()}</div>
+                <div className="dropdown-section-title">
+                  Apply to: {selectedObject ? selectedObject.type.toUpperCase() : `${selectedObjectIds.length} OBJECTS`}
+                </div>
                 <div className="dropdown-actions">
                   <button 
                     className="dropdown-action"
                     onClick={applyCurrentColorToSelection}
                   >
                     Apply Current Color
+                  </button>
+                  <button 
+                    className="dropdown-action"
+                    onClick={() => {
+                      // Random color generator
+                      const randomColor = `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`
+                      setCurrentColor(randomColor)
+                      changeSelectedObjectColor(randomColor)
+                    }}
+                  >
+                    Random Color
                   </button>
                 </div>
               </div>
@@ -805,15 +1402,63 @@ function App() {
         {/* Edit Menu */}
         <div className="toolbar-item">
           <button 
-            className={`toolbar-button ${selectedObject ? 'active' : ''}`}
+            className={`toolbar-button ${hasSelection ? 'active' : ''}`}
             onClick={() => toggleDropdown('edit')}
           >
             Edit <span className="dropdown-arrow">▼</span>
           </button>
           <div className={`dropdown-menu ${activeDropdown === 'edit' ? 'show' : ''}`}>
             <div className="dropdown-section">
-              <div className="dropdown-section-title">Selection</div>
-              <div className={`selection-info ${selectedObject ? 'has-selection' : ''}`}>
+              <div className="dropdown-section-title">Selection Mode</div>
+              <div className="dropdown-actions">
+                <button 
+                  className={`dropdown-action ${!multiSelectMode ? 'active' : ''}`}
+                  onClick={() => {
+                    setMultiSelectMode(false)
+                    setSelectedObjectIds([])
+                    setActiveDropdown(null)
+                  }}
+                >
+                  Single Select
+                </button>
+                <button 
+                  className={`dropdown-action ${multiSelectMode ? 'active' : ''}`}
+                  onClick={() => {
+                    setMultiSelectMode(true)
+                    setSelectedObjectId(null)
+                    setActiveDropdown(null)
+                  }}
+                >
+                  Multi Select
+                </button>
+              </div>
+            </div>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Selection Tools</div>
+              <div className="dropdown-actions">
+                <button 
+                  className="dropdown-action"
+                  onClick={selectAllObjects}
+                >
+                  Select All
+                </button>
+                <button 
+                  className="dropdown-action"
+                  onClick={deselectAllObjects}
+                >
+                  Deselect All
+                </button>
+                <button 
+                  className="dropdown-action"
+                  onClick={invertSelection}
+                >
+                  Invert Selection
+                </button>
+              </div>
+            </div>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Current Selection</div>
+              <div className={`selection-info ${hasSelection ? 'has-selection' : ''}`}>
                 {selectedObject ? (
                   <>
                     <div className="selected-object-name">{selectedObject.type.toUpperCase()}</div>
@@ -822,30 +1467,150 @@ function App() {
                       Position: ({selectedObject.position.x.toFixed(1)}, {selectedObject.position.y.toFixed(1)}, {selectedObject.position.z.toFixed(1)})
                     </div>
                   </>
+                ) : selectedObjectIds.length > 0 ? (
+                  <>
+                    <div className="selected-object-name">MULTIPLE OBJECTS</div>
+                    <div className="selected-object-details">
+                      {selectedObjectIds.length} objects selected<br/>
+                      {selectedObjectIds.slice(0, 3).join(', ')}
+                      {selectedObjectIds.length > 3 ? '...' : ''}
+                    </div>
+                  </>
                 ) : (
-                  <div className="no-selection-text">Click an object in the 3D scene to select it</div>
+                  <div className="no-selection-text">
+                    {multiSelectMode ? 'Ctrl+Click objects to select multiple' : 'Click an object in the 3D scene to select it'}
+                  </div>
                 )}
               </div>
             </div>
-            {selectedObject && (
+            {hasSelection && (
               <div className="dropdown-section">
                 <div className="dropdown-section-title">Actions</div>
                 <div className="dropdown-actions">
                   <button 
                     className="dropdown-action"
-                    onClick={duplicateObject}
+                    onClick={duplicateSelectedObjects}
                   >
                     Duplicate
                   </button>
                   <button 
+                    className="dropdown-action"
+                    onClick={resetTransforms}
+                  >
+                    Reset Transform
+                  </button>
+                  <button 
                     className="dropdown-action danger"
-                    onClick={deleteSelectedObject}
+                    onClick={() => {
+                      const objectsToDelete = selectedObjectId ? [selectedObjectId] : selectedObjectIds
+                      
+                      // Detach gizmo first
+                      if (gizmoManagerRef.current) {
+                        gizmoManagerRef.current.attachToMesh(null)
+                      }
+                      
+                      setSceneObjects(prev => {
+                        const remainingObjects = prev.filter(obj => !objectsToDelete.includes(obj.id))
+                        // Dispose meshes
+                        prev.filter(obj => objectsToDelete.includes(obj.id)).forEach(obj => {
+                          if (obj.mesh) obj.mesh.dispose()
+                        })
+                        return remainingObjects
+                      })
+                      
+                      setSelectedObjectId(null)
+                      setSelectedObjectIds([])
+                      setActiveDropdown(null)
+                      console.log('🗑️ Deleted selected objects')
+                    }}
                   >
                     Delete
                   </button>
                 </div>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Tools Menu */}
+        <div className="toolbar-item">
+          <button 
+            className="toolbar-button"
+            onClick={() => toggleDropdown('tools')}
+          >
+            Tools <span className="dropdown-arrow">▼</span>
+          </button>
+          <div className={`dropdown-menu ${activeDropdown === 'tools' ? 'show' : ''}`}>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Snap Settings</div>
+              <div className="dropdown-controls">
+                <div className="control-row">
+                  <label className="control-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={snapToGrid}
+                      onChange={(e) => setSnapToGrid(e.target.checked)}
+                    />
+                    <span>Snap to Grid</span>
+                  </label>
+                </div>
+                <div className="control-row">
+                  <span className="control-label">Grid Size:</span>
+                  <input
+                    type="number"
+                    value={gridSize}
+                    onChange={(e) => setGridSize(parseFloat(e.target.value) || 1)}
+                    min="0.1"
+                    max="5"
+                    step="0.1"
+                    className="control-input"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Precision Tools</div>
+              <div className="dropdown-actions">
+                <button 
+                  className="dropdown-action"
+                  onClick={() => {
+                    // Focus on selected object
+                    if (selectedObject?.mesh) {
+                      cameraRef.current?.setTarget(selectedObject.mesh.position)
+                    } else if (selectedObjects.length > 0) {
+                      // Focus on center of multi-selection
+                      const center = selectedObjects.reduce((acc, obj) => {
+                        return acc.add(obj.position)
+                      }, new Vector3(0, 0, 0)).scale(1 / selectedObjects.length)
+                      cameraRef.current?.setTarget(center)
+                    }
+                    setActiveDropdown(null)
+                  }}
+                  disabled={!hasSelection}
+                >
+                  Focus Selected
+                </button>
+                <button 
+                  className="dropdown-action"
+                  onClick={() => {
+                    // Align selected objects to grid
+                    const objectsToAlign = selectedObjectId ? [selectedObjectId] : selectedObjectIds
+                    setSceneObjects(prev => prev.map(obj => {
+                      if (objectsToAlign.includes(obj.id) && obj.mesh) {
+                        const snappedPos = snapToGridPosition(obj.position)
+                        obj.mesh.position = snappedPos
+                        return { ...obj, position: snappedPos }
+                      }
+                      return obj
+                    }))
+                    setActiveDropdown(null)
+                  }}
+                  disabled={!hasSelection}
+                >
+                  Align to Grid
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -884,6 +1649,56 @@ function App() {
                   onClick={() => setShowGrid(!showGrid)}
                 >
                   {showGrid ? '✓' : ''} Grid
+                </button>
+                <button 
+                  className={`dropdown-action ${snapToGrid ? 'active' : ''}`}
+                  onClick={() => setSnapToGrid(!snapToGrid)}
+                >
+                  {snapToGrid ? '✓' : ''} Snap to Grid
+                </button>
+              </div>
+            </div>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Visibility</div>
+              <div className="dropdown-actions">
+                <button 
+                  className="dropdown-action"
+                  onClick={() => {
+                    // Show all objects
+                    setObjectVisibility({})
+                    sceneObjects.forEach(obj => {
+                      if (obj.mesh) {
+                        obj.mesh.isVisible = true
+                      }
+                    })
+                    setActiveDropdown(null)
+                  }}
+                >
+                  Show All
+                </button>
+                <button 
+                  className="dropdown-action"
+                  onClick={() => {
+                    // Hide unselected objects
+                    const visibleIds = selectedObjectId ? [selectedObjectId] : selectedObjectIds
+                    const newVisibility: {[key: string]: boolean} = {}
+                    
+                    sceneObjects.forEach(obj => {
+                      if (obj.type !== 'ground') {
+                        const shouldBeVisible = visibleIds.includes(obj.id)
+                        if (obj.mesh) {
+                          obj.mesh.isVisible = shouldBeVisible
+                        }
+                        newVisibility[obj.id] = shouldBeVisible
+                      }
+                    })
+                    
+                    setObjectVisibility(newVisibility)
+                    setActiveDropdown(null)
+                  }}
+                  disabled={!hasSelection}
+                >
+                  Isolate Selected
                 </button>
               </div>
             </div>
@@ -927,27 +1742,62 @@ function App() {
         <div className="ai-control-group">
           <label>Scene Objects ({sceneObjects.filter(obj => obj.type !== 'ground').length}):</label>
           <div style={{ marginBottom: '8px', fontSize: '11px', color: '#666', fontStyle: 'italic' }}>
-            💡 Click objects directly in the 3D scene to select them, or click here
+            💡 {multiSelectMode ? 'Multi-select mode: Ctrl+Click to select multiple' : 'Click objects to select them'}
           </div>
           <div className="scene-objects">
-            {sceneObjects.filter(obj => obj.type !== 'ground').map(obj => (
-              <div 
-                key={obj.id} 
-                className={`scene-object ${selectedObjectId === obj.id ? 'selected' : ''}`}
-                onClick={() => selectObjectById(obj.id)}
-                title={`Click to select this object (or click it directly in the 3D scene)`}
-              >
-                <span className="object-type">{obj.type}</span>
-                <span className="object-id">{obj.id}</span>
-                <div className="object-color" style={{ backgroundColor: obj.color }}></div>
-              </div>
-            ))}
+            {sceneObjects.filter(obj => obj.type !== 'ground').map(obj => {
+              const isSelected = selectedObjectId === obj.id || selectedObjectIds.includes(obj.id)
+              const isVisible = objectVisibility[obj.id] !== false
+              const isLocked = objectLocked[obj.id] || false
+              
+              return (
+                <div 
+                  key={obj.id} 
+                  className={`scene-object ${isSelected ? 'selected' : ''} ${isLocked ? 'locked' : ''} ${!isVisible ? 'hidden' : ''}`}
+                  onClick={() => selectObjectById(obj.id)}
+                  title={`${isLocked ? '[LOCKED] ' : ''}${!isVisible ? '[HIDDEN] ' : ''}Click to select this object`}
+                >
+                  <span className="object-type">{obj.type}</span>
+                  <span className="object-id">{obj.id}</span>
+                  <div className="object-controls">
+                    <button
+                      className={`object-control-btn ${isVisible ? 'visible' : 'hidden'}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleObjectVisibility(obj.id)
+                      }}
+                      title={isVisible ? 'Hide object' : 'Show object'}
+                    >
+                      {isVisible ? '👁️' : '🚫'}
+                    </button>
+                    <button
+                      className={`object-control-btn ${isLocked ? 'locked' : 'unlocked'}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleObjectLock(obj.id)
+                      }}
+                      title={isLocked ? 'Unlock object' : 'Lock object'}
+                    >
+                      {isLocked ? '🔒' : '🔓'}
+                    </button>
+                  </div>
+                  <div className="object-color" style={{ backgroundColor: obj.color }}></div>
+                </div>
+              )
+            })}
             {sceneObjects.filter(obj => obj.type !== 'ground').length === 0 && (
               <div className="no-objects">
                 No objects in scene<br/>
                 <small>Use the Create menu to add objects</small>
               </div>
             )}
+          </div>
+          <div className="object-stats">
+            <small>
+              Selected: {selectedObjectId ? 1 : selectedObjectIds.length} | 
+              Hidden: {Object.values(objectVisibility).filter(v => v === false).length} | 
+              Locked: {Object.values(objectLocked).filter(v => v === true).length}
+            </small>
           </div>
           <button 
             onClick={clearAllObjects}
@@ -956,6 +1806,52 @@ function App() {
           >
             Clear All Objects
           </button>
+        </div>
+
+        <div className="ai-control-group">
+          <label>Keyboard Shortcuts:</label>
+          <div className="keyboard-shortcuts">
+            <div className="shortcut-item">
+              <span className="shortcut-key">Ctrl+A</span>
+              <span className="shortcut-desc">Select All</span>
+            </div>
+            <div className="shortcut-item">
+              <span className="shortcut-key">Ctrl+I</span>
+              <span className="shortcut-desc">Invert Selection</span>
+            </div>
+            <div className="shortcut-item">
+              <span className="shortcut-key">Ctrl+D</span>
+              <span className="shortcut-desc">Duplicate</span>
+            </div>
+            <div className="shortcut-item">
+              <span className="shortcut-key">Ctrl+T</span>
+              <span className="shortcut-desc">Reset Transform</span>
+            </div>
+            <div className="shortcut-item">
+              <span className="shortcut-key">Ctrl+G</span>
+              <span className="shortcut-desc">Toggle Snap to Grid</span>
+            </div>
+            <div className="shortcut-item">
+              <span className="shortcut-key">M</span>
+              <span className="shortcut-desc">Move Mode</span>
+            </div>
+            <div className="shortcut-item">
+              <span className="shortcut-key">R</span>
+              <span className="shortcut-desc">Rotate Mode</span>
+            </div>
+            <div className="shortcut-item">
+              <span className="shortcut-key">S</span>
+              <span className="shortcut-desc">Scale Mode</span>
+            </div>
+            <div className="shortcut-item">
+              <span className="shortcut-key">Delete</span>
+              <span className="shortcut-desc">Delete Selected</span>
+            </div>
+            <div className="shortcut-item">
+              <span className="shortcut-key">Esc</span>
+              <span className="shortcut-desc">Deselect All</span>
+            </div>
+          </div>
         </div>
 
         <div className="ai-control-group">
