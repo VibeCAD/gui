@@ -242,19 +242,27 @@ export class SceneManager {
     }
   }
 
-  public updateMeshProperties(id: string, sceneObject: SceneObject): boolean {
+  public updateMeshProperties(id: string, sceneObject: Partial<SceneObject>): boolean {
     const mesh = this.meshMap.get(id)
     if (!mesh) return false
     
     try {
-      // Update transform
-      mesh.position = sceneObject.position.clone()
-      mesh.rotation = sceneObject.rotation.clone()
-      mesh.scaling = sceneObject.scale.clone()
+      // Update transform properties only if they've been provided
+      if (sceneObject.position && !mesh.position.equals(sceneObject.position)) {
+        mesh.position.copyFrom(sceneObject.position)
+      }
+      if (sceneObject.rotation && !mesh.rotation.equals(sceneObject.rotation)) {
+        mesh.rotation.copyFrom(sceneObject.rotation)
+      }
+      if (sceneObject.scale && !mesh.scaling.equals(sceneObject.scale)) {
+        mesh.scaling.copyFrom(sceneObject.scale)
+      }
       
-      // Update material color
-      if (mesh.material && mesh.material instanceof StandardMaterial) {
-        mesh.material.diffuseColor = Color3.FromHexString(sceneObject.color)
+      // Update material color if it has been provided and changed
+      if (sceneObject.color && mesh.material && mesh.material instanceof StandardMaterial) {
+        if (mesh.material.diffuseColor.toHexString() !== sceneObject.color) {
+          mesh.material.diffuseColor = Color3.FromHexString(sceneObject.color)
+        }
       }
       
       return true

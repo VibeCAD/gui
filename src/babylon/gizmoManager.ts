@@ -4,7 +4,8 @@ import {
   Scene, 
   Mesh, 
   Vector3, 
-  Matrix
+  Matrix,
+  Quaternion
 } from 'babylonjs'
 import { useSceneStore } from '../state/sceneStore'
 import type { TransformMode, MultiSelectInitialState } from '../types/types'
@@ -12,7 +13,7 @@ import type { TransformMode, MultiSelectInitialState } from '../types/types'
 export class GizmoController {
   private gizmoManager: GizmoManager | null = null
   private scene: Scene | null = null
-  private gizmoObservers: any[] = []
+  private gizmoObservers: { observable: any, observer: any }[] = []
   private currentTargetMesh: Mesh | null = null
   private onDragEndCallback?: (position: Vector3, rotation: Vector3, scale: Vector3) => void
 
@@ -76,10 +77,8 @@ export class GizmoController {
           break
       }
       
-      // Set up observers for the active gizmo, but not for 'select' mode
-      if (transformMode !== 'select') {
-        this.setupGizmoObservers()
-      }
+      // Set up observers for the active gizmo, including bounding-box gizmo when in "select" mode
+      this.setupGizmoObservers()
     } else {
       this.gizmoManager.attachToMesh(null)
       this.currentTargetMesh = null
@@ -91,45 +90,77 @@ export class GizmoController {
 
     const onDragEnd = this.onDragEndCallback
     const { positionGizmo, rotationGizmo, scaleGizmo } = this.gizmoManager.gizmos
+    const boundingBoxGizmo = (this.gizmoManager as any).boundingBoxGizmo
 
     // Position gizmo observer
     if (positionGizmo) {
-      const observer = positionGizmo.onDragEndObservable.add(() => {
+      const observable = positionGizmo.onDragEndObservable
+      const observer = observable.add(() => {
         const attachedMesh = this.gizmoManager?.attachedMesh
         if (attachedMesh) {
           onDragEnd(attachedMesh.position, attachedMesh.rotation, attachedMesh.scaling)
         }
       })
-      this.gizmoObservers.push({ gizmo: positionGizmo, observer })
+      this.gizmoObservers.push({ observable, observer })
     }
 
     // Rotation gizmo observer
     if (rotationGizmo) {
-      const observer = rotationGizmo.onDragEndObservable.add(() => {
+      const observable = rotationGizmo.onDragEndObservable
+      const observer = observable.add(() => {
         const attachedMesh = this.gizmoManager?.attachedMesh
         if (attachedMesh) {
           onDragEnd(attachedMesh.position, attachedMesh.rotation, attachedMesh.scaling)
         }
       })
-      this.gizmoObservers.push({ gizmo: rotationGizmo, observer })
+      this.gizmoObservers.push({ observable, observer })
     }
 
     // Scale gizmo observer
     if (scaleGizmo) {
-      const observer = scaleGizmo.onDragEndObservable.add(() => {
+      const observable = scaleGizmo.onDragEndObservable
+      const observer = observable.add(() => {
         const attachedMesh = this.gizmoManager?.attachedMesh
         if (attachedMesh) {
           onDragEnd(attachedMesh.position, attachedMesh.rotation, attachedMesh.scaling)
         }
       })
-      this.gizmoObservers.push({ gizmo: scaleGizmo, observer })
+      this.gizmoObservers.push({ observable, observer })
+    }
+
+    // Bounding box gizmo has multiple interactions that can end a drag
+    if (boundingBoxGizmo) {
+      const handleBoundingBoxDragEnd = () => {
+        const attachedMesh = this.gizmoManager?.attachedMesh
+        if (attachedMesh) {
+          // BoundingBoxGizmo manipulates the matrix directly. To get the final
+          // transform, we must decompose the world matrix.
+          const newScale = new Vector3()
+          const newRotation = new Quaternion()
+          const newPosition = new Vector3()
+          
+          attachedMesh.computeWorldMatrix(true)
+          if (attachedMesh.getWorldMatrix().decompose(newScale, newRotation, newPosition)) {
+            onDragEnd(newPosition, newRotation.toEulerAngles(), newScale)
+          }
+        }
+      }
+
+      const dragObs = boundingBoxGizmo.onDragEndObservable.add(handleBoundingBoxDragEnd)
+      this.gizmoObservers.push({ observable: boundingBoxGizmo.onDragEndObservable, observer: dragObs })
+
+      const rotObs = boundingBoxGizmo.onRotationSphereDragEndObservable.add(handleBoundingBoxDragEnd)
+      this.gizmoObservers.push({ observable: boundingBoxGizmo.onRotationSphereDragEndObservable, observer: rotObs })
+      
+      const scaleObs = boundingBoxGizmo.onScaleBoxDragEndObservable.add(handleBoundingBoxDragEnd)
+      this.gizmoObservers.push({ observable: boundingBoxGizmo.onScaleBoxDragEndObservable, observer: scaleObs })
     }
   }
 
   private cleanupGizmoObservers(): void {
-    this.gizmoObservers.forEach(({ gizmo, observer }) => {
+    this.gizmoObservers.forEach(({ observable, observer }) => {
       try {
-        gizmo.onDragEndObservable.remove(observer)
+        observable.remove(observer)
       } catch (error) {
         console.warn('Error removing gizmo observer:', error)
       }

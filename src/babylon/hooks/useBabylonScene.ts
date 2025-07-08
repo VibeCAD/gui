@@ -5,6 +5,15 @@ import { useSceneStore } from '../../state/sceneStore'
 import { useGizmoManager } from '../gizmoManager'
 import type { SceneObject } from '../../types/types'
 
+// Custom hook to get the previous value of a prop or state
+function usePrevious<T>(value: T): T | undefined {
+  const ref = useRef<T>()
+  useEffect(() => {
+    ref.current = value
+  })
+  return ref.current
+}
+
 export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | null>) => {
   const sceneManagerRef = useRef<SceneManager | null>(null)
   const sceneObjectsRef = useRef<SceneObject[]>([])
@@ -41,10 +50,13 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     clearSelection
   } = store
 
-  // Keep sceneObjectsRef synchronized with sceneObjects state
+  // Keep sceneObjectsRef synchronized with sceneObjects state for callbacks
   useEffect(() => {
     sceneObjectsRef.current = sceneObjects
   }, [sceneObjects])
+
+  // Get the previous state of sceneObjects for diffing
+  const prevSceneObjects = usePrevious(sceneObjects)
 
   // Watch for canvas ref changes and update canvasAvailable state
   useEffect(() => {
@@ -248,41 +260,54 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
 
   // Pointer events are now handled by the SceneManager's built-in system
 
-  // Synchronize scene objects with store state
+  // Synchronize scene objects with store state by diffing
   useEffect(() => {
     if (!sceneManagerRef.current || !sceneInitialized) return
 
     const sceneManager = sceneManagerRef.current
-    const currentMeshIds = new Set<string>()
-    
-    console.log('🔄 Synchronizing scene objects:', sceneObjects.map(obj => obj.id))
-    
-    // Track existing meshes
-    sceneObjects.forEach(obj => {
-      const mesh = sceneManager.getMeshById(obj.id)
-      if (mesh) {
-        currentMeshIds.add(obj.id)
-        console.log(`✅ Updating existing mesh: ${obj.id}`)
-        // Update existing mesh properties
-        sceneManager.updateMeshProperties(obj.id, obj)
-      } else {
-        console.log(`➕ Adding new mesh: ${obj.id} (${obj.type})`)
-        // Add new mesh
-        const success = sceneManager.addMesh(obj)
-        if (success) {
-          currentMeshIds.add(obj.id)
-          console.log(`✅ Successfully added mesh: ${obj.id}`)
-        } else {
-          console.error(`❌ Failed to add mesh: ${obj.id}`)
+    const currentObjectsMap = new Map(sceneObjects.map(obj => [obj.id, obj]))
+    const prevObjectsMap = new Map(prevSceneObjects?.map(obj => [obj.id, obj]) || [])
+
+    // Find added and updated objects
+    currentObjectsMap.forEach((currentObj, id) => {
+      const prevObj = prevObjectsMap.get(id)
+      
+      if (!prevObj) {
+        // New object added
+        console.log(`➕ Adding new mesh: ${id} (${currentObj.type})`)
+        sceneManager.addMesh(currentObj)
+      } else if (currentObj !== prevObj) {
+        // Existing object updated, calculate a diff
+        console.log(`🔄 Updating existing mesh: ${id}`)
+        const diff: Partial<SceneObject> = {}
+        
+        if (currentObj.position !== prevObj.position && !currentObj.position.equals(prevObj.position)) {
+          diff.position = currentObj.position
+        }
+        if (currentObj.rotation !== prevObj.rotation && !currentObj.rotation.equals(prevObj.rotation)) {
+          diff.rotation = currentObj.rotation
+        }
+        if (currentObj.scale !== prevObj.scale && !currentObj.scale.equals(prevObj.scale)) {
+          diff.scale = currentObj.scale
+        }
+        if (currentObj.color !== prevObj.color) {
+          diff.color = currentObj.color
+        }
+        
+        if (Object.keys(diff).length > 0) {
+          sceneManager.updateMeshProperties(id, diff)
         }
       }
     })
 
-    // Remove meshes that are no longer in the state
-    // Note: We need to track which meshes exist in the scene manager
-    // For now, we'll rely on the scene manager to handle this internally
-    
-  }, [sceneObjects, sceneInitialized])
+    // Find removed objects
+    prevObjectsMap.forEach((_, id) => {
+      if (!currentObjectsMap.has(id)) {
+        console.log(`➖ Removing mesh: ${id}`)
+        sceneManager.removeMeshById(id)
+      }
+    })
+  }, [sceneObjects, sceneInitialized, prevSceneObjects])
 
   // Handle wireframe mode changes
   useEffect(() => {
