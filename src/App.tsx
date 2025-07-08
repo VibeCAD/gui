@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Engine, Scene, ArcRotateCamera, Vector3, HemisphericLight, MeshBuilder, StandardMaterial, Color3, Mesh, PickingInfo, GizmoManager, PointerEventTypes } from 'babylonjs'
+import { Engine, Scene, ArcRotateCamera, Vector3, HemisphericLight, MeshBuilder, StandardMaterial, Color3, Mesh, PickingInfo, GizmoManager, PointerEventTypes, Matrix } from 'babylonjs'
 import OpenAI from 'openai'
 import './App.css'
 
@@ -56,9 +56,20 @@ function App() {
   const [objectLocked, setObjectLocked] = useState<{[key: string]: boolean}>({})
   const [multiSelectPivot, setMultiSelectPivot] = useState<Mesh | null>(null)
   const [gridMesh, setGridMesh] = useState<Mesh | null>(null)
+  const [multiSelectInitialStates, setMultiSelectInitialStates] = useState<{
+    [objectId: string]: {
+      position: Vector3,
+      rotation: Vector3,
+      scale: Vector3,
+      relativePosition: Vector3
+    }
+  }>({})
   
   // Dropdown state management
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
+  
+  // Sidebar collapse state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   // Initialize OpenAI client
   const openai = apiKey ? new OpenAI({ apiKey, dangerouslyAllowBrowser: true }) : null
@@ -187,6 +198,15 @@ function App() {
     const selectedMesh = selectedObject?.mesh
     const isMultiSelect = selectedObjectIds.length > 0
     
+    console.log('Gizmo useEffect triggered:', {
+      hasGizmoManager: !!gizmoManager,
+      selectedObjectId,
+      selectedObjectIds,
+      isMultiSelect,
+      hasMultiSelectPivot: !!multiSelectPivot,
+      transformMode
+    })
+    
     if (!gizmoManager) return
 
     // Observers need to be cleaned up
@@ -205,13 +225,18 @@ function App() {
     let targetMesh: Mesh | null = null
     if (isMultiSelect && multiSelectPivot) {
       targetMesh = multiSelectPivot
+      console.log('Attaching gizmo to multi-select pivot')
     } else if (selectedMesh) {
       targetMesh = selectedMesh
+      console.log('Attaching gizmo to single selected mesh:', selectedObject?.id)
+    } else {
+      console.log('No target mesh for gizmo attachment')
     }
 
     if (targetMesh) {
       // A mesh is selected, so attach gizmos and add observers
       gizmoManager.attachToMesh(targetMesh)
+      console.log('Gizmo attached to mesh, enabling mode:', transformMode)
 
       // Enable the correct gizmo based on transform mode
       switch (transformMode) {
@@ -298,7 +323,7 @@ function App() {
         scaleGizmo.onDragEndObservable.remove(scaleObserver)
       }
     }
-  }, [selectedObject, selectedObjectIds, transformMode, multiSelectPivot])
+  }, [selectedObject, selectedObjectIds, transformMode, multiSelectPivot, multiSelectInitialStates])
 
   // Create/update visual grid when snap settings change
   useEffect(() => {
@@ -750,56 +775,117 @@ function App() {
 
   // Create multi-select pivot point
   const createMultiSelectPivot = () => {
+    console.log('Creating multi-select pivot, selectedObjectIds:', selectedObjectIds)
+    
     if (!sceneRef.current || selectedObjectIds.length === 0) {
+      console.log('Removing multi-select pivot: no scene or no selected objects')
       // Remove existing pivot
       if (multiSelectPivot) {
         multiSelectPivot.dispose()
         setMultiSelectPivot(null)
       }
+      setMultiSelectInitialStates({})
       return
     }
 
     const scene = sceneRef.current
     const selectedObjs = sceneObjects.filter(obj => selectedObjectIds.includes(obj.id))
     
-    if (selectedObjs.length === 0) return
+    if (selectedObjs.length === 0) {
+      console.warn('No matching scene objects found for selected IDs')
+      return
+    }
+
+    console.log(`Creating pivot for ${selectedObjs.length} objects:`, selectedObjs.map(obj => obj.id))
 
     // Calculate center point of selected objects
     const center = selectedObjs.reduce((acc, obj) => {
       return acc.add(obj.position)
     }, new Vector3(0, 0, 0)).scale(1 / selectedObjs.length)
 
+    console.log('Calculated pivot center:', center.toString())
+
     // Remove existing pivot
     if (multiSelectPivot) {
+      console.log('Disposing existing pivot')
       multiSelectPivot.dispose()
     }
 
     // Create invisible pivot mesh
     const pivot = MeshBuilder.CreateSphere('multi-select-pivot', { diameter: 0.1 }, scene)
     pivot.position = center
+    pivot.rotation = new Vector3(0, 0, 0)
+    pivot.scaling = new Vector3(1, 1, 1)
     pivot.isVisible = false
     pivot.isPickable = false
     
+    // Store initial states of all selected objects
+    const initialStates: typeof multiSelectInitialStates = {}
+    selectedObjs.forEach(obj => {
+      const relativePos = obj.position.subtract(center)
+      initialStates[obj.id] = {
+        position: obj.position.clone(),
+        rotation: obj.rotation.clone(),
+        scale: obj.scale.clone(),
+        relativePosition: relativePos
+      }
+      console.log(`Object ${obj.id} relative position:`, relativePos.toString())
+    })
+    
     setMultiSelectPivot(pivot)
+    setMultiSelectInitialStates(initialStates)
+    console.log('Multi-select pivot created successfully')
   }
 
   // Apply transform to multiple objects
   const applyTransformToMultipleObjects = (pivotPosition: Vector3, pivotRotation: Vector3, pivotScale: Vector3) => {
-    if (!multiSelectPivot) return
+    if (!multiSelectPivot || Object.keys(multiSelectInitialStates).length === 0) {
+      console.warn('Multi-select pivot or initial states not available')
+      return
+    }
 
-    const originalPivotPos = multiSelectPivot.position.clone()
-    const deltaPosition = pivotPosition.subtract(originalPivotPos)
-    
+    if (selectedObjectIds.length === 0) {
+      console.warn('No objects selected for multi-transform')
+      return
+    }
+
+    console.log('Applying multi-object transform:', { 
+      pivotPosition: pivotPosition.toString(), 
+      pivotRotation: pivotRotation.toString(), 
+      pivotScale: pivotScale.toString(),
+      selectedCount: selectedObjectIds.length
+    })
+
     setSceneObjects(prev => prev.map(obj => {
-      if (selectedObjectIds.includes(obj.id) && obj.mesh) {
-        // Apply position delta
-        const newPosition = obj.mesh.position.add(deltaPosition)
-        obj.mesh.position = snapToGridPosition(newPosition)
+      if (selectedObjectIds.includes(obj.id) && obj.mesh && multiSelectInitialStates[obj.id]) {
+        const initialState = multiSelectInitialStates[obj.id]
         
-        // For rotation and scale, we'd need more complex math
-        // For now, just apply the same rotation/scale to all objects
-        obj.mesh.rotation = pivotRotation
-        obj.mesh.scaling = pivotScale
+        // Start with the initial relative position from the pivot center
+        let newPosition = initialState.relativePosition.clone()
+        
+        // Apply scale to the relative position
+        newPosition = newPosition.multiply(pivotScale)
+        
+        // Apply rotation to the relative position around the pivot
+        if (pivotRotation.length() > 0) {
+          // Create rotation matrix from Euler angles
+          const rotationMatrix = new Matrix()
+          Matrix.RotationYawPitchRollToRef(pivotRotation.y, pivotRotation.x, pivotRotation.z, rotationMatrix)
+          
+          // Apply rotation to relative position
+          newPosition = Vector3.TransformCoordinates(newPosition, rotationMatrix)
+        }
+        
+        // Add the pivot's current position to get world position
+        newPosition = newPosition.add(pivotPosition)
+        
+        // Apply snap to grid if enabled
+        newPosition = snapToGridPosition(newPosition)
+        
+        // Apply transforms to the mesh
+        obj.mesh.position = newPosition
+        obj.mesh.rotation = initialState.rotation.add(pivotRotation)
+        obj.mesh.scaling = initialState.scale.multiply(pivotScale)
         
         return {
           ...obj,
@@ -1710,161 +1796,177 @@ function App() {
 
   // AI Sidebar Component
   const renderAISidebar = () => (
-    <div className="ai-sidebar">
-      <div className="ai-sidebar-content">
+    <div className={`ai-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+      <div className="ai-sidebar-header">
         <h3>AI Assistant</h3>
-        
-        {!sceneInitialized && (
-          <div className="loading-indicator">
-            <p>Initializing 3D scene...</p>
-          </div>
-        )}
-        
-        <div className="ai-control-group">
-          <label htmlFor="ai-prompt">Natural Language Commands:</label>
-          <textarea
-            id="ai-prompt"
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            placeholder="Try: 'move the cube to the right', 'make the cube blue', 'create a red sphere above the cube'"
-            className="ai-text-input"
-            disabled={isLoading || !sceneInitialized}
-          />
-          <button 
-            onClick={handleSubmitPrompt}
-            disabled={isLoading || !textInput.trim() || !sceneInitialized}
-            className="ai-submit-button"
-          >
-            {isLoading ? 'Processing...' : 'Execute AI Command'}
-          </button>
-        </div>
-
-        <div className="ai-control-group">
-          <label>Scene Objects ({sceneObjects.filter(obj => obj.type !== 'ground').length}):</label>
-          <div style={{ marginBottom: '8px', fontSize: '11px', color: '#666', fontStyle: 'italic' }}>
-            💡 {multiSelectMode ? 'Multi-select mode: Ctrl+Click to select multiple' : 'Click objects to select them'}
-          </div>
-          <div className="scene-objects">
-            {sceneObjects.filter(obj => obj.type !== 'ground').map(obj => {
-              const isSelected = selectedObjectId === obj.id || selectedObjectIds.includes(obj.id)
-              const isVisible = objectVisibility[obj.id] !== false
-              const isLocked = objectLocked[obj.id] || false
-              
-              return (
-                <div 
-                  key={obj.id} 
-                  className={`scene-object ${isSelected ? 'selected' : ''} ${isLocked ? 'locked' : ''} ${!isVisible ? 'hidden' : ''}`}
-                  onClick={() => selectObjectById(obj.id)}
-                  title={`${isLocked ? '[LOCKED] ' : ''}${!isVisible ? '[HIDDEN] ' : ''}Click to select this object`}
-                >
-                  <span className="object-type">{obj.type}</span>
-                  <span className="object-id">{obj.id}</span>
-                  <div className="object-controls">
-                    <button
-                      className={`object-control-btn ${isVisible ? 'visible' : 'hidden'}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        toggleObjectVisibility(obj.id)
-                      }}
-                      title={isVisible ? 'Hide object' : 'Show object'}
-                    >
-                      {isVisible ? '👁️' : '🚫'}
-                    </button>
-                    <button
-                      className={`object-control-btn ${isLocked ? 'locked' : 'unlocked'}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        toggleObjectLock(obj.id)
-                      }}
-                      title={isLocked ? 'Unlock object' : 'Lock object'}
-                    >
-                      {isLocked ? '🔒' : '🔓'}
-                    </button>
-                  </div>
-                  <div className="object-color" style={{ backgroundColor: obj.color }}></div>
-                </div>
-              )
-            })}
-            {sceneObjects.filter(obj => obj.type !== 'ground').length === 0 && (
-              <div className="no-objects">
-                No objects in scene<br/>
-                <small>Use the Create menu to add objects</small>
-              </div>
-            )}
-          </div>
-          <div className="object-stats">
-            <small>
-              Selected: {selectedObjectId ? 1 : selectedObjectIds.length} | 
-              Hidden: {Object.values(objectVisibility).filter(v => v === false).length} | 
-              Locked: {Object.values(objectLocked).filter(v => v === true).length}
-            </small>
-          </div>
-          <button 
-            onClick={clearAllObjects}
-            className="clear-all-button"
-            disabled={sceneObjects.filter(obj => obj.type !== 'ground').length === 0}
-          >
-            Clear All Objects
-          </button>
-        </div>
-
-        <div className="ai-control-group">
-          <label>Keyboard Shortcuts:</label>
-          <div className="keyboard-shortcuts">
-            <div className="shortcut-item">
-              <span className="shortcut-key">Ctrl+A</span>
-              <span className="shortcut-desc">Select All</span>
-            </div>
-            <div className="shortcut-item">
-              <span className="shortcut-key">Ctrl+I</span>
-              <span className="shortcut-desc">Invert Selection</span>
-            </div>
-            <div className="shortcut-item">
-              <span className="shortcut-key">Ctrl+D</span>
-              <span className="shortcut-desc">Duplicate</span>
-            </div>
-            <div className="shortcut-item">
-              <span className="shortcut-key">Ctrl+T</span>
-              <span className="shortcut-desc">Reset Transform</span>
-            </div>
-            <div className="shortcut-item">
-              <span className="shortcut-key">Ctrl+G</span>
-              <span className="shortcut-desc">Toggle Snap to Grid</span>
-            </div>
-            <div className="shortcut-item">
-              <span className="shortcut-key">M</span>
-              <span className="shortcut-desc">Move Mode</span>
-            </div>
-            <div className="shortcut-item">
-              <span className="shortcut-key">R</span>
-              <span className="shortcut-desc">Rotate Mode</span>
-            </div>
-            <div className="shortcut-item">
-              <span className="shortcut-key">S</span>
-              <span className="shortcut-desc">Scale Mode</span>
-            </div>
-            <div className="shortcut-item">
-              <span className="shortcut-key">Delete</span>
-              <span className="shortcut-desc">Delete Selected</span>
-            </div>
-            <div className="shortcut-item">
-              <span className="shortcut-key">Esc</span>
-              <span className="shortcut-desc">Deselect All</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="ai-control-group">
-          <label>AI Response Log:</label>
-          <div className="ai-response-log">
-            {responseLog.slice(-8).map((log, index) => (
-              <div key={index} className={`ai-log-entry ${log.startsWith('User:') ? 'user' : log.startsWith('AI:') ? 'ai' : 'error'}`}>
-                {log}
-              </div>
-            ))}
-          </div>
-        </div>
+        <button 
+          className="sidebar-toggle"
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {sidebarCollapsed ? '◀' : '▶'}
+        </button>
       </div>
+      
+      {!sidebarCollapsed && (
+        <div className="ai-sidebar-content">
+          {!sceneInitialized && (
+            <div className="loading-indicator">
+              <p>Initializing 3D scene...</p>
+            </div>
+          )}
+          
+          <div className="ai-control-group">
+            <label htmlFor="ai-prompt">Natural Language Commands:</label>
+            <textarea
+              id="ai-prompt"
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              placeholder="Try: 'move the cube to the right', 'make the cube blue', 'create a red sphere above the cube'"
+              className="ai-text-input"
+              disabled={isLoading || !sceneInitialized}
+            />
+            <button 
+              onClick={handleSubmitPrompt}
+              disabled={isLoading || !textInput.trim() || !sceneInitialized}
+              className="ai-submit-button"
+            >
+              {isLoading ? 'Processing...' : 'Execute AI Command'}
+            </button>
+          </div>
+
+          <div className="ai-control-group">
+            <label>Scene Objects ({sceneObjects.filter(obj => obj.type !== 'ground').length}):</label>
+            <div className="selection-mode-hint">
+              💡 {multiSelectMode ? 'Multi-select mode: Ctrl+Click to select multiple' : 'Click objects to select them'}
+            </div>
+            <div className="scene-objects">
+              {sceneObjects.filter(obj => obj.type !== 'ground').map(obj => {
+                const isSelected = selectedObjectId === obj.id || selectedObjectIds.includes(obj.id)
+                const isVisible = objectVisibility[obj.id] !== false
+                const isLocked = objectLocked[obj.id] || false
+                
+                return (
+                  <div 
+                    key={obj.id} 
+                    className={`scene-object ${isSelected ? 'selected' : ''} ${isLocked ? 'locked' : ''} ${!isVisible ? 'hidden' : ''}`}
+                    onClick={() => selectObjectById(obj.id)}
+                    title={`${isLocked ? '[LOCKED] ' : ''}${!isVisible ? '[HIDDEN] ' : ''}Click to select this object`}
+                  >
+                    <span className="object-type">{obj.type}</span>
+                    <span className="object-id">{obj.id}</span>
+                    <div className="object-controls">
+                      <button
+                        className={`object-control-btn ${isVisible ? 'visible' : 'hidden'}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleObjectVisibility(obj.id)
+                        }}
+                        title={isVisible ? 'Hide object' : 'Show object'}
+                      >
+                        {isVisible ? '👁️' : '🚫'}
+                      </button>
+                      <button
+                        className={`object-control-btn ${isLocked ? 'locked' : 'unlocked'}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleObjectLock(obj.id)
+                        }}
+                        title={isLocked ? 'Unlock object' : 'Lock object'}
+                      >
+                        {isLocked ? '🔒' : '🔓'}
+                      </button>
+                    </div>
+                    <div className="object-color" style={{ backgroundColor: obj.color }}></div>
+                  </div>
+                )
+              })}
+              {sceneObjects.filter(obj => obj.type !== 'ground').length === 0 && (
+                <div className="no-objects">
+                  No objects in scene<br/>
+                  <small>Use the Create menu to add objects</small>
+                </div>
+              )}
+            </div>
+            <div className="object-stats">
+              <small>
+                Selected: {selectedObjectId ? 1 : selectedObjectIds.length} | 
+                Hidden: {Object.values(objectVisibility).filter(v => v === false).length} | 
+                Locked: {Object.values(objectLocked).filter(v => v === true).length}
+              </small>
+            </div>
+            <button 
+              onClick={clearAllObjects}
+              className="clear-all-button"
+              disabled={sceneObjects.filter(obj => obj.type !== 'ground').length === 0}
+            >
+              Clear All Objects
+            </button>
+          </div>
+
+          <div className="ai-control-group">
+            <label>Keyboard Shortcuts:</label>
+            <div className="keyboard-shortcuts">
+              <div className="shortcut-item">
+                <span className="shortcut-key">Ctrl+A</span>
+                <span className="shortcut-desc">Select All</span>
+              </div>
+              <div className="shortcut-item">
+                <span className="shortcut-key">Ctrl+I</span>
+                <span className="shortcut-desc">Invert Selection</span>
+              </div>
+              <div className="shortcut-item">
+                <span className="shortcut-key">Ctrl+D</span>
+                <span className="shortcut-desc">Duplicate</span>
+              </div>
+              <div className="shortcut-item">
+                <span className="shortcut-key">Ctrl+T</span>
+                <span className="shortcut-desc">Reset Transform</span>
+              </div>
+              <div className="shortcut-item">
+                <span className="shortcut-key">Ctrl+G</span>
+                <span className="shortcut-desc">Toggle Snap to Grid</span>
+              </div>
+              <div className="shortcut-item">
+                <span className="shortcut-key">M</span>
+                <span className="shortcut-desc">Move Mode</span>
+              </div>
+              <div className="shortcut-item">
+                <span className="shortcut-key">R</span>
+                <span className="shortcut-desc">Rotate Mode</span>
+              </div>
+              <div className="shortcut-item">
+                <span className="shortcut-key">S</span>
+                <span className="shortcut-desc">Scale Mode</span>
+              </div>
+              <div className="shortcut-item">
+                <span className="shortcut-key">Delete</span>
+                <span className="shortcut-desc">Delete Selected</span>
+              </div>
+              <div className="shortcut-item">
+                <span className="shortcut-key">Esc</span>
+                <span className="shortcut-desc">Deselect All</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="ai-control-group">
+            <label>AI Response Log:</label>
+            <div className="ai-response-log">
+              {responseLog.slice(-8).map((log, index) => (
+                <div key={index} className={`ai-log-entry ${log.startsWith('User:') ? 'user' : log.startsWith('AI:') ? 'ai' : 'error'}`}>
+                  {log}
+                </div>
+              ))}
+              {responseLog.length === 0 && (
+                <div className="ai-log-entry ai-log-empty">
+                  No AI responses yet. Try entering a command above.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 
@@ -2137,7 +2239,9 @@ Object IDs currently in scene: ${sceneObjects.map(obj => obj.id).join(', ')}`
     <div className="app-container">
       {renderTopToolbar()}
       <div className="main-content">
-        <canvas ref={canvasRef} className="babylon-canvas" />
+        <div className="canvas-container">
+          <canvas ref={canvasRef} className="babylon-canvas" />
+        </div>
         {renderAISidebar()}
       </div>
     </div>
