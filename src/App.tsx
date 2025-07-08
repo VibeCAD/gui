@@ -505,6 +505,31 @@ function App() {
                 {/* NURBS option removed */}
               </div>
             </div>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Housing</div>
+              <div className="dropdown-grid">
+                <button className="dropdown-button" onClick={() => createPrimitive('house-basic')}>
+                  <span className="dropdown-icon">🏠</span>
+                  Basic House
+                </button>
+                <button className="dropdown-button" onClick={() => createPrimitive('house-room')}>
+                  <span className="dropdown-icon">🏠</span>
+                  Room
+                </button>
+                <button className="dropdown-button" onClick={() => createPrimitive('house-hallway')}>
+                  <span className="dropdown-icon">🚪</span>
+                  Hallway
+                </button>
+                <button className="dropdown-button" onClick={() => createPrimitive('house-roof-flat')}>
+                  <span className="dropdown-icon">🏢</span>
+                  Flat Roof
+                </button>
+                <button className="dropdown-button" onClick={() => createPrimitive('house-roof-pitched')}>
+                  <span className="dropdown-icon">🏠</span>
+                  Pitched Roof
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 

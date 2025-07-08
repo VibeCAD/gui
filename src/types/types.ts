@@ -1,7 +1,7 @@
 import { Vector3, Mesh } from 'babylonjs'
 
 export type TransformMode = 'select' | 'move' | 'rotate' | 'scale'
-export type PrimitiveType = 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 'nurbs'
+export type PrimitiveType = 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 'nurbs' | 'house-basic' | 'house-room' | 'house-hallway' | 'house-roof-flat' | 'house-roof-pitched'
 
 // Scene Object (preserving info after scene change)
 export interface SceneObject {

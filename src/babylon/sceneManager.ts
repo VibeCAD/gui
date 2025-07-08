@@ -13,6 +13,7 @@ import {
   PickingInfo
 } from 'babylonjs'
 import type { SceneObject, PrimitiveType, TransformMode } from '../types/types'
+import { createHousingMesh } from './housingFactory'
 
 export class SceneManager {
   private engine: Engine | null = null
@@ -157,55 +158,68 @@ export class SceneManager {
     try {
       let mesh: Mesh
       
-      switch (sceneObject.type) {
-        case 'cube':
-          mesh = MeshBuilder.CreateBox(sceneObject.id, { size: 2 }, this.scene)
-          break
-        case 'sphere':
-          mesh = MeshBuilder.CreateSphere(sceneObject.id, { diameter: 2 }, this.scene)
-          break
-        case 'cylinder':
-          mesh = MeshBuilder.CreateCylinder(sceneObject.id, { diameter: 2, height: 2 }, this.scene)
-          break
-        case 'plane':
-          mesh = MeshBuilder.CreatePlane(sceneObject.id, { size: 2 }, this.scene)
-          break
-        case 'torus':
-          mesh = MeshBuilder.CreateTorus(sceneObject.id, { diameter: 2, thickness: 0.5 }, this.scene)
-          break
-        case 'cone':
-          mesh = MeshBuilder.CreateCylinder(sceneObject.id, { diameterTop: 0, diameterBottom: 2, height: 2 }, this.scene)
-          break
-        case 'ground':
-          // Ground already exists, just update properties and ensure it's stored with the correct ID
-          const existingGround = this.meshMap.get('ground')
-          if (existingGround) {
-            // Update the ground mesh's name to match the scene object ID
-            existingGround.name = sceneObject.id
-            // If the ID is different, also store it with the new key
-            if (sceneObject.id !== 'ground') {
-              this.meshMap.set(sceneObject.id, existingGround)
+      // Check if it's a housing type
+      if (sceneObject.type.startsWith('house-')) {
+        mesh = createHousingMesh(sceneObject.type, this.scene, {
+          name: sceneObject.id,
+          position: sceneObject.position,
+          scale: sceneObject.scale,
+          rotation: sceneObject.rotation,
+          color: sceneObject.color
+        })
+      } else {
+        switch (sceneObject.type) {
+          case 'cube':
+            mesh = MeshBuilder.CreateBox(sceneObject.id, { size: 2 }, this.scene)
+            break
+          case 'sphere':
+            mesh = MeshBuilder.CreateSphere(sceneObject.id, { diameter: 2 }, this.scene)
+            break
+          case 'cylinder':
+            mesh = MeshBuilder.CreateCylinder(sceneObject.id, { diameter: 2, height: 2 }, this.scene)
+            break
+          case 'plane':
+            mesh = MeshBuilder.CreatePlane(sceneObject.id, { size: 2 }, this.scene)
+            break
+          case 'torus':
+            mesh = MeshBuilder.CreateTorus(sceneObject.id, { diameter: 2, thickness: 0.5 }, this.scene)
+            break
+          case 'cone':
+            mesh = MeshBuilder.CreateCylinder(sceneObject.id, { diameterTop: 0, diameterBottom: 2, height: 2 }, this.scene)
+            break
+          case 'ground':
+            // Ground already exists, just update properties and ensure it's stored with the correct ID
+            const existingGround = this.meshMap.get('ground')
+            if (existingGround) {
+              // Update the ground mesh's name to match the scene object ID
+              existingGround.name = sceneObject.id
+              // If the ID is different, also store it with the new key
+              if (sceneObject.id !== 'ground') {
+                this.meshMap.set(sceneObject.id, existingGround)
+              }
+              this.updateMeshProperties(sceneObject.id, sceneObject)
             }
-            this.updateMeshProperties(sceneObject.id, sceneObject)
-          }
-          return true
-        default:
-          console.warn(`Unknown primitive type: ${sceneObject.type}`)
-          return false
+            return true
+          default:
+            console.warn(`Unknown primitive type: ${sceneObject.type}`)
+            return false
+        }
       }
       
-      // Set initial properties
-      mesh.position = sceneObject.position.clone()
-      mesh.rotation = sceneObject.rotation.clone()
-      mesh.scaling = sceneObject.scale.clone()
+      // Set initial properties (only for non-housing types, as housing meshes set their own properties)
+      if (!sceneObject.type.startsWith('house-')) {
+        mesh.position = sceneObject.position.clone()
+        mesh.rotation = sceneObject.rotation.clone()
+        mesh.scaling = sceneObject.scale.clone()
+        
+        // Create material
+        const material = new StandardMaterial(`${sceneObject.id}-material`, this.scene)
+        material.diffuseColor = Color3.FromHexString(sceneObject.color)
+        mesh.material = material
+      }
       
       // Ensure the mesh ID is set to our object ID for reliable picking
       mesh.id = sceneObject.id
-      
-      // Create material
-      const material = new StandardMaterial(`${sceneObject.id}-material`, this.scene)
-      material.diffuseColor = Color3.FromHexString(sceneObject.color)
-      mesh.material = material
       
       mesh.isPickable = true
       mesh.checkCollisions = false

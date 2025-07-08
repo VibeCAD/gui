@@ -66,7 +66,7 @@ export const AISidebar: React.FC<AISidebarProps> = ({
               position: new Vector3(command.x || 0, command.y || 1, command.z || 0),
               scale: new Vector3(1, 1, 1),
               rotation: new Vector3(0, 0, 0),
-              color: command.color || '#3498db',
+              color: command.color || (command.type.startsWith('house-') ? '#8B4513' : '#3498db'), // Brown for housing objects
               isNurbs: false
             };
             addObject(newObj);

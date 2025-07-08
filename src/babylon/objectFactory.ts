@@ -1,5 +1,6 @@
 import { Scene, MeshBuilder, StandardMaterial, Color3, Mesh, Vector3 } from 'babylonjs';
 import type { PrimitiveType } from '../types/types';
+import { createHousingMesh } from './housingFactory';
 
 export interface MeshCreationOptions {
   position?: Vector3;
@@ -84,6 +85,11 @@ export const createPrimitiveMesh = (
   scene: Scene, 
   options: MeshCreationOptions = {}
 ): Mesh => {
+  // Check if it's a housing type
+  if (type.startsWith('house-')) {
+    return createHousingMesh(type, scene, options);
+  }
+  
   switch (type) {
     case 'cube':
       return createCube(scene, options);
