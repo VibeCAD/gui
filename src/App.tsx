@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, Scene, Engine, ArcRotateCamera, GizmoManager, PickingInfo, Matrix, HemisphericLight, PointerEventTypes } from 'babylonjs';
-import OpenAI from 'openai'
 import './App.css'
 
 // Import material presets constant (value)
@@ -106,8 +105,7 @@ function App() {
   const setSelectedControlPointMesh = (_?: any) => {}
   const setSelectedControlPointIndex = (_?: any) => {}
 
-  // Initialize OpenAI client
-  const openai = apiKey ? new OpenAI({ apiKey, dangerouslyAllowBrowser: true }) : null
+  // OpenAI client initialization is now handled by the AI service
 
   // now use getters from the store
   // something is wrong here....
@@ -995,136 +993,7 @@ function App() {
 
 
 
-  const describeScene = (): string => {
-    const description = sceneObjects.map(obj => {
-      if (obj.type === 'ground') return null
-      return `${obj.type} "${obj.id}" at position (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)}) with color ${obj.color}`
-    }).filter(Boolean).join(', ')
-    
-    return `Current scene contains: ${description || 'just a ground plane'}`
-  }
-
-  const executeSceneCommand = (command: any) => {
-    if (!sceneInitialized) return
-    
-    try {
-      switch (command.action) {
-        case 'move':
-          if (command.objectId) {
-            updateObject(command.objectId, { position: new Vector3(command.x, command.y, command.z) })
-          }
-          break
-
-        case 'color':
-          if (command.objectId) {
-            updateObject(command.objectId, { color: command.color })
-          }
-          break
-
-        case 'scale':
-          if (command.objectId) {
-            updateObject(command.objectId, { scale: new Vector3(command.x, command.y, command.z) })
-          }
-          break
-
-        case 'create':
-          const newId = `${command.type}-${Date.now()}`
-          const newObj: SceneObject = {
-            id: newId,
-            type: command.type,
-            position: new Vector3(command.x || 0, command.y || 1, command.z || 0),
-            scale: new Vector3(1, 1, 1),
-            rotation: new Vector3(0, 0, 0),
-            color: command.color || '#3498db',
-            isNurbs: false
-          }
-
-          addObject(newObj)
-          break
-
-        case 'delete':
-          console.log('Deleting object with ID:', command.objectId)
-          removeObject(command.objectId)
-          break
-      }
-    } catch (error) {
-      console.error('Error executing scene command:', error)
-    }
-  }
-
-  const handleSubmitPrompt = async () => {
-    if (!openai || !textInput.trim()) return
-
-    setIsLoading(true)
-    try {
-      const sceneDescription = describeScene()
-      const systemPrompt = `You are a 3D scene manipulation assistant. You can modify a Babylon.js scene based on natural language commands.
-
-Current scene: ${sceneDescription}
-
-Available actions:
-1. move: Move an object to x,y,z coordinates
-2. color: Change object color (use hex colors)
-3. scale: Scale an object by x,y,z factors
-4. create: Create new objects (cube, sphere, cylinder)
-5. delete: Remove an object
-
-Respond ONLY with valid JSON containing an array of commands. Example:
-[{"action": "move", "objectId": "cube-1", "x": 2, "y": 1, "z": 0}]
-[{"action": "color", "objectId": "cube-1", "color": "#00ff00"}]
-[{"action": "create", "type": "sphere", "x": 3, "y": 2, "z": 1, "color": "#ff0000", "size": 1.5}]
-
-Object IDs currently in scene: ${sceneObjects.map(obj => obj.id).join(', ')}`
-
-      const response = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: textInput }
-        ],
-        temperature: 0.1,
-        max_tokens: 500
-      })
-
-      const aiResponse = response.choices[0]?.message?.content
-      if (aiResponse) {
-        addToResponseLog(`User: ${textInput}`)
-        addToResponseLog(`AI: ${aiResponse}`)
-        
-        try {
-          // Clean the AI response by removing markdown code blocks
-          let cleanedResponse = aiResponse.trim()
-          
-          // Remove markdown code blocks
-          cleanedResponse = cleanedResponse.replace(/```json\s*/g, '')
-          cleanedResponse = cleanedResponse.replace(/```\s*/g, '')
-          cleanedResponse = cleanedResponse.trim()
-          
-          console.log('Cleaned AI response:', cleanedResponse)
-          
-          const commands = JSON.parse(cleanedResponse)
-          if (Array.isArray(commands)) {
-            console.log('Executing commands:', commands)
-            commands.forEach(command => executeSceneCommand(command))
-          } else {
-            console.log('Executing single command:', commands)
-            executeSceneCommand(commands)
-          }
-        } catch (parseError) {
-          console.error('Error parsing AI response:', parseError)
-          console.error('Original response:', aiResponse)
-          const errorMessage = parseError instanceof Error ? parseError.message : 'Unknown parsing error'
-          addToResponseLog(`Error: Could not parse AI response - ${errorMessage}`)
-        }
-      }
-    } catch (error) {
-      console.error('Error calling OpenAI API:', error)
-      addToResponseLog(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    } finally {
-      setIsLoading(false)
-      setTextInput('')
-    }
-  }
+  // AI logic is now handled by the AI service in the AISidebar component
 
   const handleContinue = () => {
     if (apiKey.trim()) {
@@ -1210,8 +1079,7 @@ Object IDs currently in scene: ${sceneObjects.map(obj => obj.id).join(', ')}`
           />
         </div>
         <AISidebar 
-          onSubmitPrompt={handleSubmitPrompt}
-          openai={openai}
+          apiKey={apiKey}
           sceneInitialized={sceneInitialized}
         />
       </div>

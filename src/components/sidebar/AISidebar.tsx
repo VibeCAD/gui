@@ -1,20 +1,18 @@
 import React from 'react';
-import OpenAI from 'openai';
 import { Vector3 } from 'babylonjs';
 import { useSceneStore } from '../../state/sceneStore';
+import { createAIService, type SceneCommand } from '../../ai/ai.service';
 import type { SceneObject } from '../../types/types';
 import { SceneGraph } from './SceneGraph';
 import { PropertiesPanel } from './PropertiesPanel';
 
 interface AISidebarProps {
-  onSubmitPrompt: () => Promise<void>;
-  openai: OpenAI | null;
+  apiKey: string;
   sceneInitialized: boolean;
 }
 
 export const AISidebar: React.FC<AISidebarProps> = ({ 
-  onSubmitPrompt, 
-  openai, 
+  apiKey, 
   sceneInitialized 
 }) => {
   const {
@@ -22,10 +20,113 @@ export const AISidebar: React.FC<AISidebarProps> = ({
     isLoading,
     textInput,
     responseLog,
-    multiSelectMode,
+    sceneObjects,
     setSidebarCollapsed,
     setTextInput,
+    setIsLoading,
+    addToResponseLog,
+    updateObject,
+    addObject,
+    removeObject,
   } = useSceneStore();
+
+  const executeSceneCommand = (command: SceneCommand) => {
+    if (!sceneInitialized) return;
+    
+    try {
+      switch (command.action) {
+        case 'move':
+          if (command.objectId) {
+            updateObject(command.objectId, { 
+              position: new Vector3(command.x || 0, command.y || 0, command.z || 0) 
+            });
+          }
+          break;
+
+        case 'color':
+          if (command.objectId) {
+            updateObject(command.objectId, { color: command.color || '#3498db' });
+          }
+          break;
+
+        case 'scale':
+          if (command.objectId) {
+            updateObject(command.objectId, { 
+              scale: new Vector3(command.x || 1, command.y || 1, command.z || 1) 
+            });
+          }
+          break;
+
+        case 'create':
+          if (command.type) {
+            const newId = `${command.type}-${Date.now()}`;
+            const newObj: SceneObject = {
+              id: newId,
+              type: command.type,
+              position: new Vector3(command.x || 0, command.y || 1, command.z || 0),
+              scale: new Vector3(1, 1, 1),
+              rotation: new Vector3(0, 0, 0),
+              color: command.color || '#3498db',
+              isNurbs: false
+            };
+            addObject(newObj);
+          }
+          break;
+
+        case 'delete':
+          if (command.objectId) {
+            console.log('Deleting object with ID:', command.objectId);
+            removeObject(command.objectId);
+          }
+          break;
+      }
+    } catch (error) {
+      console.error('Error executing scene command:', error);
+    }
+  };
+
+  const handleSubmitPrompt = async () => {
+    if (!apiKey || !textInput.trim()) return;
+
+    setIsLoading(true);
+    
+    try {
+      const aiService = createAIService(apiKey);
+      const result = await aiService.getSceneCommands(textInput, sceneObjects);
+      
+      if (result.success && result.commands) {
+        // Log the user prompt and AI response
+        if (result.userPrompt) {
+          addToResponseLog(`User: ${result.userPrompt}`);
+        }
+        if (result.aiResponse) {
+          addToResponseLog(`AI: ${result.aiResponse}`);
+        }
+        
+        // Execute all commands
+        console.log('Executing commands:', result.commands);
+        result.commands.forEach(command => executeSceneCommand(command));
+      } else {
+        // Log error
+        const errorMessage = result.error || 'Unknown error occurred';
+        console.error('AI service error:', errorMessage);
+        addToResponseLog(`Error: ${errorMessage}`);
+        
+        if (result.userPrompt) {
+          addToResponseLog(`User: ${result.userPrompt}`);
+        }
+        if (result.aiResponse) {
+          addToResponseLog(`AI: ${result.aiResponse}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error in AI service:', error);
+      addToResponseLog(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsLoading(false);
+      setTextInput('');
+    }
+  };
 
   return (
     <div className={`ai-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
@@ -60,7 +161,7 @@ export const AISidebar: React.FC<AISidebarProps> = ({
               disabled={isLoading || !sceneInitialized}
             />
             <button 
-              onClick={onSubmitPrompt}
+              onClick={handleSubmitPrompt}
               disabled={isLoading || !textInput.trim() || !sceneInitialized}
               className="ai-submit-button"
             >
