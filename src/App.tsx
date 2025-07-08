@@ -35,6 +35,8 @@ function App() {
   const gizmoManagerRef = useRef<GizmoManager | null>(null)
   const pointerDownPosition = useRef<{ x: number, y: number } | null>(null);
   const sceneObjectsRef = useRef<SceneObject[]>([]);
+  const wsRef = useRef<WebSocket | null>(null)
+  const wsReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [textInput, setTextInput] = useState('')
   const [sceneObjects, setSceneObjects] = useState<SceneObject[]>([])
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
@@ -70,6 +72,10 @@ function App() {
   
   // Sidebar collapse state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  
+  // WebSocket connection state
+  const [wsConnected, setWsConnected] = useState(false)
+  const [wsConnectionAttempts, setWsConnectionAttempts] = useState(0)
 
   // Initialize OpenAI client
   const openai = apiKey ? new OpenAI({ apiKey, dangerouslyAllowBrowser: true }) : null
@@ -82,6 +88,142 @@ function App() {
   useEffect(() => {
     sceneObjectsRef.current = sceneObjects
   }, [sceneObjects])
+
+  // WebSocket connection management
+  const connectWebSocket = () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      return // Already connected
+    }
+
+    const wsUrl = import.meta.env.VITE_MCP_WS_URL || 'ws://localhost:8080'
+    
+    try {
+      wsRef.current = new WebSocket(wsUrl)
+      
+      wsRef.current.onopen = () => {
+        console.log('WebSocket connected to MCP server')
+        setWsConnected(true)
+        setWsConnectionAttempts(0)
+        setResponseLog(prev => [...prev, 'System: Connected to MCP server'])
+      }
+      
+      wsRef.current.onclose = () => {
+        console.log('WebSocket disconnected from MCP server')
+        setWsConnected(false)
+        wsRef.current = null
+        
+        // Attempt to reconnect after 3 seconds
+        if (wsConnectionAttempts < 5) {
+          wsReconnectTimeoutRef.current = setTimeout(() => {
+            setWsConnectionAttempts(prev => prev + 1)
+            connectWebSocket()
+          }, 3000)
+        }
+      }
+      
+      wsRef.current.onerror = (error) => {
+        console.error('WebSocket error:', error)
+        setResponseLog(prev => [...prev, `System: WebSocket error - check if MCP server is running`])
+      }
+      
+      wsRef.current.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data)
+          handleWebSocketMessage(message)
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to create WebSocket:', error)
+      setWsConnected(false)
+    }
+  }
+
+  // Handle incoming WebSocket messages from MCP server
+  const handleWebSocketMessage = (message: any) => {
+    console.log('Received WebSocket message:', message)
+    
+    if (message.type === 'command') {
+      // The MCP server is sending us a command to execute
+      const { command, params, id } = message
+      
+      try {
+        // Map MCP commands to our existing executeSceneCommand format
+        let sceneCommand: any = null
+        
+        if (command.startsWith('create ')) {
+          const parts = command.split(' ')
+          if (parts.length >= 3) {
+            sceneCommand = {
+              action: 'create',
+              type: parts[1],
+              // Use the MCP name as the ID for now
+              objectId: parts[2],
+              x: params?.position?.x || 0,
+              y: params?.position?.y || 1,
+              z: params?.position?.z || 0,
+              size: params?.size || 2,
+              color: params?.color ? rgbToHex(params.color) : '#3498db'
+            }
+          }
+        } else if (command.startsWith('delete ')) {
+          const name = command.substring(7)
+          // Find the object by its type and number
+          const obj = sceneObjectsRef.current.find(o => o.id.includes(name))
+          if (obj) {
+            sceneCommand = {
+              action: 'delete',
+              objectId: obj.id
+            }
+          }
+        } else if (command.startsWith('select ')) {
+          const name = command.substring(7)
+          const obj = sceneObjectsRef.current.find(o => o.id.includes(name))
+          if (obj) {
+            setSelectedObjectId(obj.id)
+          }
+        }
+        
+        if (sceneCommand) {
+          executeSceneCommand(sceneCommand)
+        }
+        
+        // Send response back to MCP server
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            type: 'response',
+            id: id,
+            success: true,
+            message: 'Command executed successfully'
+          }))
+        }
+        
+        setResponseLog(prev => [...prev, `MCP: ${command}`])
+      } catch (error) {
+        console.error('Error executing MCP command:', error)
+        
+        // Send error response back to MCP server
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            type: 'response',
+            id: id,
+            success: false,
+            message: error instanceof Error ? error.message : 'Unknown error'
+          }))
+        }
+      }
+    }
+  }
+
+  // Helper function to convert RGB (0-1) to hex
+  const rgbToHex = (color: { r: number, g: number, b: number }): string => {
+    const toHex = (value: number) => {
+      const hex = Math.round(value * 255).toString(16)
+      return hex.length === 1 ? '0' + hex : hex
+    }
+    return `#${toHex(color.r)}${toHex(color.g)}${toHex(color.b)}`
+  }
 
   // Add keyboard shortcuts
   useEffect(() => {
@@ -1817,21 +1959,29 @@ function App() {
           )}
           
           <div className="ai-control-group">
+            <div className="connection-status">
+              <span className={`status-indicator ${wsConnected ? 'connected' : 'disconnected'}`}></span>
+              <span>MCP Server: {wsConnected ? 'Connected' : 'Disconnected'}</span>
+              {!wsConnected && wsConnectionAttempts > 0 && (
+                <span className="reconnect-info"> (Reconnecting... {wsConnectionAttempts}/5)</span>
+              )}
+            </div>
+            
             <label htmlFor="ai-prompt">Natural Language Commands:</label>
             <textarea
               id="ai-prompt"
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
-              placeholder="Try: 'move the cube to the right', 'make the cube blue', 'create a red sphere above the cube'"
+              placeholder={wsConnected ? "Try: 'create a red cube', 'delete the sphere', 'create a blue cylinder'" : "MCP server not connected"}
               className="ai-text-input"
-              disabled={isLoading || !sceneInitialized}
+              disabled={isLoading || !sceneInitialized || !wsConnected}
             />
             <button 
               onClick={handleSubmitPrompt}
-              disabled={isLoading || !textInput.trim() || !sceneInitialized}
+              disabled={isLoading || !textInput.trim() || !sceneInitialized || !wsConnected}
               className="ai-submit-button"
             >
-              {isLoading ? 'Processing...' : 'Execute AI Command'}
+              {isLoading ? 'Processing...' : wsConnected ? 'Execute AI Command' : 'MCP Server Offline'}
             </button>
           </div>
 
@@ -2081,28 +2231,46 @@ function App() {
   }
 
   const handleSubmitPrompt = async () => {
-    if (!openai || !textInput.trim()) return
+    if (!openai || !textInput.trim() || !wsConnected) {
+      if (!wsConnected) {
+        setResponseLog(prev => [...prev, 'Error: MCP server not connected'])
+      }
+      return
+    }
 
     setIsLoading(true)
     try {
       const sceneDescription = describeScene()
-      const systemPrompt = `You are a 3D scene manipulation assistant. You can modify a Babylon.js scene based on natural language commands.
+      const systemPrompt = `You are a 3D scene manipulation assistant. You call MCP tools to modify a Babylon.js scene based on natural language commands.
 
 Current scene: ${sceneDescription}
 
-Available actions:
-1. move: Move an object to x,y,z coordinates
-2. color: Change object color (use hex colors)
-3. scale: Scale an object by x,y,z factors
-4. create: Create new objects (cube, sphere, cylinder)
-5. delete: Remove an object
+Available MCP tools:
+1. create_object: Create a new 3D object (shapes: box, sphere, cylinder, cone, torus)
+2. delete_object: Delete an object by name
+3. select_object: Select an object by name
+4. list_objects: List all objects in the scene
 
-Respond ONLY with valid JSON containing an array of commands. Example:
-[{"action": "move", "objectId": "cube-1", "x": 2, "y": 1, "z": 0}]
-[{"action": "color", "objectId": "cube-1", "color": "#00ff00"}]
-[{"action": "create", "type": "sphere", "x": 3, "y": 2, "z": 1, "color": "#ff0000", "size": 1.5}]
+For each command, respond with an array of tool calls in this format:
+[
+  {
+    "tool": "create_object",
+    "params": {
+      "shape": "box",
+      "name": "cube1",
+      "position": {"x": 0, "y": 1, "z": 0},
+      "size": 2,
+      "color": {"r": 1, "g": 0, "b": 0}
+    }
+  }
+]
 
-Object IDs currently in scene: ${sceneObjects.map(obj => obj.id).join(', ')}`
+Important:
+- Use simple names like "cube1", "sphere1", etc.
+- Color values are RGB in 0-1 range
+- Respond ONLY with the JSON array, no other text
+
+Current objects: ${sceneObjects.filter(obj => obj.type !== 'ground').map(obj => `${obj.type} (${obj.id})`).join(', ')}`
 
       const response = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
@@ -2116,7 +2284,7 @@ Object IDs currently in scene: ${sceneObjects.map(obj => obj.id).join(', ')}`
 
       const aiResponse = response.choices[0]?.message?.content
       if (aiResponse) {
-        setResponseLog(prev => [...prev, `User: ${textInput}`, `AI: ${aiResponse}`])
+        setResponseLog(prev => [...prev, `User: ${textInput}`])
         
         try {
           // Clean the AI response by removing markdown code blocks
@@ -2129,14 +2297,32 @@ Object IDs currently in scene: ${sceneObjects.map(obj => obj.id).join(', ')}`
           
           console.log('Cleaned AI response:', cleanedResponse)
           
-          const commands = JSON.parse(cleanedResponse)
-          if (Array.isArray(commands)) {
-            console.log('Executing commands:', commands)
-            commands.forEach(command => executeSceneCommand(command))
-          } else {
-            console.log('Executing single command:', commands)
-            executeSceneCommand(commands)
+          const toolCalls = JSON.parse(cleanedResponse)
+          const calls = Array.isArray(toolCalls) ? toolCalls : [toolCalls]
+          
+          // Execute each tool call via HTTP API
+          for (const call of calls) {
+            if (!call.tool || !call.params) continue
+            
+            try {
+              const httpUrl = import.meta.env.VITE_MCP_HTTP_URL || 'http://localhost:8081'
+              const response = await fetch(`${httpUrl}/tools/${call.tool}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ params: call.params })
+              })
+              
+              const result = await response.json()
+              if (!result.success) {
+                setResponseLog(prev => [...prev, `Error: ${result.message}`])
+              }
+            } catch (error) {
+              console.error('Error calling MCP HTTP API:', error)
+              setResponseLog(prev => [...prev, `Error: Failed to call MCP server`])
+            }
           }
+          
+          setResponseLog(prev => [...prev, `AI: Executed ${calls.length} command(s)`])
         } catch (parseError) {
           console.error('Error parsing AI response:', parseError)
           console.error('Original response:', aiResponse)
@@ -2193,6 +2379,23 @@ Object IDs currently in scene: ${sceneObjects.map(obj => obj.id).join(', ')}`
       return () => clearTimeout(timer)
     }
   }, [showApiKeyInput, sceneInitialized])
+
+  // Connect to WebSocket when scene is initialized
+  useEffect(() => {
+    if (sceneInitialized) {
+      connectWebSocket()
+    }
+    
+    return () => {
+      // Cleanup WebSocket on unmount
+      if (wsReconnectTimeoutRef.current) {
+        clearTimeout(wsReconnectTimeoutRef.current)
+      }
+      if (wsRef.current) {
+        wsRef.current.close()
+      }
+    }
+  }, [sceneInitialized])
 
   useEffect(() => {
     return () => {

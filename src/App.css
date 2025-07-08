@@ -1058,3 +1058,39 @@ body {
     transform: translateX(-50%) translateY(0);
   }
 }
+
+/* Connection Status Indicator */
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.status-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  transition: all 0.3s ease;
+}
+
+.status-indicator.connected {
+  background-color: #4caf50;
+  box-shadow: 0 0 8px rgba(76, 175, 80, 0.5);
+}
+
+.status-indicator.disconnected {
+  background-color: #f44336;
+  box-shadow: 0 0 8px rgba(244, 67, 54, 0.5);
+}
+
+.reconnect-info {
+  color: #666;
+  font-size: 12px;
+  font-style: italic;
+}
