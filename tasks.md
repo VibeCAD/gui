@@ -23,11 +23,13 @@
 ## Phase 3: Cloud Functions & Backend Logic
 - [x] Install Firebase CLI: `npm install -g firebase-tools`
 - [x] Initialize Cloud Functions: `firebase init functions`
-- [x] Create `generateModel` callable function
-- [ ] Store Gemini API key in Secret Manager
-- [ ] Implement Gemini API call logic
-- [ ] Handle .glb file processing
+- [x] Create `processScene` callable function (using OpenAI for now)
+- [x] Store OpenAI API key in Secret Manager
+- [x] Implement OpenAI API call logic
+- [ ] Handle .glb file processing (future: Gemini integration)
 - [x] Add error handling and retry logic
+- [x] Deploy Cloud Functions successfully
+- [x] Update frontend to use Cloud Functions instead of direct OpenAI calls
 - [ ] Set up local emulator for testing
 
 ## Phase 4: Firestore Integration
@@ -35,13 +37,16 @@
 - [x] Create `users` collection structure
 - [x] Create `generations` collection structure
 - [x] Implement Firestore security rules
-- [ ] Add real-time listeners in React
-- [ ] Replace local state with Firestore documents
-- [ ] Implement generation status tracking
-- [ ] Add generation history feature
+- [x] Add real-time listeners in React
+- [x] Replace local state with Firestore documents
+- [x] Implement generation status tracking
+- [x] Add generation history feature
+- [x] Create `savedScenes` collection for save/load functionality
+- [x] Add security rules for savedScenes
+- [x] Deploy Firestore indexes
 
 ## Phase 5: Cloud Storage Setup
-- [ ] Configure Storage security rules
+- [x] Configure Storage security rules
 - [ ] Implement .glb file upload from Cloud Function
 - [ ] Generate public URLs for models
 - [ ] Add thumbnail generation (optional)
@@ -51,19 +56,21 @@
 - [ ] Clean up old/unused files policy
 
 ## Phase 6: UI Updates & Real-time Features
-- [ ] Remove OpenAI direct integration from frontend
-- [ ] Update AI sidebar to call Cloud Function
-- [ ] Add loading states for generation
-- [ ] Implement real-time status updates
-- [ ] Add generation history sidebar
-- [ ] Create user profile page
-- [ ] Add error notifications
+- [x] Remove OpenAI direct integration from frontend
+- [x] Update AI sidebar to call Cloud Function
+- [x] Add loading states for generation
+- [x] Implement real-time status updates
+- [x] Add generation history sidebar
+- [x] Create user profile page
+- [x] Add error notifications (basic implementation)
 - [ ] Implement model gallery view
+- [x] Add save/load scene functionality
+- [x] Create load scene dialog
 
 ## Phase 7: Deployment & Production Setup
-- [ ] Deploy Firestore security rules
-- [ ] Deploy Storage security rules
-- [ ] Deploy Cloud Functions
+- [x] Deploy Firestore security rules
+- [x] Deploy Storage security rules  
+- [x] Deploy Cloud Functions
 - [ ] Set up Firebase Hosting
 - [ ] Configure custom domain (optional)
 - [ ] Set up monitoring and alerts

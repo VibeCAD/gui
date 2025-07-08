@@ -729,3 +729,287 @@ body {
     transform: translateX(-50%) translateY(0);
   }
 }
+
+
+/* Generation History Sidebar */
+.history-sidebar {
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: 400px;
+  height: 100vh;
+  background: white;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
+  z-index: 1500;
+  display: flex;
+  flex-direction: column;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.history-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.history-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #666;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.history-close:hover {
+  background: #f0f0f0;
+}
+
+.history-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.history-empty {
+  text-align: center;
+  color: #666;
+  margin-top: 40px;
+}
+
+.history-empty p {
+  margin: 10px 0;
+}
+
+.history-hint {
+  font-size: 14px;
+  color: #999;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-item {
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.history-item:hover {
+  background: #e9ecef;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.history-item.completed:hover {
+  border-color: #4ecdc4;
+}
+
+.history-item.failed {
+  background: #fee;
+  border-color: #fcc;
+}
+
+.history-prompt {
+  font-weight: 500;
+  color: #2c3e50;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.history-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #666;
+}
+
+.history-status {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.history-status.completed {
+  background: #d4edda;
+  color: #155724;
+}
+
+.history-status.pending,
+.history-status.processing {
+  background: #cce5ff;
+  color: #004085;
+}
+
+.history-status.failed {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.history-time {
+  color: #999;
+}
+
+.history-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #d33;
+  padding: 8px;
+  background: #fee;
+  border-radius: 4px;
+}
+
+
+/* Load Scene Dialog */
+.load-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.load-dialog {
+  background: white;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.load-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.load-dialog-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.load-dialog-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #666;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.load-dialog-close:hover {
+  background: #f0f0f0;
+}
+
+.load-dialog-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.load-dialog-empty {
+  text-align: center;
+  color: #666;
+  margin-top: 40px;
+}
+
+.load-dialog-empty p {
+  margin: 10px 0;
+}
+
+.load-dialog-hint {
+  font-size: 14px;
+  color: #999;
+}
+
+.saved-scenes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.saved-scene-item {
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 2px solid transparent;
+}
+
+.saved-scene-item:hover {
+  background: #e9ecef;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border-color: #4ecdc4;
+}
+
+.scene-name {
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.scene-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #666;
+}
+
+.scene-objects {
+  color: #555;
+}
+
+.scene-date {
+  color: #999;
+}

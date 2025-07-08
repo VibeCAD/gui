@@ -7,12 +7,14 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "emulators": "firebase emulators:start",
+    "emulators:exec": "firebase emulators:exec",
+    "dev:emulators": "firebase emulators:exec --ui 'npm run dev'"
   },
   "dependencies": {
     "babylonjs": "^8.15.1",
     "firebase": "^11.10.0",
-    "openai": "^5.8.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Engine, Scene, ArcRotateCamera, Vector3, HemisphericLight, MeshBuilder, StandardMaterial, Color3, Mesh, PickingInfo, GizmoManager, PointerEventTypes } from 'babylonjs'
-import OpenAI from 'openai'
 import './App.css'
 import { Login } from './components/Login'
 import { Profile } from './components/Profile'
-import { auth, db } from './lib/firebase'
+import { auth, db, functions } from './lib/firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
+import { doc, getDoc, getDocs, collection, addDoc, onSnapshot, serverTimestamp, query, where, orderBy, limit } from 'firebase/firestore'
+import { httpsCallable } from 'firebase/functions'
 import type { User } from 'firebase/auth'
 
 interface SceneObject {
@@ -55,12 +55,20 @@ function App() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [showProfile, setShowProfile] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [generationHistory, setGenerationHistory] = useState<any[]>([])
+  const [showLoadDialog, setShowLoadDialog] = useState(false)
+  const [savedScenes, setSavedScenes] = useState<any[]>([])
+  
+  // Generation tracking state
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [currentGenerationId, setCurrentGenerationId] = useState<string | null>(null)
+  const [generationStatus, setGenerationStatus] = useState<'idle' | 'pending' | 'processing' | 'completed' | 'failed'>('idle')
+  const [generationError, setGenerationError] = useState<string | null>(null)
   
   // Dropdown state management
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
 
-  // Initialize OpenAI client
-  const openai = apiKey ? new OpenAI({ apiKey, dangerouslyAllowBrowser: true }) : null
 
   const selectedObject = sceneObjects.find(obj => obj.id === selectedObjectId)
 
@@ -99,11 +107,57 @@ function App() {
         } catch (error) {
           console.error('Error loading user data:', error)
         }
+        
+        // Load generation history
+        // Temporary: Remove orderBy until index is built
+        const historyQuery = query(
+          collection(db, 'generations'),
+          where('userId', '==', user.uid),
+          limit(20)
+        )
+        
+        const unsubscribeHistory = onSnapshot(historyQuery, (snapshot) => {
+          const history = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate()
+          }))
+          setGenerationHistory(history)
+        })
+        
+        return () => unsubscribeHistory()
       }
     })
 
     return unsubscribe
   }, [])
+
+  // Load saved scenes when dialog opens
+  useEffect(() => {
+    if (showLoadDialog && user) {
+      const loadSavedScenes = async () => {
+        try {
+          // Temporary: Remove orderBy until index is built
+          const scenesQuery = query(
+            collection(db, 'savedScenes'),
+            where('userId', '==', user.uid),
+            limit(20)
+          )
+          
+          const snapshot = await getDocs(scenesQuery)
+          const scenes = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }))
+          setSavedScenes(scenes)
+        } catch (error) {
+          console.error('Error loading saved scenes:', error)
+        }
+      }
+      
+      loadSavedScenes()
+    }
+  }, [showLoadDialog, user])
 
   // Listen for API key updates
   useEffect(() => {
@@ -679,6 +733,40 @@ function App() {
       <div className="toolbar-menu">
         <div className="toolbar-brand">VibeCad Pro</div>
         
+        {/* File Menu */}
+        <div className="toolbar-item">
+          <button 
+            className="toolbar-button"
+            onClick={() => toggleDropdown('file')}
+          >
+            File <span className="dropdown-arrow">▼</span>
+          </button>
+          <div className={`dropdown-menu ${activeDropdown === 'file' ? 'show' : ''}`}>
+            <div className="dropdown-section">
+              <div className="dropdown-actions">
+                <button 
+                  className="dropdown-action"
+                  onClick={handleSaveScene}
+                >
+                  Save Scene
+                </button>
+                <button 
+                  className="dropdown-action"
+                  onClick={() => setShowLoadDialog(true)}
+                >
+                  Load Scene
+                </button>
+                <button 
+                  className="dropdown-action"
+                  onClick={handleNewScene}
+                >
+                  New Scene
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        
         {/* Transform Tools */}
         <div className="toolbar-item">
           <button 
@@ -953,6 +1041,15 @@ function App() {
                   Profile Settings
                 </button>
                 <button 
+                  className="dropdown-action"
+                  onClick={() => {
+                    setShowHistory(true)
+                    setActiveDropdown(null)
+                  }}
+                >
+                  Generation History
+                </button>
+                <button 
                   className="dropdown-action danger"
                   onClick={handleLogout}
                 >
@@ -993,9 +1090,30 @@ function App() {
             disabled={isLoading || !textInput.trim() || !sceneInitialized}
             className="ai-submit-button"
           >
-            {isLoading ? 'Processing...' : 'Execute AI Command'}
+            {generationStatus === 'pending' ? 'Submitting...' : 
+             generationStatus === 'processing' ? 'AI Processing...' : 
+             isLoading ? 'Processing...' : 'Execute AI Command'}
           </button>
         </div>
+
+        {/* Generation Status Indicator */}
+        {generationStatus !== 'idle' && (
+          <div className="generation-status" style={{
+            margin: '10px 0',
+            padding: '10px',
+            borderRadius: '5px',
+            fontSize: '12px',
+            backgroundColor: generationStatus === 'failed' ? '#fee' : '#f0f8ff',
+            border: `1px solid ${generationStatus === 'failed' ? '#fcc' : '#cde'}`
+          }}>
+            <strong>Status:</strong> {generationStatus}
+            {generationError && (
+              <div style={{ marginTop: '5px', color: '#d33' }}>
+                Error: {generationError}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="ai-control-group">
           <label>Scene Objects ({sceneObjects.filter(obj => obj.type !== 'ground').length}):</label>
@@ -1045,6 +1163,8 @@ function App() {
     </div>
   )
 
+  // Keep this function - it will be used for Gemini integration
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const describeScene = (): string => {
     const description = sceneObjects.map(obj => {
       if (obj.type === 'ground') return null
@@ -1156,78 +1276,208 @@ function App() {
   }
 
   const handleSubmitPrompt = async () => {
-    if (!openai || !textInput.trim()) return
+    if (!textInput.trim() || !user) return
 
     setIsLoading(true)
+    setGenerationStatus('pending')
+    setGenerationError(null)
+    
     try {
-      const sceneDescription = describeScene()
-      const systemPrompt = `You are a 3D scene manipulation assistant. You can modify a Babylon.js scene based on natural language commands.
+      // Prepare scene data
+      const simplifiedSceneData = sceneObjects.map(obj => ({
+        id: obj.id,
+        type: obj.type,
+        position: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
+        color: obj.color
+      }))
 
-Current scene: ${sceneDescription}
-
-Available actions:
-1. move: Move an object to x,y,z coordinates
-2. color: Change object color (use hex colors)
-3. scale: Scale an object by x,y,z factors
-4. create: Create new objects (cube, sphere, cylinder)
-5. delete: Remove an object
-
-Respond ONLY with valid JSON containing an array of commands. Example:
-[{"action": "move", "objectId": "cube-1", "x": 2, "y": 1, "z": 0}]
-[{"action": "color", "objectId": "cube-1", "color": "#00ff00"}]
-[{"action": "create", "type": "sphere", "x": 3, "y": 2, "z": 1, "color": "#ff0000", "size": 1.5}]
-
-Object IDs currently in scene: ${sceneObjects.map(obj => obj.id).join(', ')}`
-
-      const response = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: textInput }
-        ],
-        temperature: 0.1,
-        max_tokens: 500
+      // Create a Firestore document to track this generation
+      const generationRef = await addDoc(collection(db, 'generations'), {
+        userId: user.uid,
+        status: 'pending',
+        prompt: textInput,
+        sceneData: simplifiedSceneData,
+        createdAt: serverTimestamp(),
+        error: null,
+        result: null
       })
 
-      const aiResponse = response.choices[0]?.message?.content
-      if (aiResponse) {
-        setResponseLog(prev => [...prev, `User: ${textInput}`, `AI: ${aiResponse}`])
-        
-        try {
-          // Clean the AI response by removing markdown code blocks
-          let cleanedResponse = aiResponse.trim()
+      setCurrentGenerationId(generationRef.id)
+      
+      // Set up real-time listener for this generation
+      const unsubscribe = onSnapshot(doc(db, 'generations', generationRef.id), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data()
+          setGenerationStatus(data.status)
           
-          // Remove markdown code blocks
-          cleanedResponse = cleanedResponse.replace(/```json\s*/g, '')
-          cleanedResponse = cleanedResponse.replace(/```\s*/g, '')
-          cleanedResponse = cleanedResponse.trim()
-          
-          console.log('Cleaned AI response:', cleanedResponse)
-          
-          const commands = JSON.parse(cleanedResponse)
-          if (Array.isArray(commands)) {
-            console.log('Executing commands:', commands)
-            commands.forEach(command => executeSceneCommand(command))
-          } else {
-            console.log('Executing single command:', commands)
-            executeSceneCommand(commands)
+          if (data.status === 'completed' && data.result) {
+            setResponseLog(prev => [...prev, `User: ${textInput}`, `AI: ${JSON.stringify(data.result)}`])
+            executeSceneCommand(data.result)
+            setIsLoading(false)
+            setTextInput('')
+            unsubscribe() // Stop listening once completed
+          } else if (data.status === 'failed') {
+            const errorMsg = data.error || 'Generation failed'
+            setGenerationError(errorMsg)
+            setResponseLog(prev => [...prev, `Error: ${errorMsg}`])
+            setIsLoading(false)
+            unsubscribe() // Stop listening on failure
           }
-        } catch (parseError) {
-          console.error('Error parsing AI response:', parseError)
-          console.error('Original response:', aiResponse)
-          const errorMessage = parseError instanceof Error ? parseError.message : 'Unknown parsing error'
-          setResponseLog(prev => [...prev, `Error: Could not parse AI response - ${errorMessage}`])
+        }
+      })
+
+      // Call the Cloud Function with the generation ID
+      const processScene = httpsCallable(functions, 'processScene')
+      await processScene({
+        generationId: generationRef.id,
+        prompt: textInput,
+        sceneData: simplifiedSceneData
+      })
+      
+    } catch (error) {
+      console.error('Error processing scene:', error)
+      
+      // Handle specific Firebase function errors
+      let errorMessage = 'Unknown error'
+      if (error instanceof Error) {
+        if (error.message.includes('unauthenticated')) {
+          errorMessage = 'Please sign in to use AI features'
+        } else if (error.message.includes('permission-denied')) {
+          errorMessage = 'Permission denied. Please check your account status'
+        } else {
+          errorMessage = error.message
         }
       }
-    } catch (error) {
-      console.error('Error calling OpenAI API:', error)
-      setResponseLog(prev => [...prev, `Error: ${error instanceof Error ? error.message : 'Unknown error'}`])
-    } finally {
+      
+      setGenerationError(errorMessage)
+      setResponseLog(prev => [...prev, `Error: ${errorMessage}`])
       setIsLoading(false)
       setTextInput('')
     }
   }
 
+
+  const handleSaveScene = async () => {
+    if (!user) {
+      alert('Please sign in to save scenes')
+      return
+    }
+
+    const sceneName = prompt('Enter a name for this scene:')
+    if (!sceneName) return
+
+    try {
+      // Prepare scene data for saving
+      const sceneData = sceneObjects.map(obj => ({
+        id: obj.id,
+        type: obj.type,
+        position: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
+        scale: { x: obj.scale.x, y: obj.scale.y, z: obj.scale.z },
+        rotation: { x: obj.rotation.x, y: obj.rotation.y, z: obj.rotation.z },
+        color: obj.color
+      }))
+
+      // Save to Firestore
+      await addDoc(collection(db, 'savedScenes'), {
+        userId: user.uid,
+        name: sceneName,
+        sceneData,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      })
+
+      alert('Scene saved successfully!')
+      setActiveDropdown(null)
+    } catch (error) {
+      console.error('Error saving scene:', error)
+      alert('Failed to save scene')
+    }
+  }
+
+  const handleLoadScene = async (sceneId: string) => {
+    try {
+      const sceneDoc = await getDoc(doc(db, 'savedScenes', sceneId))
+      if (sceneDoc.exists()) {
+        const data = sceneDoc.data()
+        
+        // Clear current scene
+        clearAllObjects()
+        
+        // Load saved objects
+        const loadedObjects: SceneObject[] = []
+        
+        if (sceneRef.current) {
+          const scene = sceneRef.current
+          
+          data.sceneData.forEach((objData: any) => {
+            if (objData.type !== 'ground') {
+              // Create mesh directly
+              let mesh: Mesh | null = null
+              
+              switch (objData.type) {
+                case 'cube':
+                  mesh = MeshBuilder.CreateBox(objData.id, { size: 2 }, scene)
+                  break
+                case 'sphere':
+                  mesh = MeshBuilder.CreateSphere(objData.id, { diameter: 2 }, scene)
+                  break
+                case 'cylinder':
+                  mesh = MeshBuilder.CreateCylinder(objData.id, { height: 2, diameter: 2 }, scene)
+                  break
+                case 'plane':
+                  mesh = MeshBuilder.CreateGround(objData.id, { width: 2, height: 2 }, scene)
+                  break
+                case 'torus':
+                  mesh = MeshBuilder.CreateTorus(objData.id, { diameter: 2, thickness: 0.5 }, scene)
+                  break
+                case 'cone':
+                  mesh = MeshBuilder.CreateCylinder(objData.id, { height: 2, diameterTop: 0, diameterBottom: 2 }, scene)
+                  break
+              }
+              
+              if (mesh) {
+                // Apply transformations
+                mesh.position = new Vector3(objData.position.x, objData.position.y, objData.position.z)
+                mesh.scaling = new Vector3(objData.scale.x, objData.scale.y, objData.scale.z)
+                mesh.rotation = new Vector3(objData.rotation.x, objData.rotation.y, objData.rotation.z)
+                
+                // Apply material
+                const material = new StandardMaterial(`${objData.id}-material`, scene)
+                material.diffuseColor = Color3.FromHexString(objData.color)
+                mesh.material = material
+                
+                const newObject: SceneObject = {
+                  id: objData.id,
+                  type: objData.type,
+                  position: mesh.position.clone(),
+                  scale: mesh.scaling.clone(),
+                  rotation: mesh.rotation.clone(),
+                  color: objData.color,
+                  mesh: mesh
+                }
+                loadedObjects.push(newObject)
+              }
+            }
+          })
+        }
+        
+        setSceneObjects(prev => [...prev.filter(obj => obj.type === 'ground'), ...loadedObjects])
+        setShowLoadDialog(false)
+      }
+    } catch (error) {
+      console.error('Error loading scene:', error)
+      alert('Failed to load scene')
+    }
+  }
+
+  const handleNewScene = () => {
+    if (sceneObjects.filter(obj => obj.type !== 'ground').length > 0) {
+      if (confirm('Are you sure you want to create a new scene? Unsaved changes will be lost.')) {
+        clearAllObjects()
+      }
+    }
+    setActiveDropdown(null)
+  }
 
   const clearAllObjects = () => {
     // Detach gizmo first
@@ -1318,6 +1568,94 @@ Object IDs currently in scene: ${sceneObjects.map(obj => obj.id).join(', ')}`
         {renderAISidebar()}
       </div>
       {showProfile && <Profile onClose={() => setShowProfile(false)} />}
+      
+      {/* Load Scene Dialog */}
+      {showLoadDialog && (
+        <div className="load-dialog-overlay" onClick={() => setShowLoadDialog(false)}>
+          <div className="load-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="load-dialog-header">
+              <h2>Load Scene</h2>
+              <button className="load-dialog-close" onClick={() => setShowLoadDialog(false)}>×</button>
+            </div>
+            
+            <div className="load-dialog-content">
+              {savedScenes.length === 0 ? (
+                <div className="load-dialog-empty">
+                  <p>No saved scenes yet</p>
+                  <p className="load-dialog-hint">Save your current scene using File → Save Scene</p>
+                </div>
+              ) : (
+                <div className="saved-scenes-list">
+                  {savedScenes.map((scene) => (
+                    <div 
+                      key={scene.id} 
+                      className="saved-scene-item"
+                      onClick={() => handleLoadScene(scene.id)}
+                    >
+                      <div className="scene-name">{scene.name}</div>
+                      <div className="scene-meta">
+                        <span className="scene-objects">
+                          {scene.sceneData.filter((obj: any) => obj.type !== 'ground').length} objects
+                        </span>
+                        <span className="scene-date">
+                          {scene.updatedAt?.toDate?.().toLocaleDateString() || 'Unknown date'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Generation History Sidebar */}
+      {showHistory && (
+        <div className="history-sidebar">
+          <div className="history-header">
+            <h2>Generation History</h2>
+            <button className="history-close" onClick={() => setShowHistory(false)}>×</button>
+          </div>
+          
+          <div className="history-content">
+            {generationHistory.length === 0 ? (
+              <div className="history-empty">
+                <p>No generation history yet</p>
+                <p className="history-hint">Try creating something with AI!</p>
+              </div>
+            ) : (
+              <div className="history-list">
+                {generationHistory.map((gen) => (
+                  <div 
+                    key={gen.id} 
+                    className={`history-item ${gen.status}`}
+                    onClick={() => {
+                      if (gen.status === 'completed' && gen.result) {
+                        executeSceneCommand(gen.result)
+                        setShowHistory(false)
+                      }
+                    }}
+                  >
+                    <div className="history-prompt">{gen.prompt}</div>
+                    <div className="history-meta">
+                      <span className={`history-status ${gen.status}`}>
+                        {gen.status}
+                      </span>
+                      <span className="history-time">
+                        {gen.createdAt ? new Date(gen.createdAt).toLocaleString() : 'Just now'}
+                      </span>
+                    </div>
+                    {gen.error && (
+                      <div className="history-error">{gen.error}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

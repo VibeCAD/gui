@@ -7,11 +7,12 @@ import OpenAI from "openai";
 admin.initializeApp();
 
 const db = admin.firestore();
-const storage = admin.storage();
+// const storage = admin.storage(); // Will use this later for storing generated models
 const secretManager = new SecretManagerServiceClient();
 
 // Define types
 interface ProcessSceneRequest {
+  generationId?: string; // Optional: if provided, update existing document
   prompt: string;
   sceneData?: any; // Current scene objects
 }
@@ -55,7 +56,7 @@ export const processScene = functions.https.onCall(
     }
 
     const userId = context.auth.uid;
-    const {prompt, sceneData} = data;
+    const {generationId, prompt, sceneData} = data;
 
     // Validate input
     if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
@@ -65,25 +66,40 @@ export const processScene = functions.https.onCall(
       );
     }
 
+    let generationRef;
+
     try {
-      // Create initial generation document
-      const generationRef = db.collection("generations").doc();
-      const generationId = generationRef.id;
+      // Use existing generation document or create new one
+      if (generationId) {
+        generationRef = db.collection("generations").doc(generationId);
+        
+        // Verify the generation belongs to this user
+        const genDoc = await generationRef.get();
+        if (!genDoc.exists || genDoc.data()?.userId !== userId) {
+          throw new functions.https.HttpsError(
+            "permission-denied",
+            "Invalid generation ID"
+          );
+        }
+        
+        // Update status to processing
+        await generationRef.update({status: "processing"});
+      } else {
+        // Create new generation document (backward compatibility)
+        generationRef = db.collection("generations").doc();
+        
+        const initialDoc: GenerationDoc = {
+          userId,
+          status: "processing",
+          prompt: prompt.trim(),
+          createdAt: admin.firestore.Timestamp.now(),
+        };
 
-      const initialDoc: GenerationDoc = {
-        userId,
-        status: "pending",
-        prompt: prompt.trim(),
-        createdAt: admin.firestore.Timestamp.now(),
-      };
-
-      await generationRef.set(initialDoc);
-
-      // Update status to processing
-      await generationRef.update({status: "processing"});
+        await generationRef.set(initialDoc);
+      }
 
       // Get OpenAI API key from Secret Manager
-      const openaiApiKey = await getSecret("openai-api-key");
+      const openaiApiKey = await getSecret("open-api-key");
       
       // Initialize OpenAI client
       const openai = new OpenAI({
@@ -97,12 +113,12 @@ export const processScene = functions.https.onCall(
       Current scene objects: ${JSON.stringify(sceneData || [])}
       
       Respond with a JSON object containing one of these actions:
-      - {"action": "move", "targetId": "object-id", "x": 0, "y": 0, "z": 0}
-      - {"action": "rotate", "targetId": "object-id", "x": 0, "y": 0, "z": 0} (in radians)
-      - {"action": "scale", "targetId": "object-id", "x": 1, "y": 1, "z": 1}
+      - {"action": "move", "objectId": "object-id", "x": 0, "y": 0, "z": 0}
+      - {"action": "rotate", "objectId": "object-id", "x": 0, "y": 0, "z": 0} (in radians)
+      - {"action": "scale", "objectId": "object-id", "x": 1, "y": 1, "z": 1}
       - {"action": "create", "type": "cube|sphere|cylinder", "x": 0, "y": 0, "z": 0, "color": "#hexcolor"}
-      - {"action": "delete", "targetId": "object-id"}
-      - {"action": "changeColor", "targetId": "object-id", "color": "#hexcolor"}
+      - {"action": "delete", "objectId": "object-id"}
+      - {"action": "color", "objectId": "object-id", "color": "#hexcolor"}
       
       Respond ONLY with the JSON object, no explanation.`;
 
@@ -133,23 +149,27 @@ export const processScene = functions.https.onCall(
 
       return {
         success: true,
-        generationId,
+        generationId: generationRef.id,
         result,
       };
     } catch (error) {
       functions.logger.error("Error processing scene:", error);
 
-      // Update generation document with error
-      if (error instanceof Error) {
-        await db.collection("generations").doc().update({
-          status: "failed",
-          error: error.message,
-        });
+      // Update generation document with error if we have a reference
+      if (generationRef && error instanceof Error) {
+        try {
+          await generationRef.update({
+            status: "failed",
+            error: error.message,
+          });
+        } catch (updateError) {
+          functions.logger.error("Failed to update error status:", updateError);
+        }
       }
 
       throw new functions.https.HttpsError(
         "internal",
-        "Failed to process scene command"
+        error instanceof Error ? error.message : "Failed to process scene command"
       );
     }
   }
