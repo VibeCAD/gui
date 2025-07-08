@@ -1058,3 +1058,296 @@ body {
     transform: translateX(-50%) translateY(0);
   }
 }
+
+/* NURBS Properties Panel Styles */
+.nurbs-properties {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 8px;
+}
+
+.nurbs-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 8px;
+  background: #ffffff;
+  border-radius: 4px;
+  border: 1px solid #e9ecef;
+}
+
+.nurbs-info-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+
+.nurbs-label {
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.nurbs-value {
+  color: #2c3e50;
+  font-weight: 600;
+  font-family: monospace;
+}
+
+.nurbs-control-section {
+  margin-bottom: 12px;
+  padding: 8px;
+  background: #ffffff;
+  border-radius: 4px;
+  border: 1px solid #e9ecef;
+}
+
+.nurbs-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #495057;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.nurbs-quality-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nurbs-quality-slider {
+  flex: 1;
+  height: 4px;
+  background: #e9ecef;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+
+.nurbs-quality-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #3498db;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.nurbs-quality-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: #3498db;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.nurbs-quality-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: #2c3e50;
+  font-family: monospace;
+  min-width: 20px;
+  text-align: center;
+}
+
+.control-points-list {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.control-point-item {
+  padding: 8px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.control-point-item.selected {
+  background: #e3f2fd;
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.control-point-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.control-point-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #495057;
+  font-family: monospace;
+}
+
+.control-point-selected-indicator {
+  color: #27ae60;
+  font-size: 12px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.control-point-coords {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+}
+
+.control-point-coord {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.control-point-coord label {
+  font-size: 9px;
+  color: #6c757d;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.control-point-input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid #dee2e6;
+  border-radius: 3px;
+  font-size: 10px;
+  font-family: monospace;
+  text-align: center;
+  transition: border-color 0.2s ease;
+}
+
+.control-point-input:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.control-point-item.selected .control-point-input {
+  border-color: #3498db;
+  background: #ffffff;
+}
+
+.nurbs-export-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.nurbs-export-button {
+  flex: 1;
+  padding: 8px 12px;
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.nurbs-export-button:hover {
+  background: #218838;
+  transform: translateY(-1px);
+}
+
+.nurbs-export-button:active {
+  transform: translateY(0);
+}
+
+.nurbs-help {
+  margin-top: 8px;
+  padding: 8px;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 4px;
+  color: #856404;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.nurbs-help small {
+  margin: 0;
+}
+
+/* Control point visualization styles in 3D scene */
+.control-point-sphere {
+  cursor: pointer;
+}
+
+.control-point-sphere:hover {
+  transform: scale(1.1);
+}
+
+/* Scrollbar styling for control points list */
+.control-points-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.control-points-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 2px;
+}
+
+.control-points-list::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 2px;
+}
+
+.control-points-list::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Responsive adjustments for NURBS panel */
+@media (max-width: 768px) {
+  .nurbs-properties {
+    padding: 8px;
+  }
+  
+  .control-point-coords {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  
+  .control-point-coord {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .control-point-coord label {
+    min-width: 20px;
+  }
+  
+  .control-point-input {
+    width: 60px;
+  }
+  
+  .control-points-list {
+    max-height: 150px;
+  }
+}
