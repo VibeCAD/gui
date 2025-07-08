@@ -2306,6 +2306,7 @@ Current objects: ${sceneObjects.filter(obj => obj.type !== 'ground').map(obj => 
             
             try {
               const httpUrl = import.meta.env.VITE_MCP_HTTP_URL || 'http://localhost:8081'
+              console.log(`🔄 Calling MCP HTTP API: ${call.tool}`, call.params)
               const response = await fetch(`${httpUrl}/tools/${call.tool}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2313,8 +2314,11 @@ Current objects: ${sceneObjects.filter(obj => obj.type !== 'ground').map(obj => 
               })
               
               const result = await response.json()
+              console.log(`✅ MCP API Response:`, result)
               if (!result.success) {
                 setResponseLog(prev => [...prev, `Error: ${result.message}`])
+              } else {
+                setResponseLog(prev => [...prev, `MCP: ${call.tool} executed successfully`])
               }
             } catch (error) {
               console.error('Error calling MCP HTTP API:', error)
