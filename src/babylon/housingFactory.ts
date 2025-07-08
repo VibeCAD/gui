@@ -1,114 +1,149 @@
-import { Scene, MeshBuilder, StandardMaterial, Color3, Mesh, Vector3, Path3D, Matrix, CSG, TransformNode } from 'babylonjs';
+import { Scene, MeshBuilder, StandardMaterial, Color3, Mesh, Vector3, CSG } from 'babylonjs';
 import type { MeshCreationOptions } from './objectFactory';
 
 /**
  * Creates a basic house structure with walls, roof, and door opening
  */
 export const createBasicHouse = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
-  const group = new TransformNode(options.name || 'basic-house', scene);
+  // Define house dimensions - normalized to unit scale
+  const width = 2;
+  const depth = 1.5;
+  const height = 1.5;
+  const roofHeight = 0.5;
+  const wallThickness = 0.1;
   
-  // Define house dimensions
-  const width = 6;
-  const depth = 4;
-  const height = 3;
-  const roofHeight = 1.5;
+  // Create the main house body
+  const houseBody = MeshBuilder.CreateBox('house-body', { width, height, depth }, scene);
+  houseBody.position = new Vector3(0, height / 2, 0);
   
-  // Create walls using extruded shapes
-  const wallThickness = 0.2;
+  // Create door opening
+  const doorWidth = 0.4;
+  const doorHeight = 0.8;
+  const doorOpening = MeshBuilder.CreateBox('door-opening', { 
+    width: doorWidth, 
+    height: doorHeight, 
+    depth: wallThickness * 2 
+  }, scene);
+  doorOpening.position = new Vector3(0, doorHeight / 2, depth / 2);
   
-  // Front wall with door opening
-  const frontWall = createWallWithDoorOpening(scene, width, height, wallThickness, 'front-wall');
-  frontWall.position = new Vector3(0, height / 2, depth / 2);
-  frontWall.parent = group;
-  
-  // Back wall
-  const backWall = MeshBuilder.CreateBox('back-wall', { width, height, depth: wallThickness }, scene);
-  backWall.position = new Vector3(0, height / 2, -depth / 2);
-  backWall.parent = group;
-  
-  // Left wall
-  const leftWall = MeshBuilder.CreateBox('left-wall', { width: wallThickness, height, depth }, scene);
-  leftWall.position = new Vector3(-width / 2, height / 2, 0);
-  leftWall.parent = group;
-  
-  // Right wall
-  const rightWall = MeshBuilder.CreateBox('right-wall', { width: wallThickness, height, depth }, scene);
-  rightWall.position = new Vector3(width / 2, height / 2, 0);
-  rightWall.parent = group;
-  
-  // Create pitched roof
-  const roof = createPitchedRoof(scene, width + 0.4, depth + 0.4, roofHeight, 'roof');
-  roof.position = new Vector3(0, height + roofHeight / 2, 0);
-  roof.parent = group;
-  
-  // Create floor
-  const floor = MeshBuilder.CreateBox('floor', { width, height: 0.1, depth }, scene);
-  floor.position = new Vector3(0, -0.05, 0);
-  floor.parent = group;
-  
-  // Merge all meshes into a single mesh
-  const meshes = [frontWall, backWall, leftWall, rightWall, roof, floor];
-  const merged = Mesh.MergeMeshes(meshes, true, true, undefined, false, true);
-  
-  if (merged) {
-    merged.name = options.name || 'basic-house';
-    applyHousingMeshOptions(merged, options);
-    return merged;
+  // Create house with door opening using CSG
+  let houseWithDoor: Mesh;
+  try {
+    const houseCSG = CSG.FromMesh(houseBody);
+    const doorCSG = CSG.FromMesh(doorOpening);
+    const resultCSG = houseCSG.subtract(doorCSG);
+    houseWithDoor = resultCSG.toMesh('house-with-door', houseBody.material, scene);
+  } catch (error) {
+    console.warn('CSG operation failed, using simple house body:', error);
+    houseWithDoor = houseBody;
   }
   
-  // Fallback: return the group as a mesh
-  return group as any;
+  // Clean up temporary meshes
+  houseBody.dispose();
+  doorOpening.dispose();
+  
+  // Create roof
+  const roof = MeshBuilder.CreateCylinder('roof', { 
+    diameterTop: 0, 
+    diameterBottom: Math.sqrt(width * width + depth * depth) + 0.2, 
+    height: roofHeight,
+    tessellation: 4
+  }, scene);
+  roof.position = new Vector3(0, height + roofHeight / 2, 0);
+  roof.rotation.y = Math.PI / 4;
+  
+  // Merge house and roof
+  const finalMesh = Mesh.MergeMeshes([houseWithDoor, roof], true, true);
+  
+     if (finalMesh) {
+     finalMesh.name = options.name || 'basic-house';
+     // Position at origin for proper gizmo handling
+     finalMesh.position = Vector3.Zero();
+     
+     // Apply default house material if no material exists
+     if (!finalMesh.material) {
+       const material = new StandardMaterial(`${finalMesh.name}-material`, scene);
+       material.diffuseColor = options.color ? Color3.FromHexString(options.color) : new Color3(0.8, 0.7, 0.6);
+       finalMesh.material = material;
+     }
+     
+     return finalMesh;
+   }
+  
+  return houseWithDoor;
 };
 
 /**
  * Creates a single room structure
  */
 export const createRoom = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
-  const width = 4;
-  const depth = 4;
-  const height = 3;
-  const wallThickness = 0.2;
+  // Normalized room dimensions
+  const width = 2;
+  const depth = 2;
+  const height = 1.5;
+  const wallThickness = 0.1;
   
-  // Create room walls using extruded path
-  const roomShape = [
-    new Vector3(-width / 2, 0, -depth / 2),
-    new Vector3(width / 2, 0, -depth / 2),
-    new Vector3(width / 2, 0, depth / 2),
-    new Vector3(-width / 2, 0, depth / 2),
-    new Vector3(-width / 2, 0, -depth / 2)
-  ];
+  // Create outer walls
+  const outerWalls = MeshBuilder.CreateBox('outer-walls', { width, height, depth }, scene);
+  outerWalls.position = new Vector3(0, height / 2, 0);
   
-  // Create walls by extruding the room perimeter
-  const walls = createExtrudedWalls(scene, roomShape, height, wallThickness, 'room-walls');
+  // Create inner space to subtract
+  const innerSpace = MeshBuilder.CreateBox('inner-space', { 
+    width: width - wallThickness * 2, 
+    height: height + 0.2, 
+    depth: depth - wallThickness * 2 
+  }, scene);
+  innerSpace.position = new Vector3(0, height / 2, 0);
   
-  // Create floor
-  const floor = MeshBuilder.CreateBox('floor', { width, height: 0.1, depth }, scene);
-  floor.position = new Vector3(0, -0.05, 0);
-  
-  // Create ceiling
-  const ceiling = MeshBuilder.CreateBox('ceiling', { width, height: 0.1, depth }, scene);
-  ceiling.position = new Vector3(0, height + 0.05, 0);
-  
-  // Merge meshes
-  const merged = Mesh.MergeMeshes([walls, floor, ceiling], true, true, undefined, false, true);
-  
-  if (merged) {
-    merged.name = options.name || 'room';
-    applyHousingMeshOptions(merged, options);
-    return merged;
+  // Create room walls using CSG
+  let roomMesh: Mesh;
+  try {
+    const outerCSG = CSG.FromMesh(outerWalls);
+    const innerCSG = CSG.FromMesh(innerSpace);
+    const wallsCSG = outerCSG.subtract(innerCSG);
+    roomMesh = wallsCSG.toMesh('room-walls', outerWalls.material, scene);
+  } catch (error) {
+    console.warn('CSG operation failed for room, using simple box:', error);
+    roomMesh = outerWalls;
   }
   
-  return walls;
+  // Clean up temporary meshes
+  outerWalls.dispose();
+  innerSpace.dispose();
+  
+  // Create floor
+  const floor = MeshBuilder.CreateBox('floor', { width, height: 0.05, depth }, scene);
+  floor.position = new Vector3(0, 0.025, 0);
+  
+  // Merge walls and floor
+  const finalMesh = Mesh.MergeMeshes([roomMesh, floor], true, true);
+  
+     if (finalMesh) {
+     finalMesh.name = options.name || 'room';
+     finalMesh.position = Vector3.Zero();
+     
+     // Apply default room material if no material exists
+     if (!finalMesh.material) {
+       const material = new StandardMaterial(`${finalMesh.name}-material`, scene);
+       material.diffuseColor = options.color ? Color3.FromHexString(options.color) : new Color3(0.9, 0.8, 0.7);
+       finalMesh.material = material;
+     }
+     
+     return finalMesh;
+   }
+  
+  return roomMesh;
 };
 
 /**
  * Creates a hallway structure
  */
 export const createHallway = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
-  const width = 2;
-  const depth = 8;
-  const height = 3;
-  const wallThickness = 0.2;
+  // Normalized hallway dimensions
+  const width = 1;
+  const depth = 3;
+  const height = 1.5;
+  const wallThickness = 0.1;
   
   // Create hallway walls
   const leftWall = MeshBuilder.CreateBox('left-wall', { width: wallThickness, height, depth }, scene);
@@ -118,21 +153,29 @@ export const createHallway = (scene: Scene, options: MeshCreationOptions = {}): 
   rightWall.position = new Vector3(width / 2, height / 2, 0);
   
   // Create floor
-  const floor = MeshBuilder.CreateBox('floor', { width, height: 0.1, depth }, scene);
-  floor.position = new Vector3(0, -0.05, 0);
+  const floor = MeshBuilder.CreateBox('floor', { width, height: 0.05, depth }, scene);
+  floor.position = new Vector3(0, 0.025, 0);
   
   // Create ceiling
-  const ceiling = MeshBuilder.CreateBox('ceiling', { width, height: 0.1, depth }, scene);
-  ceiling.position = new Vector3(0, height + 0.05, 0);
+  const ceiling = MeshBuilder.CreateBox('ceiling', { width, height: 0.05, depth }, scene);
+  ceiling.position = new Vector3(0, height + 0.025, 0);
   
   // Merge meshes
-  const merged = Mesh.MergeMeshes([leftWall, rightWall, floor, ceiling], true, true, undefined, false, true);
+  const merged = Mesh.MergeMeshes([leftWall, rightWall, floor, ceiling], true, true);
   
-  if (merged) {
-    merged.name = options.name || 'hallway';
-    applyHousingMeshOptions(merged, options);
-    return merged;
-  }
+     if (merged) {
+     merged.name = options.name || 'hallway';
+     merged.position = Vector3.Zero();
+     
+     // Apply default hallway material if no material exists
+     if (!merged.material) {
+       const material = new StandardMaterial(`${merged.name}-material`, scene);
+       material.diffuseColor = options.color ? Color3.FromHexString(options.color) : new Color3(0.8, 0.8, 0.8);
+       merged.material = material;
+     }
+     
+     return merged;
+   }
   
   return leftWall;
 };
@@ -141,104 +184,51 @@ export const createHallway = (scene: Scene, options: MeshCreationOptions = {}): 
  * Creates a flat roof structure
  */
 export const createFlatRoof = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
-  const width = 6;
-  const depth = 4;
-  const thickness = 0.3;
+  // Normalized roof dimensions
+  const width = 2;
+  const depth = 1.5;
+  const thickness = 0.1;
   
-  const roof = MeshBuilder.CreateBox(options.name || 'flat-roof', { width, height: thickness, depth }, scene);
-  applyHousingMeshOptions(roof, options);
-  return roof;
+     const roof = MeshBuilder.CreateBox(options.name || 'flat-roof', { width, height: thickness, depth }, scene);
+   roof.position = new Vector3(0, thickness / 2, 0);
+   
+   // Apply default roof material
+   const material = new StandardMaterial(`${roof.name}-material`, scene);
+   material.diffuseColor = options.color ? Color3.FromHexString(options.color) : new Color3(0.6, 0.4, 0.2);
+   roof.material = material;
+   
+   return roof;
 };
 
 /**
  * Creates a pitched roof structure
  */
-export const createPitchedRoof = (scene: Scene, width: number, depth: number, height: number, name: string): Mesh => {
-  // Create a triangular prism for the pitched roof
-  const roofShape = [
-    new Vector3(-width / 2, 0, 0),
-    new Vector3(width / 2, 0, 0),
-    new Vector3(0, height, 0)
-  ];
+export const createPitchedRoof = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
+  // Normalized roof dimensions
+  const width = 2;
+  const depth = 1.5;
+  const height = 0.8;
   
-  const roof = MeshBuilder.ExtrudePolygon(name, {
-    shape: roofShape,
-    depth: depth,
-    sideOrientation: 2
+  // Create a triangular prism using a cylinder with 3 tessellation
+  const roof = MeshBuilder.CreateCylinder(options.name || 'pitched-roof', {
+    diameterTop: 0,
+    diameterBottom: Math.sqrt(width * width + depth * depth),
+    height: height,
+    tessellation: 4
   }, scene);
   
-  roof.rotation.x = Math.PI / 2;
-  return roof;
+     roof.position = new Vector3(0, height / 2, 0);
+   roof.rotation.y = Math.PI / 4;
+   
+   // Apply default roof material
+   const material = new StandardMaterial(`${roof.name}-material`, scene);
+   material.diffuseColor = options.color ? Color3.FromHexString(options.color) : new Color3(0.6, 0.4, 0.2);
+   roof.material = material;
+   
+   return roof;
 };
 
-/**
- * Creates a wall with a door opening
- */
-const createWallWithDoorOpening = (scene: Scene, width: number, height: number, thickness: number, name: string): Mesh => {
-  // Create main wall
-  const wall = MeshBuilder.CreateBox(name, { width, height, depth: thickness }, scene);
-  
-  // Create door opening
-  const doorWidth = 1.2;
-  const doorHeight = 2.2;
-  const doorOpening = MeshBuilder.CreateBox('door-opening', { 
-    width: doorWidth, 
-    height: doorHeight, 
-    depth: thickness + 0.1 
-  }, scene);
-  doorOpening.position = new Vector3(0, doorHeight / 2 - height / 2 + 0.1, 0);
-  
-  // Subtract door opening from wall using CSG
-  const wallCSG = CSG.FromMesh(wall);
-  const doorCSG = CSG.FromMesh(doorOpening);
-  const resultCSG = wallCSG.subtract(doorCSG);
-  
-  // Clean up temporary meshes
-  wall.dispose();
-  doorOpening.dispose();
-  
-  // Create the final mesh
-  const resultMesh = resultCSG.toMesh(name, wall.material, scene);
-  return resultMesh;
-};
 
-/**
- * Creates extruded walls from a floor plan path
- */
-const createExtrudedWalls = (scene: Scene, shape: Vector3[], height: number, thickness: number, name: string): Mesh => {
-  // Create the outer perimeter
-  const outerWall = MeshBuilder.ExtrudePolygon(name + '-outer', {
-    shape: shape,
-    depth: height,
-    sideOrientation: 2
-  }, scene);
-  
-  // Create inner perimeter (for wall thickness)
-  const innerShape = shape.map(point => {
-    const direction = point.clone().normalize();
-    return point.subtract(direction.scale(thickness));
-  });
-  
-  const innerWall = MeshBuilder.ExtrudePolygon(name + '-inner', {
-    shape: innerShape,
-    depth: height,
-    sideOrientation: 2
-  }, scene);
-  
-  // Subtract inner from outer to create walls with thickness
-  const outerCSG = CSG.FromMesh(outerWall);
-  const innerCSG = CSG.FromMesh(innerWall);
-  const wallCSG = outerCSG.subtract(innerCSG);
-  
-  // Clean up temporary meshes
-  outerWall.dispose();
-  innerWall.dispose();
-  
-  // Create the final mesh
-  const walls = wallCSG.toMesh(name, outerWall.material, scene);
-  walls.rotation.x = Math.PI / 2;
-  return walls;
-};
 
 /**
  * Factory function that creates housing meshes based on the type
@@ -258,33 +248,10 @@ export const createHousingMesh = (
     case 'house-roof-flat':
       return createFlatRoof(scene, options);
     case 'house-roof-pitched':
-      return createPitchedRoof(scene, 6, 4, 1.5, options.name || 'pitched-roof');
+      return createPitchedRoof(scene, options);
     default:
       throw new Error(`Unknown housing type: ${type}`);
   }
 };
 
-/**
- * Helper function to apply common housing mesh options
- */
-const applyHousingMeshOptions = (mesh: Mesh, options: MeshCreationOptions): void => {
-  // Set position
-  if (options.position) {
-    mesh.position = options.position;
-  }
-
-  // Set scale
-  if (options.scale) {
-    mesh.scaling = options.scale;
-  }
-
-  // Set rotation
-  if (options.rotation) {
-    mesh.rotation = options.rotation;
-  }
-
-  // Create and apply material with color
-  const material = new StandardMaterial(`${mesh.name}-material`, mesh.getScene());
-  material.diffuseColor = options.color ? Color3.FromHexString(options.color) : new Color3(0.8, 0.7, 0.6); // Default house color
-  mesh.material = material;
-}; 
+ 

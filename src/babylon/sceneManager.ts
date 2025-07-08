@@ -162,9 +162,6 @@ export class SceneManager {
       if (sceneObject.type.startsWith('house-')) {
         mesh = createHousingMesh(sceneObject.type, this.scene, {
           name: sceneObject.id,
-          position: sceneObject.position,
-          scale: sceneObject.scale,
-          rotation: sceneObject.rotation,
           color: sceneObject.color
         })
       } else {
@@ -206,20 +203,20 @@ export class SceneManager {
         }
       }
       
-      // Set initial properties (only for non-housing types, as housing meshes set their own properties)
-      if (!sceneObject.type.startsWith('house-')) {
-        mesh.position = sceneObject.position.clone()
-        mesh.rotation = sceneObject.rotation.clone()
-        mesh.scaling = sceneObject.scale.clone()
-        
-        // Create material
+      // Set initial properties
+      mesh.position = sceneObject.position.clone()
+      mesh.rotation = sceneObject.rotation.clone()
+      mesh.scaling = sceneObject.scale.clone()
+      
+      // Ensure the mesh ID is set to our object ID for reliable picking
+      mesh.id = sceneObject.id
+      
+      // Create material (for non-housing types or if housing mesh doesn't have material)
+      if (!sceneObject.type.startsWith('house-') || !mesh.material) {
         const material = new StandardMaterial(`${sceneObject.id}-material`, this.scene)
         material.diffuseColor = Color3.FromHexString(sceneObject.color)
         mesh.material = material
       }
-      
-      // Ensure the mesh ID is set to our object ID for reliable picking
-      mesh.id = sceneObject.id
       
       mesh.isPickable = true
       mesh.checkCollisions = false
