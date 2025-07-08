@@ -33,6 +33,8 @@ function App() {
   const engineRef = useRef<Engine | null>(null)
   const cameraRef = useRef<ArcRotateCamera | null>(null)
   const gizmoManagerRef = useRef<GizmoManager | null>(null)
+  const pointerDownPosition = useRef<{ x: number, y: number } | null>(null);
+  const sceneObjectsRef = useRef<SceneObject[]>([]);
   const [textInput, setTextInput] = useState('')
   const [sceneObjects, setSceneObjects] = useState<SceneObject[]>([])
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
@@ -55,6 +57,11 @@ function App() {
 
   const selectedObject = sceneObjects.find(obj => obj.id === selectedObjectId)
 
+  // Keep sceneObjectsRef synchronized with sceneObjects state
+  useEffect(() => {
+    sceneObjectsRef.current = sceneObjects
+  }, [sceneObjects])
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -67,73 +74,30 @@ function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [activeDropdown])
 
-  // Update object positions from gizmo interactions
+  // Gizmo and selection management
   useEffect(() => {
-    if (!selectedObject?.mesh || !gizmoManagerRef.current) return
-
-    const mesh = selectedObject.mesh
     const gizmoManager = gizmoManagerRef.current
+    const selectedMesh = selectedObject?.mesh
+    
+    if (!gizmoManager) return
 
-    // Update position when position gizmo is used
-    if (gizmoManager.positionGizmoEnabled) {
-      const onPositionChanged = () => {
-        setSceneObjects(prev => prev.map(obj => 
-          obj.id === selectedObjectId 
-            ? { ...obj, position: mesh.position.clone() }
-            : obj
-        ))
-      }
-      
-      if (gizmoManager.gizmos.positionGizmo) {
-        gizmoManager.gizmos.positionGizmo.onDragEndObservable.add(onPositionChanged)
-      }
-    }
+    // Observers need to be cleaned up
+    let positionObserver: any = null
+    let rotationObserver: any = null
+    let scaleObserver: any = null
 
-    // Update rotation when rotation gizmo is used
-    if (gizmoManager.rotationGizmoEnabled) {
-      const onRotationChanged = () => {
-        setSceneObjects(prev => prev.map(obj => 
-          obj.id === selectedObjectId 
-            ? { ...obj, rotation: mesh.rotation.clone() }
-            : obj
-        ))
-      }
-      
-      if (gizmoManager.gizmos.rotationGizmo) {
-        gizmoManager.gizmos.rotationGizmo.onDragEndObservable.add(onRotationChanged)
-      }
-    }
-
-    // Update scale when scale gizmo is used
-    if (gizmoManager.scaleGizmoEnabled) {
-      const onScaleChanged = () => {
-        setSceneObjects(prev => prev.map(obj => 
-          obj.id === selectedObjectId 
-            ? { ...obj, scale: mesh.scaling.clone() }
-            : obj
-        ))
-      }
-      
-      if (gizmoManager.gizmos.scaleGizmo) {
-        gizmoManager.gizmos.scaleGizmo.onDragEndObservable.add(onScaleChanged)
-      }
-    }
-  }, [selectedObjectId, transformMode])
-
-  // Handle transform mode changes and gizmo management
-  useEffect(() => {
-    if (!gizmoManagerRef.current) return
-
-    const gizmoManager = gizmoManagerRef.current
-
-    // Disable all gizmos first
+    // Detach from any previous mesh and disable all gizmos
+    gizmoManager.attachToMesh(null)
     gizmoManager.positionGizmoEnabled = false
     gizmoManager.rotationGizmoEnabled = false
     gizmoManager.scaleGizmoEnabled = false
     gizmoManager.boundingBoxGizmoEnabled = false
 
-    // If we have a selected object, enable the appropriate gizmo
-    if (selectedObject?.mesh) {
+    if (selectedMesh) {
+      // A mesh is selected, so attach gizmos and add observers
+      gizmoManager.attachToMesh(selectedMesh)
+
+      // Enable the correct gizmo based on transform mode
       switch (transformMode) {
         case 'move':
           gizmoManager.positionGizmoEnabled = true
@@ -148,99 +112,120 @@ function App() {
           gizmoManager.boundingBoxGizmoEnabled = true
           break
       }
-      
-      // Attach to the selected mesh
-      gizmoManager.attachToMesh(selectedObject.mesh)
-      console.log(`Enabled ${transformMode} gizmo for ${selectedObject.id}`)
-    } else {
-      // No selection, detach gizmo
-      gizmoManager.attachToMesh(null)
+
+      // Add observers to update state after a gizmo drag
+      const { positionGizmo, rotationGizmo, scaleGizmo } = gizmoManager.gizmos
+
+      if (positionGizmo) {
+        positionObserver = positionGizmo.onDragEndObservable.add(() => {
+          setSceneObjects(prev => prev.map(obj => 
+            obj.id === selectedObject?.id ? { ...obj, position: selectedMesh.position.clone() } : obj
+          ))
+        })
+      }
+      if (rotationGizmo) {
+        rotationObserver = rotationGizmo.onDragEndObservable.add(() => {
+          setSceneObjects(prev => prev.map(obj => 
+            obj.id === selectedObject?.id ? { ...obj, rotation: selectedMesh.rotation.clone() } : obj
+          ))
+        })
+      }
+      if (scaleGizmo) {
+        scaleObserver = scaleGizmo.onDragEndObservable.add(() => {
+          setSceneObjects(prev => prev.map(obj => 
+            obj.id === selectedObject?.id ? { ...obj, scale: selectedMesh.scaling.clone() } : obj
+          ))
+        })
+      }
     }
-  }, [transformMode, selectedObjectId, selectedObject])
+    
+    // Cleanup function to remove observers
+    return () => {
+      const { positionGizmo, rotationGizmo, scaleGizmo } = gizmoManager.gizmos
+      if (positionGizmo && positionObserver) {
+        positionGizmo.onDragEndObservable.remove(positionObserver)
+      }
+      if (rotationGizmo && rotationObserver) {
+        rotationGizmo.onDragEndObservable.remove(rotationObserver)
+      }
+      if (scaleGizmo && scaleObserver) {
+        scaleGizmo.onDragEndObservable.remove(scaleObserver)
+      }
+    }
+  }, [selectedObject, transformMode])
 
   // Handle object selection visual feedback
   useEffect(() => {
     if (!sceneRef.current) return
 
-    console.log('🎯 Updating visual feedback - Selected:', selectedObjectId, 'Hovered:', hoveredObjectId)
-
-    // Reset all objects to default state
+    // Reset all non-ground objects to a default state
     sceneObjects.forEach(obj => {
       if (obj.mesh?.material && obj.type !== 'ground') {
         const material = obj.mesh.material as StandardMaterial
-        material.emissiveColor = Color3.Black()
-        
-        // Reset cursor
-        if (obj.mesh) {
-          obj.mesh.actionManager = null
-        }
+        // Subtle glow to indicate all objects are interactive
+        material.emissiveColor = new Color3(0.1, 0.1, 0.1)
       }
     })
 
-    // Add hover effect to hovered object (if not selected)
+    // Add hover effect
     if (hoveredObjectId && hoveredObjectId !== selectedObjectId) {
       const hoveredObject = sceneObjects.find(obj => obj.id === hoveredObjectId)
       if (hoveredObject?.mesh?.material) {
         const material = hoveredObject.mesh.material as StandardMaterial
-        material.emissiveColor = new Color3(0.3, 0.6, 0.9) // More obvious blue hover
+        material.emissiveColor = new Color3(0.3, 0.6, 0.9) // Blue hover
       }
     }
 
-    // Add strong highlighting to selected object
+    // Add strong highlight to the selected object
     if (selectedObject?.mesh?.material) {
       const material = selectedObject.mesh.material as StandardMaterial
-      material.emissiveColor = new Color3(0.6, 1.0, 1.0) // Very bright cyan selection
-      console.log('✅ Applied strong selection highlight to:', selectedObject.id)
+      material.emissiveColor = new Color3(0.6, 1.0, 1.0) // Bright cyan selection
     }
-
-    // Set up hover detection for all objects
-    sceneObjects.forEach(obj => {
-      if (obj.mesh && obj.type !== 'ground') {
-        // Make cursor change on hover
-        obj.mesh.isPickable = true
-        
-        // Add visual feedback that objects are interactive
-        if (obj.mesh.material) {
-          const material = obj.mesh.material as StandardMaterial
-          // Objects that aren't selected or hovered get a subtle glow to indicate interactivity
-          if (obj.id !== selectedObjectId && obj.id !== hoveredObjectId) {
-            material.emissiveColor = new Color3(0.1, 0.1, 0.1) // Subtle glow to indicate clickability
-          }
-        }
-      }
-    })
-  }, [selectedObjectId, hoveredObjectId, selectedObject, sceneObjects])
+  }, [selectedObjectId, hoveredObjectId, sceneObjects])
 
   const toggleDropdown = (dropdownName: string) => {
     setActiveDropdown(activeDropdown === dropdownName ? null : dropdownName)
   }
 
   const handleObjectClick = (pickInfo: PickingInfo) => {
+    console.log('[handleObjectClick] Received pick info:', pickInfo);
+
     if (pickInfo.hit && pickInfo.pickedMesh) {
-      const clickedObject = sceneObjects.find(obj => obj.mesh === pickInfo.pickedMesh)
+      console.log(`[handleObjectClick] Hit registered on mesh: ${pickInfo.pickedMesh.name}`);
+      // Find the object by comparing the mesh name (which we use as an ID)
+      // Use the ref to get the current sceneObjects array
+      const clickedObject = sceneObjectsRef.current.find(obj => obj.id === pickInfo.pickedMesh?.name)
+
+      if (clickedObject) {
+        console.log(`[handleObjectClick] Found corresponding scene object:`, clickedObject);
+      } else {
+        console.log(`[handleObjectClick] No corresponding scene object found for mesh: ${pickInfo.pickedMesh.name}`);
+        console.log(`[handleObjectClick] Current scene objects:`, sceneObjectsRef.current.map(obj => obj.id));
+      }
+
       if (clickedObject && clickedObject.type !== 'ground') {
-        // If clicking on an already selected object, keep it selected
-        // If clicking on a different object, select the new one
-        if (selectedObjectId !== clickedObject.id) {
-          setSelectedObjectId(clickedObject.id)
-          console.log('🎯 Clicked and selected object:', clickedObject.id, clickedObject.type)
-        }
+        // When an object is clicked, it becomes the new selected object.
+        // This implicitly deselects any previously selected object.
+        console.log(`[handleObjectClick] Selecting object: ${clickedObject.id}`);
+        setSelectedObjectId(clickedObject.id)
         
         // Close any open dropdowns when selecting an object
         setActiveDropdown(null)
-      } else if (clickedObject && clickedObject.type === 'ground') {
+      } else {
+        // If the ground or an unmanaged mesh is clicked, deselect everything.
+        console.log(`[handleObjectClick] Clicked ground or unmanaged mesh. Deselecting.`);
         setSelectedObjectId(null)
-        console.log('🎯 Clicked ground, deselecting all')
       }
     } else {
+      // If empty space is clicked, deselect everything.
+      console.log('[handleObjectClick] Clicked empty space. Deselecting.');
       setSelectedObjectId(null)
-      console.log('🎯 Clicked empty space, deselecting all')
     }
   }
 
   const handleObjectHover = (pickInfo: PickingInfo) => {
     if (pickInfo.hit && pickInfo.pickedMesh) {
-      const hoveredObject = sceneObjects.find(obj => obj.mesh === pickInfo.pickedMesh)
+      const hoveredObject = sceneObjectsRef.current.find(obj => obj.mesh === pickInfo.pickedMesh)
       if (hoveredObject && hoveredObject.type !== 'ground') {
         setHoveredObjectId(hoveredObject.id)
         // Change cursor to pointer to indicate clickable
@@ -555,15 +540,53 @@ function App() {
 
       // Add click handling
       scene.onPointerObservable.add((pointerInfo) => {
-        if (pointerInfo.type === PointerEventTypes.POINTERDOWN) {
-          // Check if we clicked on a gizmo element (they usually have names starting with 'gizmo')
-          const isGizmoClick = pointerInfo.pickInfo?.pickedMesh?.name?.toLowerCase().includes('gizmo')
+        switch (pointerInfo.type) {
+          case PointerEventTypes.POINTERDOWN:
+            console.log('[Pointer Down] Event registered.');
+            // Store the starting position of the pointer
+            pointerDownPosition.current = { x: scene.pointerX, y: scene.pointerY };
+            break;
           
-          if (!isGizmoClick) {
-            handleObjectClick(pointerInfo.pickInfo!)
-          }
-        } else if (pointerInfo.type === PointerEventTypes.POINTERMOVE) {
-          handleObjectHover(pointerInfo.pickInfo!)
+          case PointerEventTypes.POINTERUP:
+            console.log('[Pointer Up] Event registered.');
+            if (pointerDownPosition.current) {
+                const deltaX = Math.abs(pointerDownPosition.current.x - scene.pointerX);
+                const deltaY = Math.abs(pointerDownPosition.current.y - scene.pointerY);
+                const clickThreshold = 5; // max pixels moved to be considered a click
+
+                console.log(`[Pointer Up] Pointer moved by (${deltaX}, ${deltaY})`);
+
+                if (deltaX < clickThreshold && deltaY < clickThreshold) {
+                    // It's a click, not a drag
+                    console.log('[Pointer Up] Movement within threshold. Processing as click.');
+                    const pickInfo = pointerInfo.pickInfo;
+
+                    if (pickInfo?.pickedMesh) {
+                        console.log(`[Pointer Up] Picked mesh: ${pickInfo.pickedMesh.name}`);
+                    } else {
+                        console.log('[Pointer Up] No mesh picked.');
+                    }
+                    
+                    const isGizmoClick = pickInfo?.pickedMesh?.name?.toLowerCase().includes('gizmo');
+                    console.log(`[Pointer Up] Is gizmo click? ${isGizmoClick}`);
+
+                    if (!isGizmoClick && pickInfo) {
+                        handleObjectClick(pickInfo);
+                    }
+                } else {
+                    console.log('[Pointer Up] Movement exceeded threshold. Ignoring as drag.');
+                }
+            }
+            // Reset for the next click
+            pointerDownPosition.current = null;
+            break;
+
+          case PointerEventTypes.POINTERMOVE:
+            const pickInfo = pointerInfo.pickInfo;
+            if (pickInfo) {
+                handleObjectHover(pickInfo);
+            }
+            break;
         }
       })
 
