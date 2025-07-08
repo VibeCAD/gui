@@ -771,7 +771,7 @@ function App() {
                     className="dropdown-action"
                     onClick={applyCurrentColorToSelection}
                   >
-                    Apply Current Color
+                    Apply Current Color Here
                   </button>
                 </div>
               </div>
