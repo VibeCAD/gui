@@ -3,12 +3,12 @@
 ## Phase 1: Firebase & Google Cloud Setup
 - [x] Create Firebase project in Firebase Console
 - [x] Enable Firebase Authentication service
-- [ ] Enable Cloud Firestore database
-- [ ] Enable Cloud Storage service
-- [ ] Enable Gemini API in Google Cloud Console
-- [ ] Enable Cloud Secret Manager API
-- [ ] Create Cloud Storage bucket for 3D models
-- [ ] Set up billing (required for Cloud Functions)
+- [x] Enable Cloud Firestore database
+- [x] Enable Cloud Storage service
+- [x] Enable Gemini API in Google Cloud Console
+- [x] Enable Cloud Secret Manager API
+- [x] Create Cloud Storage bucket for 3D models
+- [x] Set up billing (required for Cloud Functions)
 
 ## Phase 2: Authentication Implementation
 - [x] Install Firebase SDK: `npm install firebase`
@@ -17,17 +17,17 @@
 - [x] Replace API key input with Firebase Auth
 - [x] Implement login/logout UI components
 - [x] Add Google Sign-In provider
-- [ ] Create user profile in Firestore on first login
+- [x] Create user profile in Firestore on first login
 - [x] Update App.tsx to use Firebase user context
 
 ## Phase 3: Cloud Functions & Backend Logic
-- [ ] Install Firebase CLI: `npm install -g firebase-tools`
-- [ ] Initialize Cloud Functions: `firebase init functions`
-- [ ] Create `generateModel` callable function
+- [x] Install Firebase CLI: `npm install -g firebase-tools`
+- [x] Initialize Cloud Functions: `firebase init functions`
+- [x] Create `generateModel` callable function
 - [ ] Store Gemini API key in Secret Manager
 - [ ] Implement Gemini API call logic
 - [ ] Handle .glb file processing
-- [ ] Add error handling and retry logic
+- [x] Add error handling and retry logic
 - [ ] Set up local emulator for testing
 
 ## Phase 4: Firestore Integration
