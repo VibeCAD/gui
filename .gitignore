@@ -72,3 +72,6 @@ pids/
 .rts2_cache_cjs/
 .rts2_cache_es/
 .rts2_cache_umd/
+
+# Firebase
+vibecad-gai-firebase-adminsdk-fbsvc-4b39b42a58.json

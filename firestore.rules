@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users can only read their own user doc, and anyone can create one for themselves.
+    match /users/{userId} {
+      allow read, update: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null;
+    }
+
+    // Generations can be read by anyone (for a public gallery).
+    // A user can only create a generation for themselves.
+    // Only the owner can update or delete their generation.
+    match /generations/{generationId} {
+      allow read: if true; // Or change to `if request.auth != null` for logged-in users only
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+  }
+}

@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { Engine, Scene, ArcRotateCamera, Vector3, HemisphericLight, MeshBuilder, StandardMaterial, Color3, Mesh, PickingInfo, GizmoManager, PointerEventTypes } from 'babylonjs'
 import OpenAI from 'openai'
 import './App.css'
+import { Login } from './components/Login'
+import { Profile } from './components/Profile'
+import { auth, db } from './lib/firebase'
+import { onAuthStateChanged, signOut } from 'firebase/auth'
+import { doc, getDoc } from 'firebase/firestore'
+import type { User } from 'firebase/auth'
 
 interface SceneObject {
   id: string
@@ -46,6 +52,9 @@ function App() {
   const [wireframeMode, setWireframeMode] = useState(false)
   const [showGrid, setShowGrid] = useState(true)
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null)
+  const [user, setUser] = useState<User | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [showProfile, setShowProfile] = useState(false)
   
   // Dropdown state management
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
@@ -66,6 +75,48 @@ function App() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [activeDropdown])
+
+  // Listen for authentication state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setUser(user)
+      setAuthLoading(false)
+      if (user) {
+        // Try to load API key from Firestore
+        try {
+          const userDoc = await getDoc(doc(db, 'users', user.uid))
+          if (userDoc.exists() && userDoc.data().openaiApiKey) {
+            setApiKey(userDoc.data().openaiApiKey)
+            setShowApiKeyInput(false)
+          } else {
+            // Check localStorage as fallback
+            const storedKey = localStorage.getItem('openai_api_key')
+            if (storedKey) {
+              setApiKey(storedKey)
+              setShowApiKeyInput(false)
+            }
+          }
+        } catch (error) {
+          console.error('Error loading user data:', error)
+        }
+      }
+    })
+
+    return unsubscribe
+  }, [])
+
+  // Listen for API key updates
+  useEffect(() => {
+    const handleApiKeyUpdate = (event: CustomEvent) => {
+      setApiKey(event.detail.apiKey)
+      setShowApiKeyInput(false)
+    }
+
+    window.addEventListener('apiKeyUpdated', handleApiKeyUpdate as EventListener)
+    return () => {
+      window.removeEventListener('apiKeyUpdated', handleApiKeyUpdate as EventListener)
+    }
+  }, [])
 
   // Update object positions from gizmo interactions
   useEffect(() => {
@@ -325,6 +376,15 @@ function App() {
     setSelectedObjectId(newId)
     setActiveDropdown(null)
     console.log('✅ Created and selected:', newId)
+  }
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth)
+      setShowApiKeyInput(true)
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
   }
 
   const duplicateObject = () => {
@@ -866,6 +926,42 @@ function App() {
             </div>
           </div>
         </div>
+
+        {/* User Profile */}
+        <div className="toolbar-item toolbar-user">
+          <button 
+            className="toolbar-button"
+            onClick={() => toggleDropdown('user')}
+          >
+            {user?.email} <span className="dropdown-arrow">▼</span>
+          </button>
+          <div className={`dropdown-menu ${activeDropdown === 'user' ? 'show' : ''}`}>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Account</div>
+              <div className="user-info">
+                <div>{user?.email}</div>
+                <div className="user-uid">{user?.uid}</div>
+              </div>
+              <div className="dropdown-actions">
+                <button 
+                  className="dropdown-action"
+                  onClick={() => {
+                    setShowProfile(true)
+                    setActiveDropdown(null)
+                  }}
+                >
+                  Profile Settings
+                </button>
+                <button 
+                  className="dropdown-action danger"
+                  onClick={handleLogout}
+                >
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -1132,11 +1228,6 @@ Object IDs currently in scene: ${sceneObjects.map(obj => obj.id).join(', ')}`
     }
   }
 
-  const handleContinue = () => {
-    if (apiKey.trim()) {
-      setShowApiKeyInput(false)
-    }
-  }
 
   const clearAllObjects = () => {
     // Detach gizmo first
@@ -1181,34 +1272,39 @@ Object IDs currently in scene: ${sceneObjects.map(obj => obj.id).join(', ')}`
     }
   }, [])
 
-  if (showApiKeyInput) {
+  if (authLoading) {
     return (
       <div className="api-key-setup">
         <div className="api-key-container">
-          <h2>VibeCad - AI Scene Manipulation</h2>
-          <p>Enter your OpenAI API Key to enable AI-powered 3D scene manipulation:</p>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-..."
-            className="api-key-input"
-            onKeyPress={(e) => {
-              if (e.key === 'Enter') {
-                handleContinue()
-              }
-            }}
-          />
+          <h2>Loading...</h2>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <Login />
+  }
+
+  if (showApiKeyInput && !apiKey) {
+    return (
+      <div className="api-key-setup">
+        <div className="api-key-container">
+          <h2>Welcome to VibeCad!</h2>
+          <p>To use AI-powered scene manipulation, please add your OpenAI API key in your profile.</p>
           <button 
-            onClick={handleContinue}
-            disabled={!apiKey.trim()}
+            onClick={() => setShowProfile(true)}
             className="api-key-submit"
           >
-            Continue
+            Open Profile Settings
           </button>
-          <p className="api-key-note">
-            Your API key is stored locally and never sent to our servers.
-          </p>
+          <button 
+            onClick={() => setShowApiKeyInput(false)}
+            className="api-key-secondary"
+            style={{ marginTop: '12px', background: 'transparent', border: '1px solid #666' }}
+          >
+            Continue without AI
+          </button>
         </div>
       </div>
     )
@@ -1221,6 +1317,7 @@ Object IDs currently in scene: ${sceneObjects.map(obj => obj.id).join(', ')}`
         <canvas ref={canvasRef} className="babylon-canvas" />
         {renderAISidebar()}
       </div>
+      {showProfile && <Profile onClose={() => setShowProfile(false)} />}
     </div>
   )
 }

@@ -180,6 +180,28 @@ body {
   margin-bottom: 4px;
 }
 
+/* User Profile Styles */
+.toolbar-user {
+  margin-left: auto;
+}
+
+.user-info {
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+.user-info div {
+  margin-bottom: 4px;
+}
+
+.user-uid {
+  font-size: 11px;
+  color: #888;
+  font-family: monospace;
+}
+
 .dropdown-controls {
   padding: 12px 16px;
 }
