@@ -2,6 +2,7 @@ import { useEffect, useRef, useMemo, useState } from 'react'
 import { Vector3, Color3, PickingInfo, Matrix } from 'babylonjs'
 import { SceneManager } from '../sceneManager'
 import { useSceneStore } from '../../state/sceneStore'
+import { useGizmoManager } from '../gizmoManager'
 import type { SceneObject } from '../../types/types'
 
 export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | null>) => {
@@ -98,7 +99,9 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
           console.log('✅ SceneManager initialized, setting up callbacks...')
           
           // Set up event callbacks
+          console.log('🔗 Setting up object click callback')
           sceneManager.setObjectClickCallback(handleObjectClick)
+          console.log('🔗 Setting up object hover callback')
           sceneManager.setObjectHoverCallback(handleObjectHover)
           
           // Create initial scene objects
@@ -156,44 +159,71 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
 
   // Handle object click events
   const handleObjectClick = (pickInfo: PickingInfo, isCtrlHeld: boolean = false) => {
-    console.log('[handleObjectClick] Received pick info:', pickInfo)
+    // Get latest state directly from the store to prevent stale closures
+    const state = useSceneStore.getState()
+    
+    console.log('🎯 [handleObjectClick] Received pick info:', {
+      hit: pickInfo.hit,
+      pickedMesh: pickInfo.pickedMesh?.name,
+      isCtrlHeld,
+      currentSceneObjects: sceneObjectsRef.current.map(obj => obj.id)
+    })
 
     if (pickInfo.hit && pickInfo.pickedMesh) {
-      const clickedObject = sceneObjectsRef.current.find(obj => obj.id === pickInfo.pickedMesh?.name)
+      const meshName = pickInfo.pickedMesh.name
+      const clickedObject = sceneObjectsRef.current.find(obj => obj.id === meshName)
+
+      console.log('🎯 [handleObjectClick] Object lookup:', {
+        meshName,
+        foundObject: clickedObject?.id,
+        objectType: clickedObject?.type
+      })
 
       if (clickedObject && clickedObject.type !== 'ground') {
         // Check if object is locked
-        if (objectLocked[clickedObject.id]) {
-          console.log(`[handleObjectClick] Object is locked: ${clickedObject.id}`)
+        if (state.objectLocked[clickedObject.id]) {
+          console.log(`🔒 [handleObjectClick] Object is locked: ${clickedObject.id}`)
           return
         }
 
-        if (store.multiSelectMode || isCtrlHeld) {
+        if (state.multiSelectMode || isCtrlHeld) {
           // Multi-select mode
-          const newIds = selectedObjectIds.includes(clickedObject.id)
-            ? selectedObjectIds.filter(id => id !== clickedObject.id)
-            : [...selectedObjectIds, clickedObject.id]
+          const newIds = state.selectedObjectIds.includes(clickedObject.id)
+            ? state.selectedObjectIds.filter(id => id !== clickedObject.id)
+            : [...state.selectedObjectIds, clickedObject.id]
+          console.log('🎯 [handleObjectClick] Multi-select mode:', {
+            objectId: clickedObject.id,
+            newSelection: newIds
+          })
           setSelectedObjectIds(newIds)
           setSelectedObjectId(null)
         } else {
           // Single select mode
+          console.log('🎯 [handleObjectClick] Single select mode:', {
+            objectId: clickedObject.id
+          })
           setSelectedObjectId(clickedObject.id)
           setSelectedObjectIds([])
         }
         
-        store.setActiveDropdown(null)
+        state.setActiveDropdown(null)
       } else {
         // If the ground or an unmanaged mesh is clicked, deselect everything
+        console.log('🎯 [handleObjectClick] Clicked ground or unmanaged mesh, clearing selection')
         clearSelection()
       }
     } else {
       // If empty space is clicked, deselect everything
+      console.log('🎯 [handleObjectClick] Clicked empty space, clearing selection')
       clearSelection()
     }
   }
 
   // Handle object hover events
   const handleObjectHover = (pickInfo: PickingInfo) => {
+    // Get latest state directly from the store to prevent stale closures
+    const state = useSceneStore.getState()
+
     if (pickInfo.hit && pickInfo.pickedMesh) {
       const hoveredObject = sceneObjectsRef.current.find(obj => obj.id === pickInfo.pickedMesh?.name)
       if (hoveredObject && hoveredObject.type !== 'ground') {
@@ -215,6 +245,8 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
       }
     }
   }
+
+  // Pointer events are now handled by the SceneManager's built-in system
 
   // Synchronize scene objects with store state
   useEffect(() => {
@@ -278,12 +310,13 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     if (!sceneManagerRef.current || !sceneInitialized) return
 
     const sceneManager = sceneManagerRef.current
+    const state = useSceneStore.getState()
 
     // Reset all non-ground objects to a default state
-    sceneObjects.forEach(obj => {
+    state.sceneObjects.forEach(obj => {
       if (obj.type !== 'ground') {
         // Check if object is locked
-        if (objectLocked[obj.id]) {
+        if (state.objectLocked[obj.id]) {
           sceneManager.setMeshEmissive(obj.id, new Color3(0.8, 0.4, 0.4)) // Red tint for locked objects
         } else {
           // Subtle glow to indicate all objects are interactive
@@ -293,19 +326,19 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     })
 
     // Add hover effect
-    if (hoveredObjectId && hoveredObjectId !== selectedObjectId && !selectedObjectIds.includes(hoveredObjectId)) {
-      if (!objectLocked[hoveredObjectId]) {
-        sceneManager.setMeshEmissive(hoveredObjectId, new Color3(0.3, 0.6, 0.9)) // Blue hover
+    if (state.hoveredObjectId && state.hoveredObjectId !== state.selectedObjectId && !state.selectedObjectIds.includes(state.hoveredObjectId)) {
+      if (!state.objectLocked[state.hoveredObjectId]) {
+        sceneManager.setMeshEmissive(state.hoveredObjectId, new Color3(0.3, 0.6, 0.9)) // Blue hover
       }
     }
 
     // Add strong highlight to the single selected object
-    if (selectedObjectId) {
-      sceneManager.setMeshEmissive(selectedObjectId, new Color3(0.6, 1.0, 1.0)) // Bright cyan selection
+    if (state.selectedObjectId) {
+      sceneManager.setMeshEmissive(state.selectedObjectId, new Color3(0.6, 1.0, 1.0)) // Bright cyan selection
     }
 
     // Add highlight to multi-selected objects
-    selectedObjectIds.forEach(objectId => {
+    state.selectedObjectIds.forEach(objectId => {
       sceneManager.setMeshEmissive(objectId, new Color3(1.0, 0.8, 0.2)) // Orange for multi-selection
     })
   }, [selectedObjectId, selectedObjectIds, hoveredObjectId, sceneObjects, objectLocked, sceneInitialized])
@@ -351,51 +384,14 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     }
   }, [selectedObjectIds, sceneObjects, sceneInitialized])
 
-  // Handle gizmo management
-  useEffect(() => {
-    if (!sceneManagerRef.current || !sceneInitialized) return
-
-    const sceneManager = sceneManagerRef.current
-    const isMultiSelect = selectedObjectIds.length > 0
-    
-    // Choose which mesh to attach gizmo to
-    let targetMesh = null
-    if (isMultiSelect && multiSelectPivot) {
-      targetMesh = multiSelectPivot
-    } else if (selectedObjectId) {
-      targetMesh = sceneManager.getMeshById(selectedObjectId)
-    }
-
-    // Set up gizmos with drag end handler
-    const handleGizmoDragEnd = (position: Vector3, rotation: Vector3, scale: Vector3) => {
-      if (isMultiSelect && multiSelectPivot) {
-        // Apply transform to all selected objects
-        selectedObjectIds.forEach(id => {
-          const initialState = multiSelectInitialStates[id]
-          if (!initialState) return
-
-          let newPosition = initialState.relativePosition.clone().multiply(scale)
-          const rotationMatrix = new Matrix()
-          Matrix.RotationYawPitchRollToRef(rotation.y, rotation.x, rotation.z, rotationMatrix)
-          newPosition = Vector3.TransformCoordinates(newPosition, rotationMatrix).add(position)
-          
-          const newRotation = initialState.rotation.add(rotation)
-          const newScale = initialState.scale.multiply(scale)
-
-          updateObject(id, { position: newPosition, rotation: newRotation, scale: newScale })
-        })
-      } else if (selectedObjectId) {
-        // Single object transform
-        let newPosition = position.clone()
-        if (snapToGrid) {
-          newPosition = sceneManager.snapToGrid(newPosition, gridSize)
-        }
-        updateObject(selectedObjectId, { position: newPosition, rotation: rotation.clone(), scale: scale.clone() })
-      }
-    }
-
-    sceneManager.setupGizmos(transformMode, targetMesh, handleGizmoDragEnd)
-  }, [selectedObjectId, selectedObjectIds, transformMode, multiSelectPivot, multiSelectInitialStates, sceneInitialized, snapToGrid, gridSize])
+  // Use gizmo management hook
+  useGizmoManager(
+    sceneManagerRef.current?.getScene() || null,
+    (id: string) => sceneManagerRef.current?.getMeshById(id) || null,
+    multiSelectPivot,
+    snapToGrid,
+    gridSize
+  )
 
   // Expose scene manager methods for external use
   const sceneAPI = useMemo(() => ({

@@ -96,10 +96,13 @@ export class SceneManager {
   private setupPointerEvents(): void {
     if (!this.scene) return
     
+    console.log('🖱️ SceneManager: Setting up pointer events')
+    
     this.scene.onPointerObservable.add((pointerInfo) => {
       switch (pointerInfo.type) {
         case PointerEventTypes.POINTERDOWN:
           this.pointerDownPosition = { x: this.scene!.pointerX, y: this.scene!.pointerY }
+          console.log('🖱️ POINTERDOWN at:', this.pointerDownPosition)
           break
         
         case PointerEventTypes.POINTERUP:
@@ -108,12 +111,26 @@ export class SceneManager {
             const deltaY = Math.abs(this.pointerDownPosition.y - this.scene!.pointerY)
             const clickThreshold = 5
             
+            console.log('🖱️ POINTERUP delta:', { deltaX, deltaY, threshold: clickThreshold })
+            
             if (deltaX < clickThreshold && deltaY < clickThreshold) {
+              // It's a click, not a drag. Use the pick info from the pointer event.
               const pickInfo = pointerInfo.pickInfo
               const isGizmoClick = pickInfo?.pickedMesh?.name?.toLowerCase().includes('gizmo')
               
+              console.log('🖱️ Click detected:', {
+                hit: pickInfo?.hit,
+                pickedMesh: pickInfo?.pickedMesh?.name,
+                isGizmoClick,
+                hasCallback: !!this.onObjectClickCallback
+              })
+              
               if (!isGizmoClick && pickInfo && this.onObjectClickCallback) {
-                const isCtrlHeld = pointerInfo.event?.ctrlKey || false
+                const isCtrlHeld = (pointerInfo.event as PointerEvent).ctrlKey || (pointerInfo.event as PointerEvent).metaKey;
+                console.log('🖱️ Calling click callback with:', {
+                  meshName: pickInfo.pickedMesh?.name,
+                  isCtrlHeld
+                })
                 this.onObjectClickCallback(pickInfo, isCtrlHeld)
               }
             }
@@ -124,6 +141,7 @@ export class SceneManager {
         case PointerEventTypes.POINTERMOVE:
           const pickInfo = pointerInfo.pickInfo
           if (pickInfo && this.onObjectHoverCallback) {
+            // Don't log hover events as they're too frequent
             this.onObjectHoverCallback(pickInfo)
           }
           break
@@ -181,6 +199,9 @@ export class SceneManager {
       mesh.rotation = sceneObject.rotation.clone()
       mesh.scaling = sceneObject.scale.clone()
       
+      // Ensure the mesh ID is set to our object ID for reliable picking
+      mesh.id = sceneObject.id
+      
       // Create material
       const material = new StandardMaterial(`${sceneObject.id}-material`, this.scene)
       material.diffuseColor = Color3.FromHexString(sceneObject.color)
@@ -192,7 +213,13 @@ export class SceneManager {
       // Store mesh reference
       this.meshMap.set(sceneObject.id, mesh)
       
-      console.log(`✅ Added mesh: ${sceneObject.id}`)
+      console.log(`✅ Added mesh: ${sceneObject.id}`, {
+        meshName: mesh.name,
+        meshId: mesh.id,
+        isPickable: mesh.isPickable,
+        position: mesh.position,
+        hasMap: this.meshMap.has(sceneObject.id)
+      })
       return true
     } catch (error) {
       console.error(`❌ Error adding mesh ${sceneObject.id}:`, error)
@@ -461,10 +488,12 @@ export class SceneManager {
   }
 
   public setObjectClickCallback(callback: (pickInfo: PickingInfo, isCtrlHeld: boolean) => void): void {
+    console.log('🔗 SceneManager: Setting object click callback')
     this.onObjectClickCallback = callback
   }
 
   public setObjectHoverCallback(callback: (pickInfo: PickingInfo) => void): void {
+    console.log('🔗 SceneManager: Setting object hover callback')
     this.onObjectHoverCallback = callback
   }
 
@@ -474,6 +503,10 @@ export class SceneManager {
       Math.round(position.y / gridSize) * gridSize,
       Math.round(position.z / gridSize) * gridSize
     )
+  }
+
+  public getScene(): Scene | null {
+    return this.scene
   }
 
   public dispose(): void {

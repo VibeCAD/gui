@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, useMemo } from 'react'
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, Scene, Engine, ArcRotateCamera, GizmoManager, PickingInfo, Matrix, HemisphericLight, PointerEventTypes } from 'babylonjs';
+import { useEffect, useRef, useMemo } from 'react'
+import { Vector3, StandardMaterial, Color3, Mesh, Engine, ArcRotateCamera, GizmoManager, PickingInfo, Matrix, HemisphericLight } from 'babylonjs';
 import './App.css'
 
 // Import material presets constant (value)
@@ -11,6 +11,9 @@ import { useBabylonScene } from './babylon/hooks/useBabylonScene'
 // Import the new AISidebar component
 import { AISidebar } from './components/sidebar/AISidebar'
 
+// Import the keyboard shortcuts hook
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+
 import { useSceneStore } from './state/sceneStore'
 import type { SceneObject, PrimitiveType, TransformMode, ControlPointVisualization } from './types/types'
 
@@ -20,6 +23,9 @@ function App() {
   // Use the new babylon scene hook
   console.log('🎮 App.tsx: Calling useBabylonScene hook with canvasRef:', canvasRef.current)
   const { sceneAPI, sceneInitialized } = useBabylonScene(canvasRef)
+
+  // Use keyboard shortcuts hook
+  useKeyboardShortcuts()
 
   // --- START: Reading state from the Zustand store ---
   const {
@@ -133,39 +139,7 @@ function App() {
     })
   }, [canvasRef.current, showApiKeyInput])
   
-  // Add keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
-
-      switch (event.key.toLowerCase()) {
-        case 'g':
-          if (event.ctrlKey || event.metaKey) {
-            event.preventDefault();
-            setSnapToGrid(!snapToGrid);
-          }
-          break;
-        case 'delete':
-        case 'backspace':
-          if (hasSelectionFlag) {
-            event.preventDefault();
-            const objectsToDelete = selectedObjectId ? [selectedObjectId] : selectedObjectIds;
-            objectsToDelete.forEach(id => removeObject(id));
-            clearSelection();
-          }
-          break;
-        case 'r': setTransformMode('rotate'); break;
-        case 's': setTransformMode('scale'); break;
-        case 'm': setTransformMode('move'); break;
-        case 'escape':
-          clearSelection();
-          setActiveDropdown(null);
-          break;
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [snapToGrid, hasSelectionFlag, selectedObjectId, selectedObjectIds, setSnapToGrid, setTransformMode, clearSelection, removeObject]);
+  // Keyboard shortcuts are now handled by the useKeyboardShortcuts hook
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -179,7 +153,7 @@ function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [activeDropdown])
 
-  // Gizmo and selection management is now handled by the useBabylonScene hook
+  // Gizmo management is now handled by the useGizmoManager hook in useBabylonScene
 
   // Visual grid, multi-select pivot, and object selection feedback are now handled by the useBabylonScene hook
 
@@ -204,7 +178,7 @@ function App() {
     setActiveDropdown(activeDropdown === dropdownName ? null : dropdownName)
   }
 
-  // Object click and hover handling is now managed by the useBabylonScene hook
+  // Object click and hover handling is now managed directly in the useBabylonScene hook
 
   const createPrimitive = (type: Exclude<PrimitiveType, 'nurbs'>) => {
     if (!sceneInitialized) return;
@@ -269,10 +243,6 @@ function App() {
 
     objectsToColor.forEach(id => {
         updateObject(id, { color });
-        const obj = sceneObjects.find(o => o.id === id);
-        if(obj?.mesh?.material) {
-            (obj.mesh.material as StandardMaterial).diffuseColor = Color3.FromHexString(color);
-        }
     });
   }
 
