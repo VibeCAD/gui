@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Engine, Scene, ArcRotateCamera, Vector3, HemisphericLight, MeshBuilder, StandardMaterial, Color3, Mesh, PickingInfo, GizmoManager } from 'babylonjs'
+import { Engine, Scene, ArcRotateCamera, Vector3, HemisphericLight, MeshBuilder, StandardMaterial, Color3, Mesh, PickingInfo, GizmoManager, PointerEventTypes } from 'babylonjs'
 import OpenAI from 'openai'
 import './App.css'
 
@@ -45,6 +45,7 @@ function App() {
   const [sceneInitialized, setSceneInitialized] = useState(false)
   const [wireframeMode, setWireframeMode] = useState(false)
   const [showGrid, setShowGrid] = useState(true)
+  const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null)
   
   // Dropdown state management
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
@@ -161,23 +162,54 @@ function App() {
   useEffect(() => {
     if (!sceneRef.current) return
 
-    console.log('Updating selection highlighting for:', selectedObjectId)
+    console.log('🎯 Updating visual feedback - Selected:', selectedObjectId, 'Hovered:', hoveredObjectId)
 
-    // Remove highlighting from all objects
+    // Reset all objects to default state
     sceneObjects.forEach(obj => {
       if (obj.mesh?.material && obj.type !== 'ground') {
         const material = obj.mesh.material as StandardMaterial
         material.emissiveColor = Color3.Black()
+        
+        // Reset cursor
+        if (obj.mesh) {
+          obj.mesh.actionManager = null
+        }
       }
     })
 
-    // Add highlighting to selected object
+    // Add hover effect to hovered object (if not selected)
+    if (hoveredObjectId && hoveredObjectId !== selectedObjectId) {
+      const hoveredObject = sceneObjects.find(obj => obj.id === hoveredObjectId)
+      if (hoveredObject?.mesh?.material) {
+        const material = hoveredObject.mesh.material as StandardMaterial
+        material.emissiveColor = new Color3(0.3, 0.6, 0.9) // More obvious blue hover
+      }
+    }
+
+    // Add strong highlighting to selected object
     if (selectedObject?.mesh?.material) {
       const material = selectedObject.mesh.material as StandardMaterial
-      material.emissiveColor = new Color3(0.3, 0.6, 1.0) // Bright blue highlight
-      console.log('Applied highlight to:', selectedObject.id)
+      material.emissiveColor = new Color3(0.6, 1.0, 1.0) // Very bright cyan selection
+      console.log('✅ Applied strong selection highlight to:', selectedObject.id)
     }
-  }, [selectedObjectId, selectedObject, sceneObjects])
+
+    // Set up hover detection for all objects
+    sceneObjects.forEach(obj => {
+      if (obj.mesh && obj.type !== 'ground') {
+        // Make cursor change on hover
+        obj.mesh.isPickable = true
+        
+        // Add visual feedback that objects are interactive
+        if (obj.mesh.material) {
+          const material = obj.mesh.material as StandardMaterial
+          // Objects that aren't selected or hovered get a subtle glow to indicate interactivity
+          if (obj.id !== selectedObjectId && obj.id !== hoveredObjectId) {
+            material.emissiveColor = new Color3(0.1, 0.1, 0.1) // Subtle glow to indicate clickability
+          }
+        }
+      }
+    })
+  }, [selectedObjectId, hoveredObjectId, selectedObject, sceneObjects])
 
   const toggleDropdown = (dropdownName: string) => {
     setActiveDropdown(activeDropdown === dropdownName ? null : dropdownName)
@@ -187,15 +219,45 @@ function App() {
     if (pickInfo.hit && pickInfo.pickedMesh) {
       const clickedObject = sceneObjects.find(obj => obj.mesh === pickInfo.pickedMesh)
       if (clickedObject && clickedObject.type !== 'ground') {
-        setSelectedObjectId(clickedObject.id)
-        console.log('✅ Selected object:', clickedObject.id, clickedObject.type)
+        // If clicking on an already selected object, keep it selected
+        // If clicking on a different object, select the new one
+        if (selectedObjectId !== clickedObject.id) {
+          setSelectedObjectId(clickedObject.id)
+          console.log('🎯 Clicked and selected object:', clickedObject.id, clickedObject.type)
+        }
+        
+        // Close any open dropdowns when selecting an object
+        setActiveDropdown(null)
       } else if (clickedObject && clickedObject.type === 'ground') {
         setSelectedObjectId(null)
-        console.log('❌ Clicked ground, deselecting')
+        console.log('🎯 Clicked ground, deselecting all')
       }
     } else {
       setSelectedObjectId(null)
-      console.log('❌ Clicked empty space, deselecting')
+      console.log('🎯 Clicked empty space, deselecting all')
+    }
+  }
+
+  const handleObjectHover = (pickInfo: PickingInfo) => {
+    if (pickInfo.hit && pickInfo.pickedMesh) {
+      const hoveredObject = sceneObjects.find(obj => obj.mesh === pickInfo.pickedMesh)
+      if (hoveredObject && hoveredObject.type !== 'ground') {
+        setHoveredObjectId(hoveredObject.id)
+        // Change cursor to pointer to indicate clickable
+        if (canvasRef.current) {
+          canvasRef.current.style.cursor = 'pointer'
+        }
+      } else {
+        setHoveredObjectId(null)
+        if (canvasRef.current) {
+          canvasRef.current.style.cursor = 'default'
+        }
+      }
+    } else {
+      setHoveredObjectId(null)
+      if (canvasRef.current) {
+        canvasRef.current.style.cursor = 'default'
+      }
     }
   }
 
@@ -243,6 +305,10 @@ function App() {
     const material = new StandardMaterial(`${newId}-material`, scene)
     material.diffuseColor = Color3.FromHexString(currentColor)
     newMesh.material = material
+    
+    // Make the mesh pickable and ready for selection
+    newMesh.isPickable = true
+    newMesh.checkCollisions = false // Disable collisions for better performance
 
     // Create scene object
     const newObj: SceneObject = {
@@ -301,6 +367,10 @@ function App() {
     const material = new StandardMaterial(`${newId}-material`, scene)
     material.diffuseColor = Color3.FromHexString(selectedObject.color)
     newMesh.material = material
+    
+    // Make the mesh pickable and ready for selection
+    newMesh.isPickable = true
+    newMesh.checkCollisions = false
 
     const newObj: SceneObject = {
       id: newId,
@@ -348,8 +418,8 @@ function App() {
     
     const material = selectedObject.mesh.material as StandardMaterial
     material.diffuseColor = Color3.FromHexString(color)
-    // Maintain selection highlight
-    material.emissiveColor = new Color3(0.3, 0.6, 1.0)
+    // Maintain strong selection highlight
+    material.emissiveColor = new Color3(0.6, 1.0, 1.0)
     
     // Update state
     setSceneObjects(prev => prev.map(obj => 
@@ -429,7 +499,10 @@ function App() {
     const object = sceneObjects.find(obj => obj.id === objectId)
     if (object) {
       setSelectedObjectId(objectId)
-      console.log('📋 Selected from list:', objectId)
+      console.log('📋 Selected from sidebar:', objectId)
+      
+      // Close any open dropdowns
+      setActiveDropdown(null)
     }
   }
 
@@ -470,17 +543,27 @@ function App() {
       const cubeMaterial = new StandardMaterial('cubeMaterial', scene)
       cubeMaterial.diffuseColor = Color3.FromHexString('#ff6b6b')
       cube.material = cubeMaterial
+      cube.isPickable = true
+      cube.checkCollisions = false
 
       // Create ground
       const ground = MeshBuilder.CreateGround('ground', { width: 10, height: 10 }, scene)
       const groundMaterial = new StandardMaterial('groundMaterial', scene)
       groundMaterial.diffuseColor = new Color3(0.5, 0.5, 0.5)
       ground.material = groundMaterial
+      ground.isPickable = true // Ground is pickable for deselection
 
       // Add click handling
       scene.onPointerObservable.add((pointerInfo) => {
-        if (pointerInfo.type === 1) { // PointerEventTypes.POINTERDOWN
-          handleObjectClick(pointerInfo.pickInfo!)
+        if (pointerInfo.type === PointerEventTypes.POINTERDOWN) {
+          // Check if we clicked on a gizmo element (they usually have names starting with 'gizmo')
+          const isGizmoClick = pointerInfo.pickInfo?.pickedMesh?.name?.toLowerCase().includes('gizmo')
+          
+          if (!isGizmoClick) {
+            handleObjectClick(pointerInfo.pickInfo!)
+          }
+        } else if (pointerInfo.type === PointerEventTypes.POINTERMOVE) {
+          handleObjectHover(pointerInfo.pickInfo!)
         }
       })
 
@@ -717,7 +800,7 @@ function App() {
                     </div>
                   </>
                 ) : (
-                  <div className="no-selection-text">Click an object to select it</div>
+                  <div className="no-selection-text">Click an object in the 3D scene to select it</div>
                 )}
               </div>
             </div>
@@ -820,12 +903,16 @@ function App() {
 
         <div className="ai-control-group">
           <label>Scene Objects ({sceneObjects.filter(obj => obj.type !== 'ground').length}):</label>
+          <div style={{ marginBottom: '8px', fontSize: '11px', color: '#666', fontStyle: 'italic' }}>
+            💡 Click objects directly in the 3D scene to select them, or click here
+          </div>
           <div className="scene-objects">
             {sceneObjects.filter(obj => obj.type !== 'ground').map(obj => (
               <div 
                 key={obj.id} 
                 className={`scene-object ${selectedObjectId === obj.id ? 'selected' : ''}`}
                 onClick={() => selectObjectById(obj.id)}
+                title={`Click to select this object (or click it directly in the 3D scene)`}
               >
                 <span className="object-type">{obj.type}</span>
                 <span className="object-id">{obj.id}</span>
@@ -833,7 +920,10 @@ function App() {
               </div>
             ))}
             {sceneObjects.filter(obj => obj.type !== 'ground').length === 0 && (
-              <div className="no-objects">No objects in scene</div>
+              <div className="no-objects">
+                No objects in scene<br/>
+                <small>Use the Create menu to add objects</small>
+              </div>
             )}
           </div>
           <button 
@@ -930,6 +1020,8 @@ function App() {
           const newMaterial = new StandardMaterial(`${newId}-material`, scene)
           newMaterial.diffuseColor = Color3.FromHexString(command.color || '#3498db')
           newMesh.material = newMaterial
+          newMesh.isPickable = true
+          newMesh.checkCollisions = false
 
           const newObj: SceneObject = {
             id: newId,
