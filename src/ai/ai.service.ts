@@ -5,7 +5,11 @@ import { Vector3 } from 'babylonjs';
 export interface SceneCommand {
   action: 'move' | 'color' | 'scale' | 'create' | 'delete';
   objectId?: string;
-  type?: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 'house-basic' | 'house-room' | 'house-hallway' | 'house-roof-flat' | 'house-roof-pitched';
+  type?: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 
+    'house-basic' | 'house-room' | 'house-hallway' | 'house-roof-flat' | 'house-roof-pitched' |
+    'house-room-modular' | 'house-wall' | 'house-ceiling' | 'house-floor' |
+    'house-door-single' | 'house-door-double' | 'house-door-sliding' | 'house-door-french' | 'house-door-garage' |
+    'house-window-single' | 'house-window-double' | 'house-window-bay' | 'house-window-casement' | 'house-window-sliding' | 'house-window-skylight';
   x?: number;
   y?: number;
   z?: number;
@@ -58,6 +62,21 @@ export class AIService {
       'house-hallway': { width: 1, height: 1.5, depth: 3 },
       'house-roof-flat': { width: 2, height: 0.1, depth: 1.5 },
       'house-roof-pitched': { width: 2, height: 0.8, depth: 1.5 },
+      'house-room-modular': { width: 4, height: 2.5, depth: 4 },
+      'house-wall': { width: 4, height: 1.5, depth: 0.2 },
+      'house-ceiling': { width: 4, height: 0.1, depth: 4 },
+      'house-floor': { width: 4, height: 0.1, depth: 4 },
+      'house-door-single': { width: 0.9, height: 2, depth: 0.05 },
+      'house-door-double': { width: 1.8, height: 2, depth: 0.05 },
+      'house-door-sliding': { width: 1.2, height: 2, depth: 0.05 },
+      'house-door-french': { width: 1.2, height: 2, depth: 0.05 },
+      'house-door-garage': { width: 2.4, height: 2, depth: 0.05 },
+      'house-window-single': { width: 0.6, height: 0.8, depth: 0.05 },
+      'house-window-double': { width: 1.2, height: 0.8, depth: 0.05 },
+      'house-window-bay': { width: 1.5, height: 0.8, depth: 0.3 },
+      'house-window-casement': { width: 0.8, height: 1, depth: 0.05 },
+      'house-window-sliding': { width: 1.2, height: 0.8, depth: 0.05 },
+      'house-window-skylight': { width: 0.8, height: 0.8, depth: 0.05 },
       'ground': { width: 10, height: 1, depth: 10 }
     };
 
@@ -398,7 +417,22 @@ export class AIService {
       'house-room': { width: 2, height: 1.5, depth: 2 },
       'house-hallway': { width: 1, height: 1.5, depth: 3 },
       'house-roof-flat': { width: 2, height: 0.1, depth: 1.5 },
-      'house-roof-pitched': { width: 2, height: 0.8, depth: 1.5 }
+      'house-roof-pitched': { width: 2, height: 0.8, depth: 1.5 },
+      'house-room-modular': { width: 4, height: 2.5, depth: 4 },
+      'house-wall': { width: 4, height: 1.5, depth: 0.2 },
+      'house-ceiling': { width: 4, height: 0.1, depth: 4 },
+      'house-floor': { width: 4, height: 0.1, depth: 4 },
+      'house-door-single': { width: 0.9, height: 2, depth: 0.05 },
+      'house-door-double': { width: 1.8, height: 2, depth: 0.05 },
+      'house-door-sliding': { width: 1.2, height: 2, depth: 0.05 },
+      'house-door-french': { width: 1.2, height: 2, depth: 0.05 },
+      'house-door-garage': { width: 2.4, height: 2, depth: 0.05 },
+      'house-window-single': { width: 0.6, height: 0.8, depth: 0.05 },
+      'house-window-double': { width: 1.2, height: 0.8, depth: 0.05 },
+      'house-window-bay': { width: 1.5, height: 0.8, depth: 0.3 },
+      'house-window-casement': { width: 0.8, height: 1, depth: 0.05 },
+      'house-window-sliding': { width: 1.2, height: 0.8, depth: 0.05 },
+      'house-window-skylight': { width: 0.8, height: 0.8, depth: 0.05 }
     };
     
     return baseDimensions[type] || { width: 1, height: 1, depth: 1 };

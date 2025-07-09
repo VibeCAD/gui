@@ -203,6 +203,76 @@ function App() {
     setActiveDropdown(null);
   }
 
+  const createModularRoom = () => {
+    if (!sceneInitialized) return;
+    
+    const newId = `house-room-modular-${Date.now()}`;
+    const position = new Vector3(Math.random() * 4 - 2, 0, Math.random() * 4 - 2);
+
+    const newObj: SceneObject = {
+      id: newId,
+      type: 'house-room-modular',
+      position: position,
+      scale: new Vector3(1, 1, 1),
+      rotation: new Vector3(0, 0, 0),
+      color: '#DEB887',
+      isNurbs: false
+    };
+
+    addObject(newObj);
+    setSelectedObjectId(newId);
+    setActiveDropdown(null);
+  }
+
+  const createHousingComponent = (componentType: string, subType?: string) => {
+    if (!sceneInitialized) return;
+    
+    const typeString = subType ? `house-${componentType}-${subType}` : `house-${componentType}`;
+    const newId = `${typeString}-${Date.now()}`;
+    const position = new Vector3(Math.random() * 4 - 2, 1, Math.random() * 4 - 2);
+
+    // Set appropriate heights for different components
+    let yPosition = 1;
+    let defaultColor = currentColor;
+    
+    switch (componentType) {
+      case 'wall':
+        yPosition = 0.75; // Half of standard wall height
+        defaultColor = '#8B4513'; // Brown for walls
+        break;
+      case 'door':
+        yPosition = 1; // Standard door height
+        defaultColor = '#654321'; // Dark brown for doors
+        break;
+      case 'window':
+        yPosition = 1; // Standard window height
+        defaultColor = '#87CEEB'; // Sky blue for windows
+        break;
+      case 'ceiling':
+        yPosition = 2.5; // Standard ceiling height
+        defaultColor = '#F5F5DC'; // Beige for ceilings
+        break;
+      case 'floor':
+        yPosition = 0.05; // Just above ground
+        defaultColor = '#8B4513'; // Brown for floors
+        break;
+    }
+
+    const newObj: SceneObject = {
+      id: newId,
+      type: typeString as PrimitiveType,
+      position: new Vector3(position.x, yPosition, position.z),
+      scale: new Vector3(1, 1, 1),
+      rotation: new Vector3(0, 0, 0),
+      color: defaultColor,
+      isNurbs: false
+    };
+
+    addObject(newObj);
+    setSelectedObjectId(newId);
+    setActiveDropdown(null);
+  }
+
   const duplicateObject = () => {
     if (!selectedObject || !sceneInitialized) return
 
@@ -514,7 +584,7 @@ function App() {
               </div>
             </div>
             <div className="dropdown-section">
-              <div className="dropdown-section-title">Housing</div>
+              <div className="dropdown-section-title">Basic Housing</div>
               <div className="dropdown-grid">
                 <button className="dropdown-button" onClick={() => createPrimitive('house-basic')}>
                   <span className="dropdown-icon">🏠</span>
@@ -535,6 +605,86 @@ function App() {
                 <button className="dropdown-button" onClick={() => createPrimitive('house-roof-pitched')}>
                   <span className="dropdown-icon">🏠</span>
                   Pitched Roof
+                </button>
+              </div>
+            </div>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Modular Rooms</div>
+              <div className="dropdown-grid">
+                <button className="dropdown-button" onClick={() => createModularRoom()}>
+                  <span className="dropdown-icon">🏗️</span>
+                  Modular Room
+                </button>
+              </div>
+            </div>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Walls & Structure</div>
+              <div className="dropdown-grid">
+                <button className="dropdown-button" onClick={() => createHousingComponent('wall')}>
+                  <span className="dropdown-icon">🧱</span>
+                  Wall
+                </button>
+                <button className="dropdown-button" onClick={() => createHousingComponent('ceiling')}>
+                  <span className="dropdown-icon">🏗️</span>
+                  Ceiling
+                </button>
+                <button className="dropdown-button" onClick={() => createHousingComponent('floor')}>
+                  <span className="dropdown-icon">🟫</span>
+                  Floor
+                </button>
+              </div>
+            </div>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Doors</div>
+              <div className="dropdown-grid">
+                <button className="dropdown-button" onClick={() => createHousingComponent('door', 'single')}>
+                  <span className="dropdown-icon">🚪</span>
+                  Single Door
+                </button>
+                <button className="dropdown-button" onClick={() => createHousingComponent('door', 'double')}>
+                  <span className="dropdown-icon">🚪</span>
+                  Double Door
+                </button>
+                <button className="dropdown-button" onClick={() => createHousingComponent('door', 'sliding')}>
+                  <span className="dropdown-icon">🚪</span>
+                  Sliding Door
+                </button>
+                <button className="dropdown-button" onClick={() => createHousingComponent('door', 'french')}>
+                  <span className="dropdown-icon">🚪</span>
+                  French Door
+                </button>
+                <button className="dropdown-button" onClick={() => createHousingComponent('door', 'garage')}>
+                  <span className="dropdown-icon">🚪</span>
+                  Garage Door
+                </button>
+              </div>
+            </div>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Windows</div>
+              <div className="dropdown-grid">
+                <button className="dropdown-button" onClick={() => createHousingComponent('window', 'single')}>
+                  <span className="dropdown-icon">🪟</span>
+                  Single Window
+                </button>
+                <button className="dropdown-button" onClick={() => createHousingComponent('window', 'double')}>
+                  <span className="dropdown-icon">🪟</span>
+                  Double Window
+                </button>
+                <button className="dropdown-button" onClick={() => createHousingComponent('window', 'bay')}>
+                  <span className="dropdown-icon">🪟</span>
+                  Bay Window
+                </button>
+                <button className="dropdown-button" onClick={() => createHousingComponent('window', 'casement')}>
+                  <span className="dropdown-icon">🪟</span>
+                  Casement Window
+                </button>
+                <button className="dropdown-button" onClick={() => createHousingComponent('window', 'sliding')}>
+                  <span className="dropdown-icon">🪟</span>
+                  Sliding Window
+                </button>
+                <button className="dropdown-button" onClick={() => createHousingComponent('window', 'skylight')}>
+                  <span className="dropdown-icon">🪟</span>
+                  Skylight
                 </button>
               </div>
             </div>
@@ -912,6 +1062,128 @@ function App() {
                   disabled={!hasSelectionFlag}
                 >
                   Align to Grid
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Building Menu */}
+        <div className="toolbar-item">
+          <button 
+            className="toolbar-button"
+            onClick={() => toggleDropdown('building')}
+          >
+            Building <span className="dropdown-arrow">▼</span>
+          </button>
+          <div className={`dropdown-menu ${activeDropdown === 'building' ? 'show' : ''}`}>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Quick Build</div>
+              <div className="dropdown-actions">
+                <button 
+                  className="dropdown-action"
+                  onClick={() => {
+                    createModularRoom();
+                    setTimeout(() => createHousingComponent('door', 'single'), 100);
+                  }}
+                >
+                  Room with Door
+                </button>
+                <button 
+                  className="dropdown-action"
+                  onClick={() => {
+                    createModularRoom();
+                    setTimeout(() => createHousingComponent('window', 'single'), 100);
+                  }}
+                >
+                  Room with Window
+                </button>
+                <button 
+                  className="dropdown-action"
+                  onClick={() => {
+                    createModularRoom();
+                    setTimeout(() => createHousingComponent('door', 'single'), 100);
+                    setTimeout(() => createHousingComponent('window', 'single'), 200);
+                  }}
+                >
+                  Complete Room
+                </button>
+              </div>
+            </div>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Building Tools</div>
+              <div className="dropdown-actions">
+                <button 
+                  className="dropdown-action"
+                  onClick={() => {
+                    // Select all housing objects
+                    const housingObjects = sceneObjects.filter(obj => obj.type.startsWith('house-'));
+                    if (housingObjects.length > 0) {
+                      setSelectedObjectIds(housingObjects.map(obj => obj.id));
+                      setSelectedObjectId(null);
+                    }
+                    setActiveDropdown(null);
+                  }}
+                >
+                  Select All Housing
+                </button>
+                <button 
+                  className="dropdown-action"
+                  onClick={() => {
+                    // Focus on housing objects
+                    const housingObjects = sceneObjects.filter(obj => obj.type.startsWith('house-'));
+                    if (housingObjects.length > 0) {
+                      const center = housingObjects.reduce((acc, obj) => {
+                        return acc.add(obj.position)
+                      }, new Vector3(0, 0, 0)).scale(1 / housingObjects.length);
+                      sceneAPI.focusOnPosition(center);
+                    }
+                    setActiveDropdown(null);
+                  }}
+                >
+                  Focus on Building
+                </button>
+              </div>
+            </div>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Organization</div>
+              <div className="dropdown-actions">
+                <button 
+                  className="dropdown-action"
+                  onClick={() => {
+                    // Organize housing objects in a grid
+                    const housingObjects = sceneObjects.filter(obj => obj.type.startsWith('house-'));
+                    housingObjects.forEach((obj, index) => {
+                      const gridSize = Math.ceil(Math.sqrt(housingObjects.length));
+                      const row = Math.floor(index / gridSize);
+                      const col = index % gridSize;
+                      const newPosition = new Vector3(col * 4, obj.position.y, row * 4);
+                      updateObject(obj.id, { position: newPosition });
+                    });
+                    setActiveDropdown(null);
+                  }}
+                >
+                  Organize Grid
+                </button>
+                <button 
+                  className="dropdown-action"
+                  onClick={() => {
+                    // Align housing objects to ground level
+                    const housingObjects = sceneObjects.filter(obj => obj.type.startsWith('house-'));
+                    housingObjects.forEach(obj => {
+                      let groundLevel = 0;
+                      if (obj.type.includes('floor')) groundLevel = 0.05;
+                      else if (obj.type.includes('wall')) groundLevel = 0.75;
+                      else if (obj.type.includes('ceiling')) groundLevel = 2.5;
+                      else if (obj.type.includes('door') || obj.type.includes('window')) groundLevel = 1;
+                      
+                      const newPosition = new Vector3(obj.position.x, groundLevel, obj.position.z);
+                      updateObject(obj.id, { position: newPosition });
+                    });
+                    setActiveDropdown(null);
+                  }}
+                >
+                  Align to Ground
                 </button>
               </div>
             </div>

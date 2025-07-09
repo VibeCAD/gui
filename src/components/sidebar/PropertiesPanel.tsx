@@ -1,7 +1,7 @@
 import React from 'react';
 import { Vector3 } from 'babylonjs';
 import { useSceneStore } from '../../state/sceneStore';
-import type { SceneObject } from '../../types/types';
+import type { SceneObject, ModularHousingObject, Door, Window, Wall } from '../../types/types';
 
 export const PropertiesPanel: React.FC = () => {
   const {
@@ -11,12 +11,34 @@ export const PropertiesPanel: React.FC = () => {
     tessellationQuality,
     controlPointVisualizations,
     selectedControlPointIndex,
+    selectedWallId,
+    selectedDoorId,
+    selectedWindowId,
+    housingEditMode,
     updateObject,
     setTessellationQuality,
     setSelectedControlPointIndex,
     getSelectedObject,
     getSelectedObjects,
     hasSelection,
+    // Housing-specific actions
+    getHousingComponent,
+    getSelectedWall,
+    getSelectedDoor,
+    getSelectedWindow,
+    addDoor,
+    removeDoor,
+    addWindow,
+    removeWindow,
+    changeWallThickness,
+    toggleCeiling,
+    toggleFloor,
+    setSelectedWallId,
+    setSelectedDoorId,
+    setSelectedWindowId,
+    setHousingEditMode,
+    addHousingComponent,
+    updateHousingComponent,
   } = useSceneStore();
 
   const selectedObject = getSelectedObject();
@@ -269,6 +291,440 @@ export const PropertiesPanel: React.FC = () => {
     );
   };
 
+  const renderHousingProperties = (obj: SceneObject) => {
+    if (!obj.type.startsWith('house-') && obj.type !== 'modular-room') {
+      return null;
+    }
+
+    const housingComponent = getHousingComponent(obj.id);
+    if (!housingComponent) {
+      return null;
+    }
+
+    return (
+      <div className="properties-section">
+        <h4>Housing Properties</h4>
+        
+        {/* Wall Thickness Control */}
+        <div className="property-group">
+          <label>Wall Thickness:</label>
+          <div className="wall-thickness-control">
+            <input
+              type="range"
+              min="0.1"
+              max="1.0"
+              step="0.05"
+              value={housingComponent.wallThickness}
+              onChange={(e) => changeWallThickness(obj.id, parseFloat(e.target.value))}
+              className="thickness-slider"
+            />
+            <span className="thickness-value">{housingComponent.wallThickness.toFixed(2)}m</span>
+          </div>
+        </div>
+
+        {/* Ceiling Toggle */}
+        <div className="property-group">
+          <label>
+            <input
+              type="checkbox"
+              checked={housingComponent.hasCeiling}
+              onChange={(e) => toggleCeiling(obj.id, e.target.checked)}
+            />
+            Has Ceiling
+          </label>
+        </div>
+
+        {/* Floor Toggle */}
+        <div className="property-group">
+          <label>
+            <input
+              type="checkbox"
+              checked={housingComponent.hasFloor}
+              onChange={(e) => toggleFloor(obj.id, e.target.checked)}
+            />
+            Has Floor
+          </label>
+        </div>
+
+        {/* Ceiling Height */}
+        {housingComponent.hasCeiling && (
+          <div className="property-group">
+            <label>Ceiling Height:</label>
+            <input
+              type="number"
+              value={housingComponent.ceilingHeight}
+              onChange={(e) => updateHousingComponent(obj.id, { ceilingHeight: parseFloat(e.target.value) })}
+              step="0.1"
+              min="2.0"
+              max="5.0"
+              className="height-input"
+            />
+          </div>
+        )}
+
+        {/* Room Type */}
+        <div className="property-group">
+          <label>Room Type:</label>
+          <select
+            value={housingComponent.roomType || 'living-room'}
+            onChange={(e) => updateHousingComponent(obj.id, { roomType: e.target.value as any })}
+            className="room-type-select"
+          >
+            <option value="living-room">Living Room</option>
+            <option value="bedroom">Bedroom</option>
+            <option value="kitchen">Kitchen</option>
+            <option value="bathroom">Bathroom</option>
+            <option value="dining-room">Dining Room</option>
+            <option value="office">Office</option>
+            <option value="hallway">Hallway</option>
+            <option value="garage">Garage</option>
+          </select>
+        </div>
+
+        {/* Walls List */}
+        <div className="property-group">
+          <label>Walls ({housingComponent.walls.length}):</label>
+          <div className="walls-list">
+            {housingComponent.walls.map((wall, index) => (
+              <div 
+                key={wall.id} 
+                className={`wall-item ${selectedWallId === wall.id ? 'selected' : ''}`}
+                onClick={() => setSelectedWallId(wall.id)}
+              >
+                <span className="wall-name">{wall.type} Wall {index + 1}</span>
+                <span className="wall-info">
+                  {wall.doors.length} doors, {wall.windows.length} windows
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Selected Wall Properties */}
+        {selectedWallId && renderSelectedWallProperties(obj.id, selectedWallId)}
+
+        {/* Doors List */}
+        <div className="property-group">
+          <label>Doors ({housingComponent.doors.length}):</label>
+          <div className="doors-list">
+            {housingComponent.doors.map((door, index) => (
+              <div 
+                key={door.id} 
+                className={`door-item ${selectedDoorId === door.id ? 'selected' : ''}`}
+                onClick={() => setSelectedDoorId(door.id)}
+              >
+                <span className="door-name">{door.type} Door {index + 1}</span>
+                <span className="door-info">
+                  {door.width.toFixed(2)}×{door.height.toFixed(2)}m
+                </span>
+              </div>
+            ))}
+          </div>
+          <button 
+            className="add-component-btn"
+            onClick={() => setHousingEditMode('door')}
+          >
+            + Add Door
+          </button>
+        </div>
+
+        {/* Selected Door Properties */}
+        {selectedDoorId && renderSelectedDoorProperties(obj.id, selectedDoorId)}
+
+        {/* Windows List */}
+        <div className="property-group">
+          <label>Windows ({housingComponent.windows.length}):</label>
+          <div className="windows-list">
+            {housingComponent.windows.map((window, index) => (
+              <div 
+                key={window.id} 
+                className={`window-item ${selectedWindowId === window.id ? 'selected' : ''}`}
+                onClick={() => setSelectedWindowId(window.id)}
+              >
+                <span className="window-name">{window.type} Window {index + 1}</span>
+                <span className="window-info">
+                  {window.width.toFixed(2)}×{window.height.toFixed(2)}m
+                </span>
+              </div>
+            ))}
+          </div>
+          <button 
+            className="add-component-btn"
+            onClick={() => setHousingEditMode('window')}
+          >
+            + Add Window
+          </button>
+        </div>
+
+        {/* Selected Window Properties */}
+        {selectedWindowId && renderSelectedWindowProperties(obj.id, selectedWindowId)}
+
+        {/* Building Info */}
+        <div className="property-group">
+          <label>Building Information:</label>
+          <div className="building-info">
+            <div>Type: {housingComponent.housingType}</div>
+            <div>Walls: {housingComponent.walls.length}</div>
+            <div>Total Doors: {housingComponent.doors.length}</div>
+            <div>Total Windows: {housingComponent.windows.length}</div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSelectedWallProperties = (objectId: string, wallId: string) => {
+    const wall = getSelectedWall(objectId);
+    if (!wall) return null;
+
+    return (
+      <div className="property-group selected-wall-properties">
+        <h5>Selected Wall Properties</h5>
+        
+        <div className="wall-property">
+          <label>Wall Type:</label>
+          <select
+            value={wall.type}
+            onChange={(e) => {
+              // Update wall type logic would go here
+              console.log('Update wall type:', e.target.value);
+            }}
+          >
+            <option value="exterior">Exterior</option>
+            <option value="interior">Interior</option>
+            <option value="load-bearing">Load Bearing</option>
+            <option value="partition">Partition</option>
+          </select>
+        </div>
+
+        <div className="wall-property">
+          <label>Wall Thickness:</label>
+          <input
+            type="number"
+            value={wall.thickness}
+            onChange={(e) => changeWallThickness(objectId, parseFloat(e.target.value), wallId)}
+            step="0.05"
+            min="0.1"
+            max="1.0"
+          />
+        </div>
+
+        <div className="wall-property">
+          <label>Wall Height:</label>
+          <input
+            type="number"
+            value={wall.height}
+            onChange={(e) => {
+              // Update wall height logic would go here
+              console.log('Update wall height:', e.target.value);
+            }}
+            step="0.1"
+            min="2.0"
+            max="5.0"
+          />
+        </div>
+
+        <div className="wall-property">
+          <label>Load Bearing:</label>
+          <input
+            type="checkbox"
+            checked={wall.isLoadBearing}
+            onChange={(e) => {
+              // Update load bearing status
+              console.log('Update load bearing:', e.target.checked);
+            }}
+          />
+        </div>
+      </div>
+    );
+  };
+
+  const renderSelectedDoorProperties = (objectId: string, doorId: string) => {
+    const door = getSelectedDoor(objectId);
+    if (!door) return null;
+
+    return (
+      <div className="property-group selected-door-properties">
+        <h5>Selected Door Properties</h5>
+        
+        <div className="door-property">
+          <label>Door Type:</label>
+          <select
+            value={door.type}
+            onChange={(e) => {
+              // Update door type logic would go here
+              console.log('Update door type:', e.target.value);
+            }}
+          >
+            <option value="single">Single</option>
+            <option value="double">Double</option>
+            <option value="sliding">Sliding</option>
+            <option value="french">French</option>
+            <option value="garage">Garage</option>
+          </select>
+        </div>
+
+        <div className="door-property">
+          <label>Width:</label>
+          <input
+            type="number"
+            value={door.width}
+            onChange={(e) => {
+              // Update door width logic would go here
+              console.log('Update door width:', e.target.value);
+            }}
+            step="0.1"
+            min="0.6"
+            max="3.0"
+          />
+        </div>
+
+        <div className="door-property">
+          <label>Height:</label>
+          <input
+            type="number"
+            value={door.height}
+            onChange={(e) => {
+              // Update door height logic would go here
+              console.log('Update door height:', e.target.value);
+            }}
+            step="0.1"
+            min="1.8"
+            max="3.0"
+          />
+        </div>
+
+        <div className="door-property">
+          <label>Hinge Direction:</label>
+          <select
+            value={door.hingeDirection}
+            onChange={(e) => {
+              // Update hinge direction logic would go here
+              console.log('Update hinge direction:', e.target.value);
+            }}
+          >
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+          </select>
+        </div>
+
+        <div className="door-property">
+          <label>Open Direction:</label>
+          <select
+            value={door.openDirection}
+            onChange={(e) => {
+              // Update open direction logic would go here
+              console.log('Update open direction:', e.target.value);
+            }}
+          >
+            <option value="inward">Inward</option>
+            <option value="outward">Outward</option>
+          </select>
+        </div>
+
+        <button 
+          className="remove-component-btn"
+          onClick={() => removeDoor(objectId, doorId)}
+        >
+          Remove Door
+        </button>
+      </div>
+    );
+  };
+
+  const renderSelectedWindowProperties = (objectId: string, windowId: string) => {
+    const window = getSelectedWindow(objectId);
+    if (!window) return null;
+
+    return (
+      <div className="property-group selected-window-properties">
+        <h5>Selected Window Properties</h5>
+        
+        <div className="window-property">
+          <label>Window Type:</label>
+          <select
+            value={window.type}
+            onChange={(e) => {
+              // Update window type logic would go here
+              console.log('Update window type:', e.target.value);
+            }}
+          >
+            <option value="single">Single</option>
+            <option value="double">Double</option>
+            <option value="bay">Bay</option>
+            <option value="casement">Casement</option>
+            <option value="sliding">Sliding</option>
+            <option value="skylight">Skylight</option>
+          </select>
+        </div>
+
+        <div className="window-property">
+          <label>Width:</label>
+          <input
+            type="number"
+            value={window.width}
+            onChange={(e) => {
+              // Update window width logic would go here
+              console.log('Update window width:', e.target.value);
+            }}
+            step="0.1"
+            min="0.5"
+            max="3.0"
+          />
+        </div>
+
+        <div className="window-property">
+          <label>Height:</label>
+          <input
+            type="number"
+            value={window.height}
+            onChange={(e) => {
+              // Update window height logic would go here
+              console.log('Update window height:', e.target.value);
+            }}
+            step="0.1"
+            min="0.5"
+            max="2.5"
+          />
+        </div>
+
+        <div className="window-property">
+          <label>Sill Height:</label>
+          <input
+            type="number"
+            value={window.sillHeight}
+            onChange={(e) => {
+              // Update sill height logic would go here
+              console.log('Update sill height:', e.target.value);
+            }}
+            step="0.1"
+            min="0.5"
+            max="1.5"
+          />
+        </div>
+
+        <div className="window-property">
+          <label>Has Frame:</label>
+          <input
+            type="checkbox"
+            checked={window.hasFrame}
+            onChange={(e) => {
+              // Update frame status logic would go here
+              console.log('Update has frame:', e.target.checked);
+            }}
+          />
+        </div>
+
+        <button 
+          className="remove-component-btn"
+          onClick={() => removeWindow(objectId, windowId)}
+        >
+          Remove Window
+        </button>
+      </div>
+    );
+  };
+
   const renderMultiSelectProperties = () => (
     <div className="properties-section">
       <h4>Multiple Objects Selected ({selectedObjects.length})</h4>
@@ -329,6 +785,7 @@ export const PropertiesPanel: React.FC = () => {
           <>
             {renderBasicProperties(selectedObject)}
             {renderNurbsProperties(selectedObject)}
+            {renderHousingProperties(selectedObject)}
           </>
         ) : (
           renderMultiSelectProperties()

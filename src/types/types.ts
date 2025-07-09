@@ -1,7 +1,108 @@
 import { Vector3, Mesh } from 'babylonjs'
 
 export type TransformMode = 'select' | 'move' | 'rotate' | 'scale'
-export type PrimitiveType = 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 'nurbs' | 'house-basic' | 'house-room' | 'house-hallway' | 'house-roof-flat' | 'house-roof-pitched'
+export type PrimitiveType = 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 'nurbs' | 
+    'house-basic' | 'house-room' | 'house-hallway' | 'house-roof-flat' | 'house-roof-pitched' |
+    'house-room-modular' | 'house-wall' | 'house-ceiling' | 'house-floor' |
+    'house-door-single' | 'house-door-double' | 'house-door-sliding' | 'house-door-french' | 'house-door-garage' |
+    'house-window-single' | 'house-window-double' | 'house-window-bay' | 'house-window-casement' | 'house-window-sliding' | 'house-window-skylight'
+
+// Housing component types
+export type HousingComponentType = 'wall' | 'door' | 'window' | 'ceiling' | 'floor' | 'foundation'
+export type DoorType = 'single' | 'double' | 'sliding' | 'french' | 'garage'
+export type WindowType = 'single' | 'double' | 'bay' | 'casement' | 'sliding' | 'skylight'
+export type WallType = 'interior' | 'exterior' | 'load-bearing' | 'partition'
+
+// Door component interface
+export interface Door {
+    id: string
+    type: DoorType
+    width: number
+    height: number
+    thickness: number
+    position: Vector3  // Position relative to the wall
+    wallId: string     // ID of the wall this door belongs to
+    isOpen: boolean
+    openDirection: 'inward' | 'outward'
+    hingeDirection: 'left' | 'right'
+    color: string
+    material?: string
+}
+
+// Window component interface
+export interface Window {
+    id: string
+    type: WindowType
+    width: number
+    height: number
+    position: Vector3  // Position relative to the wall
+    wallId: string     // ID of the wall this window belongs to
+    sillHeight: number // Height from floor to window sill
+    hasFrame: boolean
+    frameThickness: number
+    color: string
+    material?: string
+    isOpen?: boolean   // For openable windows
+}
+
+// Wall component interface
+export interface Wall {
+    id: string
+    type: WallType
+    startPoint: Vector3
+    endPoint: Vector3
+    height: number
+    thickness: number
+    color: string
+    material?: string
+    doors: Door[]
+    windows: Window[]
+    isLoadBearing: boolean
+    connectedWalls: string[]  // IDs of walls this wall connects to
+}
+
+// Housing component base interface
+export interface HousingComponent {
+    id: string
+    type: HousingComponentType
+    parentId: string  // ID of the parent housing object
+    position: Vector3
+    rotation: Vector3
+    scale: Vector3
+    color: string
+    material?: string
+    isVisible: boolean
+    isLocked: boolean
+}
+
+// Modular housing object interface
+export interface ModularHousingObject extends SceneObject {
+    housingType: 'modular-room' | 'modular-house' | 'modular-building'
+    wallThickness: number
+    hasCeiling: boolean
+    hasFloor: boolean
+    hasFoundation: boolean
+    walls: Wall[]
+    doors: Door[]
+    windows: Window[]
+    ceilingHeight: number
+    floorThickness: number
+    foundationHeight: number
+    buildingConnections: string[]  // IDs of other housing objects this connects to
+    roomType?: 'bedroom' | 'kitchen' | 'bathroom' | 'living-room' | 'dining-room' | 'office' | 'hallway' | 'garage'
+}
+
+// Building connection interface
+export interface BuildingConnection {
+    id: string
+    fromObjectId: string
+    toObjectId: string
+    fromWallId: string
+    toWallId: string
+    connectionType: 'door' | 'opening' | 'seamless'
+    doorId?: string  // If connectionType is 'door'
+    isActive: boolean
+}
 
 // Scene Object (preserving info after scene change)
 export interface SceneObject {
@@ -21,6 +122,8 @@ export interface SceneObject {
       degreeV: number
       weights?: number[][]
     }
+    // Housing-specific properties (for backward compatibility)
+    housingData?: ModularHousingObject
 }
 
 // NURBS control point visualization data
@@ -55,3 +158,15 @@ export const materialPresets: MaterialPreset[] = [
     { name: 'Pink', color: '#ff8fab' },
     { name: 'Cyan', color: '#87ceeb' },
 ]
+
+// Utility types for housing operations
+export type HousingOperation = 
+  | { type: 'add-door', wallId: string, door: Omit<Door, 'id'> }
+  | { type: 'remove-door', doorId: string }
+  | { type: 'add-window', wallId: string, window: Omit<Window, 'id'> }
+  | { type: 'remove-window', windowId: string }
+  | { type: 'change-wall-thickness', wallId?: string, thickness: number }
+  | { type: 'toggle-ceiling', hasCeiling: boolean }
+  | { type: 'toggle-floor', hasFloor: boolean }
+  | { type: 'connect-buildings', fromObjectId: string, toObjectId: string, connection: Omit<BuildingConnection, 'id'> }
+  | { type: 'disconnect-buildings', connectionId: string }

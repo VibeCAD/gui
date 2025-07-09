@@ -175,7 +175,9 @@ body {
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   min-width: 220px;
-  max-width: 320px;
+  max-width: 380px;
+  max-height: 70vh;
+  overflow-y: auto;
   z-index: 1001;
   opacity: 0;
   visibility: hidden;
@@ -187,6 +189,12 @@ body {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
+}
+
+/* Special handling for housing dropdown with more content */
+.dropdown-menu:has(.dropdown-section:nth-child(3)) {
+  max-width: 420px;
+  min-width: 380px;
 }
 
 .dropdown-section {
@@ -213,6 +221,12 @@ body {
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   padding: 0 16px;
+}
+
+/* Wider grid for housing sections with many items */
+.dropdown-section:has(.dropdown-section-title:contains("Doors")) .dropdown-grid,
+.dropdown-section:has(.dropdown-section-title:contains("Windows")) .dropdown-grid {
+  grid-template-columns: repeat(2, 1fr);
 }
 
 .dropdown-button {
@@ -1350,4 +1364,269 @@ body {
   .control-points-list {
     max-height: 150px;
   }
+}
+
+/* Housing-specific styles */
+.wall-thickness-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.thickness-slider {
+  flex: 1;
+  cursor: pointer;
+  appearance: none;
+  height: 4px;
+  background: #ddd;
+  border-radius: 2px;
+  outline: none;
+}
+
+.thickness-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #3498db;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.thickness-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: #3498db;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
+.thickness-value {
+  color: #3498db;
+  font-weight: 500;
+  font-size: 11px;
+  min-width: 40px;
+  text-align: center;
+}
+
+.room-type-select {
+  width: 100%;
+  padding: 6px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  color: #333;
+  font-size: 12px;
+}
+
+.room-type-select:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.walls-list, .doors-list, .windows-list {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.wall-item, .door-item, .window-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.wall-item:hover, .door-item:hover, .window-item:hover {
+  background: #f8f9fa;
+}
+
+.wall-item.selected, .door-item.selected, .window-item.selected {
+  background: #3498db;
+  color: white;
+}
+
+.wall-item:last-child, .door-item:last-child, .window-item:last-child {
+  border-bottom: none;
+}
+
+.wall-name, .door-name, .window-name {
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.wall-info, .door-info, .window-info {
+  color: #666;
+  font-size: 11px;
+}
+
+.wall-item.selected .wall-info,
+.door-item.selected .door-info,
+.window-item.selected .window-info {
+  color: #f0f0f0;
+}
+
+.add-component-btn {
+  width: 100%;
+  padding: 8px;
+  background: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  margin-top: 8px;
+  transition: background-color 0.2s;
+}
+
+.add-component-btn:hover {
+  background: #2980b9;
+}
+
+.selected-wall-properties, .selected-door-properties, .selected-window-properties {
+  background: #f8f9fa;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 10px;
+  margin-top: 10px;
+}
+
+.selected-wall-properties h5, .selected-door-properties h5, .selected-window-properties h5 {
+  margin: 0 0 10px 0;
+  color: #3498db;
+  font-size: 13px;
+}
+
+.wall-property, .door-property, .window-property {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.wall-property label, .door-property label, .window-property label {
+  color: #666;
+  font-size: 11px;
+  margin-bottom: 0;
+  margin-right: 8px;
+}
+
+.wall-property input, .door-property input, .window-property input,
+.wall-property select, .door-property select, .window-property select {
+  width: 120px;
+  padding: 4px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  color: #333;
+  font-size: 11px;
+}
+
+.wall-property input:focus, .door-property input:focus, .window-property input:focus,
+.wall-property select:focus, .door-property select:focus, .window-property select:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.remove-component-btn {
+  width: 100%;
+  padding: 6px;
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  margin-top: 10px;
+  transition: background-color 0.2s;
+}
+
+.remove-component-btn:hover {
+  background: #c0392b;
+}
+
+.building-info {
+  background: #f8f9fa;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 10px;
+  font-size: 11px;
+  color: #666;
+}
+
+.building-info > div {
+  margin-bottom: 4px;
+}
+
+.building-info > div:last-child {
+  margin-bottom: 0;
+}
+
+.height-input {
+  width: 100px;
+}
+
+.properties-section {
+  margin-bottom: 20px;
+  padding: 15px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.properties-section h4 {
+  margin: 0 0 15px 0;
+  color: #333;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 8px;
+}
+
+.property-group {
+  margin-bottom: 15px;
+}
+
+.property-group label {
+  display: block;
+  margin-bottom: 5px;
+  color: #555;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.property-group input[type="number"],
+.property-group input[type="text"] {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  color: #333;
+  font-size: 12px;
+  transition: border-color 0.2s;
+}
+
+.property-group input[type="number"]:focus,
+.property-group input[type="text"]:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.property-group input[type="checkbox"] {
+  margin-right: 8px;
+  transform: scale(1.1);
+}
+
+.property-group input[type="checkbox"]:checked {
+  accent-color: #3498db;
 }
