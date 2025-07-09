@@ -5,7 +5,8 @@ export type PrimitiveType = 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' |
     'house-basic' | 'house-room' | 'house-hallway' | 'house-roof-flat' | 'house-roof-pitched' |
     'house-room-modular' | 'house-wall' | 'house-ceiling' | 'house-floor' |
     'house-door-single' | 'house-door-double' | 'house-door-sliding' | 'house-door-french' | 'house-door-garage' |
-    'house-window-single' | 'house-window-double' | 'house-window-bay' | 'house-window-casement' | 'house-window-sliding' | 'house-window-skylight'
+    'house-window-single' | 'house-window-double' | 'house-window-bay' | 'house-window-casement' | 'house-window-sliding' | 'house-window-skylight' |
+    'house-stairs' | 'house-foundation'
 
 // Housing component types
 export type HousingComponentType = 'wall' | 'door' | 'window' | 'ceiling' | 'floor' | 'foundation'
@@ -75,6 +76,21 @@ export interface HousingComponent {
     isLocked: boolean
 }
 
+// Ceiling features interface
+export interface CeilingFeatures {
+    hasLights?: boolean
+    hasFan?: boolean
+    hasSkylight?: boolean
+    hasBeams?: boolean
+}
+
+// Floor features interface
+export interface FloorFeatures {
+    hasBaseboards?: boolean
+    hasHeating?: boolean
+    hasTransition?: boolean
+}
+
 // Modular housing object interface
 export interface ModularHousingObject extends SceneObject {
     housingType: 'modular-room' | 'modular-house' | 'modular-building'
@@ -90,6 +106,16 @@ export interface ModularHousingObject extends SceneObject {
     foundationHeight: number
     buildingConnections: string[]  // IDs of other housing objects this connects to
     roomType?: 'bedroom' | 'kitchen' | 'bathroom' | 'living-room' | 'dining-room' | 'office' | 'hallway' | 'garage'
+    
+    // Enhanced ceiling properties
+    ceilingType?: 'flat' | 'vaulted' | 'coffered' | 'tray' | 'cathedral' | 'beam'
+    ceilingMaterial?: string
+    ceilingThickness?: number
+    ceilingFeatures?: CeilingFeatures
+    
+    // Enhanced floor properties
+    floorMaterial?: string
+    floorFeatures?: FloorFeatures
 }
 
 // Building connection interface

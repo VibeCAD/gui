@@ -618,6 +618,19 @@ function App() {
               </div>
             </div>
             <div className="dropdown-section">
+              <div className="dropdown-section-title">Foundation & Structure</div>
+              <div className="dropdown-grid">
+                <button className="dropdown-button" onClick={() => createPrimitive('house-foundation')}>
+                  <span className="dropdown-icon">🏗️</span>
+                  Foundation
+                </button>
+                <button className="dropdown-button" onClick={() => createPrimitive('house-stairs')}>
+                  <span className="dropdown-icon">🪜</span>
+                  Stairs
+                </button>
+              </div>
+            </div>
+            <div className="dropdown-section">
               <div className="dropdown-section-title">Walls & Structure</div>
               <div className="dropdown-grid">
                 <button className="dropdown-button" onClick={() => createHousingComponent('wall')}>

@@ -809,7 +809,387 @@ export const createPitchedRoof = (scene: Scene, options: MeshCreationOptions = {
    return roof;
 };
 
+/**
+ * Creates a foundation/basement for a building
+ */
+export const createFoundation = (
+  scene: Scene, 
+  walls: Wall[], 
+  height: number = 0.5, 
+  thickness: number = 0.3,
+  color: string = '#654321'
+): Mesh => {
+  // Calculate foundation bounds from walls
+  const points: Vector3[] = [];
+  walls.forEach(wall => {
+    points.push(wall.startPoint);
+    points.push(wall.endPoint);
+  });
 
+  if (points.length === 0) {
+    // Fallback: create a simple rectangular foundation
+    const foundation = MeshBuilder.CreateBox('foundation', {
+      width: 4,
+      height: height,
+      depth: 4
+    }, scene);
+    foundation.position.y = -height / 2;
+    return foundation;
+  }
+
+  // Find bounding box
+  const minX = Math.min(...points.map(p => p.x));
+  const maxX = Math.max(...points.map(p => p.x));
+  const minZ = Math.min(...points.map(p => p.z));
+  const maxZ = Math.max(...points.map(p => p.z));
+
+  // Add some padding around the foundation
+  const padding = thickness;
+  const width = maxX - minX + padding * 2;
+  const depth = maxZ - minZ + padding * 2;
+
+  const foundation = MeshBuilder.CreateBox('foundation', {
+    width: width,
+    height: height,
+    depth: depth
+  }, scene);
+
+  foundation.position = new Vector3(
+    (minX + maxX) / 2,
+    -height / 2,
+    (minZ + maxZ) / 2
+  );
+
+  // Apply material
+  const material = new StandardMaterial('foundation-material', scene);
+  material.diffuseColor = Color3.FromHexString(color);
+  foundation.material = material;
+
+  return foundation;
+};
+
+/**
+ * Creates a stairs component for multi-level buildings
+ */
+export const createStairs = (
+  scene: Scene,
+  options: {
+    stepCount?: number;
+    stepWidth?: number;
+    stepHeight?: number;
+    stepDepth?: number;
+    totalHeight?: number;
+    color?: string;
+    handrail?: boolean;
+  } = {}
+): Mesh => {
+  const stepCount = options.stepCount || 10;
+  const stepWidth = options.stepWidth || 1.0;
+  const stepHeight = options.stepHeight || 0.18;
+  const stepDepth = options.stepDepth || 0.25;
+  const totalHeight = options.totalHeight || stepCount * stepHeight;
+  const color = options.color || '#8B4513';
+  const hasHandrail = options.handrail !== false;
+
+  const meshes: Mesh[] = [];
+
+  // Create individual steps
+  for (let i = 0; i < stepCount; i++) {
+    const step = MeshBuilder.CreateBox(`step-${i}`, {
+      width: stepWidth,
+      height: stepHeight,
+      depth: stepDepth
+    }, scene);
+
+    step.position = new Vector3(
+      0,
+      i * stepHeight + stepHeight / 2,
+      i * stepDepth
+    );
+
+    meshes.push(step);
+  }
+
+  // Create handrail if requested
+  if (hasHandrail) {
+    const handrailHeight = 0.9;
+    const handrailThickness = 0.05;
+    
+    // Left handrail
+    const leftHandrail = MeshBuilder.CreateBox('left-handrail', {
+      width: handrailThickness,
+      height: handrailHeight,
+      depth: stepCount * stepDepth
+    }, scene);
+    leftHandrail.position = new Vector3(
+      -stepWidth / 2 + handrailThickness / 2,
+      totalHeight / 2 + handrailHeight / 2,
+      (stepCount - 1) * stepDepth / 2
+    );
+    meshes.push(leftHandrail);
+
+    // Right handrail
+    const rightHandrail = MeshBuilder.CreateBox('right-handrail', {
+      width: handrailThickness,
+      height: handrailHeight,
+      depth: stepCount * stepDepth
+    }, scene);
+    rightHandrail.position = new Vector3(
+      stepWidth / 2 - handrailThickness / 2,
+      totalHeight / 2 + handrailHeight / 2,
+      (stepCount - 1) * stepDepth / 2
+    );
+    meshes.push(rightHandrail);
+  }
+
+  // Merge all meshes
+  const stairsMesh = Mesh.MergeMeshes(meshes, true, true);
+  
+  if (stairsMesh) {
+    stairsMesh.name = 'stairs';
+    
+    // Apply material
+    const material = new StandardMaterial('stairs-material', scene);
+    material.diffuseColor = Color3.FromHexString(color);
+    stairsMesh.material = material;
+  }
+
+  return stairsMesh || meshes[0];
+};
+
+/**
+ * Creates a real-time preview mesh for wall thickness changes
+ */
+export const createWallThicknessPreview = (
+  scene: Scene,
+  originalWall: Wall,
+  newThickness: number,
+  color: string = '#3498db'
+): Mesh => {
+  const previewWall = { ...originalWall, thickness: newThickness };
+  const previewMesh = createWall(scene, previewWall);
+  
+  // Apply preview material
+  const material = new StandardMaterial('wall-preview-material', scene);
+  material.diffuseColor = Color3.FromHexString(color);
+  material.alpha = 0.5;
+  material.wireframe = true;
+  previewMesh.material = material;
+  
+  return previewMesh;
+};
+
+/**
+ * Creates a real-time preview mesh for door/window positioning
+ */
+export const createDoorWindowPreview = (
+  scene: Scene,
+  wall: Wall,
+  door: Door | null,
+  window: Window | null,
+  newPosition: Vector3,
+  color: string = '#e74c3c'
+): Mesh => {
+  let previewMesh: Mesh;
+  
+  if (door) {
+    const previewDoor = { ...door, position: newPosition };
+    previewMesh = createDoor(scene, previewDoor);
+  } else if (window) {
+    const previewWindow = { ...window, position: newPosition };
+    previewMesh = createWindow(scene, previewWindow);
+  } else {
+    throw new Error('Either door or window must be provided');
+  }
+  
+  // Apply preview material
+  const material = new StandardMaterial('door-window-preview-material', scene);
+  material.diffuseColor = Color3.FromHexString(color);
+  material.alpha = 0.7;
+  material.wireframe = true;
+  previewMesh.material = material;
+  
+  return previewMesh;
+};
+
+/**
+ * Creates a multi-story building with floor-to-floor connections
+ */
+export const createMultiStoryBuilding = (
+  scene: Scene,
+  floors: ModularHousingObject[],
+  stairwells: { fromFloor: number; toFloor: number; position: Vector3 }[] = []
+): Mesh => {
+  const meshes: Mesh[] = [];
+  
+  floors.forEach((floor, index) => {
+    const floorMesh = createModularHousingMesh(floor, scene);
+    
+    // Position floor at appropriate height
+    const floorHeight = index * (floor.ceilingHeight + floor.floorThickness);
+    floorMesh.position.y = floorHeight;
+    
+    meshes.push(floorMesh);
+  });
+  
+  // Create stairwells
+  stairwells.forEach((stairwell, index) => {
+    const fromFloor = floors[stairwell.fromFloor];
+    const toFloor = floors[stairwell.toFloor];
+    
+    if (fromFloor && toFloor) {
+      const stairHeight = toFloor.ceilingHeight + toFloor.floorThickness;
+      const stairs = createStairs(scene, {
+        totalHeight: stairHeight,
+        color: '#8B4513'
+      });
+      
+      stairs.position = stairwell.position.clone();
+      stairs.position.y = stairwell.fromFloor * stairHeight;
+      
+      meshes.push(stairs);
+    }
+  });
+  
+  // Merge all meshes
+  const buildingMesh = Mesh.MergeMeshes(meshes, true, true);
+  
+  if (buildingMesh) {
+    buildingMesh.name = 'multi-story-building';
+  }
+  
+  return buildingMesh || meshes[0];
+};
+
+/**
+ * Enhanced CSG operations with better error handling and optimization
+ */
+export const performEnhancedCSG = (
+  baseMesh: Mesh,
+  subtractMeshes: Mesh[],
+  unionMeshes: Mesh[] = [],
+  intersectMeshes: Mesh[] = []
+): Mesh => {
+  try {
+    let resultCSG = CSG.FromMesh(baseMesh);
+    
+    // Subtract meshes
+    subtractMeshes.forEach(mesh => {
+      try {
+        const subtractCSG = CSG.FromMesh(mesh);
+        resultCSG = resultCSG.subtract(subtractCSG);
+      } catch (error) {
+        console.warn('Failed to subtract mesh:', mesh.name, error);
+      }
+    });
+    
+    // Union meshes
+    unionMeshes.forEach(mesh => {
+      try {
+        const unionCSG = CSG.FromMesh(mesh);
+        resultCSG = resultCSG.union(unionCSG);
+      } catch (error) {
+        console.warn('Failed to union mesh:', mesh.name, error);
+      }
+    });
+    
+    // Intersect meshes
+    intersectMeshes.forEach(mesh => {
+      try {
+        const intersectCSG = CSG.FromMesh(mesh);
+        resultCSG = resultCSG.intersect(intersectCSG);
+      } catch (error) {
+        console.warn('Failed to intersect mesh:', mesh.name, error);
+      }
+    });
+    
+    const resultMesh = resultCSG.toMesh(
+      `${baseMesh.name}-enhanced-csg`,
+      baseMesh.material,
+      baseMesh.getScene()
+    );
+    
+    return resultMesh;
+    
+  } catch (error) {
+    console.error('Enhanced CSG operation failed:', error);
+    return baseMesh;
+  }
+};
+
+/**
+ * Creates drag-and-drop positioning helpers
+ */
+export const createPositionGuides = (
+  scene: Scene,
+  wall: Wall,
+  componentWidth: number,
+  color: string = '#f39c12'
+): { guides: Mesh[], positions: Vector3[] } => {
+  const guides: Mesh[] = [];
+  const positions: Vector3[] = [];
+  
+  const wallLength = wall.startPoint.subtract(wall.endPoint).length();
+  const wallDirection = wall.endPoint.subtract(wall.startPoint).normalize();
+  const wallMidpoint = wall.startPoint.add(wall.endPoint).scale(0.5);
+  
+  // Create position guides along the wall
+  const guideCount = Math.floor(wallLength / componentWidth) + 1;
+  
+  for (let i = 0; i < guideCount; i++) {
+    const t = i / (guideCount - 1);
+    const position = wall.startPoint.add(wallDirection.scale(t * wallLength));
+    positions.push(position);
+    
+    // Create visual guide
+    const guide = MeshBuilder.CreateSphere(`position-guide-${i}`, {
+      diameter: 0.1
+    }, scene);
+    
+    guide.position = position;
+    guide.position.y = 1.0; // Position at door/window height
+    
+    const material = new StandardMaterial(`guide-material-${i}`, scene);
+    material.diffuseColor = Color3.FromHexString(color);
+    material.emissiveColor = Color3.FromHexString(color);
+    guide.material = material;
+    
+    guides.push(guide);
+  }
+  
+  return { guides, positions };
+};
+
+/**
+ * Auto-adjusts connected structures when wall properties change
+ */
+export const autoAdjustConnectedStructures = (
+  scene: Scene,
+  modifiedWall: Wall,
+  connectedWalls: Wall[],
+  housingComponents: ModularHousingObject[]
+): void => {
+  // Update heights of connected walls
+  connectedWalls.forEach(wall => {
+    if (wall.id !== modifiedWall.id) {
+      wall.height = modifiedWall.height;
+    }
+  });
+  
+  // Update connected housing components
+  housingComponents.forEach(component => {
+    component.walls.forEach(wall => {
+      if (modifiedWall.connectedWalls.includes(wall.id)) {
+        wall.height = modifiedWall.height;
+      }
+    });
+    
+    // Adjust ceiling height if needed
+    if (component.hasCeiling) {
+      component.ceilingHeight = modifiedWall.height;
+    }
+  });
+};
 
 /**
  * Creates a simple rectangular room for backward compatibility
@@ -1148,7 +1528,83 @@ export const createStandaloneWindow = (scene: Scene, windowType: WindowType, opt
 };
 
 /**
- * Factory function that creates housing meshes based on the type
+ * Creates a standalone stairs component
+ */
+export const createStandaloneStairs = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
+  return createStairs(scene, {
+    stepCount: 10,
+    stepWidth: 1.0,
+    stepHeight: 0.18,
+    stepDepth: 0.25,
+    color: options.color || '#8B4513',
+    handrail: true
+  });
+};
+
+/**
+ * Creates a standalone foundation component
+ */
+export const createStandaloneFoundation = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
+  const walls: Wall[] = [
+    {
+      id: 'foundation-wall-1',
+      type: 'exterior',
+      startPoint: new Vector3(-2, 0, -2),
+      endPoint: new Vector3(2, 0, -2),
+      height: 0.5,
+      thickness: 0.3,
+      color: '#654321',
+      doors: [],
+      windows: [],
+      isLoadBearing: true,
+      connectedWalls: []
+    },
+    {
+      id: 'foundation-wall-2',
+      type: 'exterior',
+      startPoint: new Vector3(2, 0, -2),
+      endPoint: new Vector3(2, 0, 2),
+      height: 0.5,
+      thickness: 0.3,
+      color: '#654321',
+      doors: [],
+      windows: [],
+      isLoadBearing: true,
+      connectedWalls: []
+    },
+    {
+      id: 'foundation-wall-3',
+      type: 'exterior',
+      startPoint: new Vector3(2, 0, 2),
+      endPoint: new Vector3(-2, 0, 2),
+      height: 0.5,
+      thickness: 0.3,
+      color: '#654321',
+      doors: [],
+      windows: [],
+      isLoadBearing: true,
+      connectedWalls: []
+    },
+    {
+      id: 'foundation-wall-4',
+      type: 'exterior',
+      startPoint: new Vector3(-2, 0, 2),
+      endPoint: new Vector3(-2, 0, -2),
+      height: 0.5,
+      thickness: 0.3,
+      color: '#654321',
+      doors: [],
+      windows: [],
+      isLoadBearing: true,
+      connectedWalls: []
+    }
+  ];
+  
+  return createFoundation(scene, walls, 0.5, 0.3, options.color || '#654321');
+};
+
+/**
+ * Enhanced factory function with new Sprint 2 components
  */
 export const createHousingMesh = (
   type: string, 
@@ -1209,6 +1665,12 @@ export const createHousingMesh = (
       return createStandaloneWindow(scene, 'sliding', options);
     case 'house-window-skylight':
       return createStandaloneWindow(scene, 'skylight', options);
+    
+    // Sprint 2 new components
+    case 'house-stairs':
+      return createStandaloneStairs(scene, options);
+    case 'house-foundation':
+      return createStandaloneFoundation(scene, options);
     
     default:
       throw new Error(`Unknown housing type: ${type}`);
