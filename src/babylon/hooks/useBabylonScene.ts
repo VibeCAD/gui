@@ -29,6 +29,8 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     transformMode,
     wireframeMode,
     snapToGrid,
+    snapToObjects,
+    showConnectionPoints,
     gridSize,
     showGrid,
     hoveredObjectId,
@@ -406,6 +408,12 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     }
   }, [selectedObjectIds, sceneObjects, sceneInitialized])
 
+  // Handle connection point visualization toggle
+  useEffect(() => {
+    if (!sceneManagerRef.current || !sceneInitialized) return
+    sceneManagerRef.current.visualizeConnectionPoints(showConnectionPoints)
+  }, [showConnectionPoints, sceneInitialized])
+
   // Use gizmo management hook
   useGizmoManager(
     sceneManagerRef.current?.getScene() || null,
@@ -418,6 +426,7 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     },
     multiSelectPivot,
     snapToGrid,
+    snapToObjects,
     gridSize,
     sceneManagerRef.current
   )

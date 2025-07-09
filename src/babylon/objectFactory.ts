@@ -1,5 +1,5 @@
 import { Scene, MeshBuilder, StandardMaterial, Color3, Mesh, Vector3 } from 'babylonjs';
-import type { PrimitiveType } from '../types/types';
+import type { PrimitiveType, ConnectionPoint } from '../types/types';
 import { createHousingMesh } from './housingFactory';
 
 export interface MeshCreationOptions {
@@ -16,6 +16,7 @@ export interface MeshCreationOptions {
 export const createCube = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
   const mesh = MeshBuilder.CreateBox(options.name || 'cube', { size: 1 }, scene);
   applyMeshOptions(mesh, options);
+  attachConnectionPoints(mesh, 'cube');
   return mesh;
 };
 
@@ -25,6 +26,7 @@ export const createCube = (scene: Scene, options: MeshCreationOptions = {}): Mes
 export const createSphere = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
   const mesh = MeshBuilder.CreateSphere(options.name || 'sphere', { diameter: 1 }, scene);
   applyMeshOptions(mesh, options);
+  attachConnectionPoints(mesh, 'sphere');
   return mesh;
 };
 
@@ -34,6 +36,7 @@ export const createSphere = (scene: Scene, options: MeshCreationOptions = {}): M
 export const createCylinder = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
   const mesh = MeshBuilder.CreateCylinder(options.name || 'cylinder', { height: 1, diameter: 1 }, scene);
   applyMeshOptions(mesh, options);
+  attachConnectionPoints(mesh, 'cylinder');
   return mesh;
 };
 
@@ -43,6 +46,7 @@ export const createCylinder = (scene: Scene, options: MeshCreationOptions = {}):
 export const createPlane = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
   const mesh = MeshBuilder.CreatePlane(options.name || 'plane', { size: 1 }, scene);
   applyMeshOptions(mesh, options);
+  attachConnectionPoints(mesh, 'plane');
   return mesh;
 };
 
@@ -52,6 +56,7 @@ export const createPlane = (scene: Scene, options: MeshCreationOptions = {}): Me
 export const createTorus = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
   const mesh = MeshBuilder.CreateTorus(options.name || 'torus', { diameter: 1, thickness: 0.3 }, scene);
   applyMeshOptions(mesh, options);
+  attachConnectionPoints(mesh, 'torus');
   return mesh;
 };
 
@@ -65,6 +70,7 @@ export const createCone = (scene: Scene, options: MeshCreationOptions = {}): Mes
     diameterBottom: 1 
   }, scene);
   applyMeshOptions(mesh, options);
+  attachConnectionPoints(mesh, 'cone');
   return mesh;
 };
 
@@ -155,5 +161,46 @@ export const updateMesh = (mesh: Mesh, options: Partial<MeshCreationOptions>): v
   if (options.color && mesh.material) {
     const material = mesh.material as StandardMaterial;
     material.diffuseColor = Color3.FromHexString(options.color);
+  }
+};
+
+/**
+ * Attaches connection points metadata to a mesh for snapping/alignment purposes
+ */
+const attachConnectionPoints = (mesh: Mesh, type: PrimitiveType): void => {
+  let connectionPoints: ConnectionPoint[] = [];
+
+  switch (type) {
+    case 'cube': {
+      const halfX = 0.5 * mesh.scaling.x;
+      const halfY = 0.5 * mesh.scaling.y;
+      const halfZ = 0.5 * mesh.scaling.z;
+
+      connectionPoints = [
+        { id: 'px', position: new Vector3(halfX, 0, 0), normal: new Vector3(1, 0, 0) },
+        { id: 'nx', position: new Vector3(-halfX, 0, 0), normal: new Vector3(-1, 0, 0) },
+        { id: 'py', position: new Vector3(0, halfY, 0), normal: new Vector3(0, 1, 0) },
+        { id: 'ny', position: new Vector3(0, -halfY, 0), normal: new Vector3(0, -1, 0) },
+        { id: 'pz', position: new Vector3(0, 0, halfZ), normal: new Vector3(0, 0, 1) },
+        { id: 'nz', position: new Vector3(0, 0, -halfZ), normal: new Vector3(0, 0, -1) },
+      ];
+      break;
+    }
+    case 'plane': {
+      const half = 0.5 * mesh.scaling.x; // assuming square plane
+      connectionPoints = [
+        { id: 'pz', position: new Vector3(0, 0, 0.01), normal: new Vector3(0, 0, 1) },
+        { id: 'nz', position: new Vector3(0, 0, -0.01), normal: new Vector3(0, 0, -1) },
+      ];
+      break;
+    }
+    // TODO: Add more primitives as needed
+    default:
+      break;
+  }
+
+  if (connectionPoints.length > 0) {
+    if (!mesh.metadata) mesh.metadata = {};
+    (mesh.metadata as any).connectionPoints = connectionPoints;
   }
 };

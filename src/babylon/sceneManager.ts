@@ -10,9 +10,11 @@ import {
   Mesh, 
   GizmoManager,
   PointerEventTypes,
-  PickingInfo
+  PickingInfo,
+  Matrix,
+  Quaternion
 } from 'babylonjs'
-import type { SceneObject, PrimitiveType, TransformMode } from '../types/types'
+import type { SceneObject, PrimitiveType, TransformMode, ConnectionPoint } from '../types/types'
 import { createHousingMesh } from './housingFactory'
 
 
@@ -203,6 +205,26 @@ export class SceneManager {
         }
       }
       
+      // Generate default connection points (face centers) for box-like meshes
+      const bounding = mesh.getBoundingInfo()
+      if (bounding) {
+        const min = bounding.minimum.clone()
+        const max = bounding.maximum.clone()
+        const halfX = (max.x - min.x) / 2
+        const halfY = (max.y - min.y) / 2
+        const halfZ = (max.z - min.z) / 2
+        const cps: ConnectionPoint[] = [
+          { id: 'px', position: new Vector3(halfX, 0, 0), normal: new Vector3(1, 0, 0) },
+          { id: 'nx', position: new Vector3(-halfX, 0, 0), normal: new Vector3(-1, 0, 0) },
+          { id: 'py', position: new Vector3(0, halfY, 0), normal: new Vector3(0, 1, 0) },
+          { id: 'ny', position: new Vector3(0, -halfY, 0), normal: new Vector3(0, -1, 0) },
+          { id: 'pz', position: new Vector3(0, 0, halfZ), normal: new Vector3(0, 0, 1) },
+          { id: 'nz', position: new Vector3(0, 0, -halfZ), normal: new Vector3(0, 0, -1) },
+        ]
+        if (!mesh.metadata) mesh.metadata = {}
+        ;(mesh.metadata as any).connectionPoints = cps
+      }
+
       // Set initial properties
       mesh.position = sceneObject.position.clone()
       mesh.rotation = sceneObject.rotation.clone()
@@ -633,12 +655,167 @@ export class SceneManager {
     )
   }
 
+  /**
+   * Aligns the closest compatible connection-point pair and returns adjusted position & rotation.
+   */
+  public computeSnapTransform(
+    meshId: string,
+    desiredPosition: Vector3,
+    desiredRotation: Vector3
+  ): { position: Vector3; rotation: Vector3 } {
+    const movingMesh = this.meshMap.get(meshId)
+    if (!movingMesh) return { position: desiredPosition.clone(), rotation: desiredRotation.clone() }
+
+    const movingCPs = ((movingMesh.metadata as any)?.connectionPoints || []) as ConnectionPoint[]
+    if (!movingCPs.length) return { position: desiredPosition.clone(), rotation: desiredRotation.clone() }
+
+    // Convert desiredRotation Euler -> Quaternion and matrix
+    const desiredQuat = Quaternion.RotationYawPitchRoll(
+      desiredRotation.y,
+      desiredRotation.x,
+      desiredRotation.z
+    )
+    const rotMatrixMoving = Matrix.Identity()
+    desiredQuat.toRotationMatrix(rotMatrixMoving)
+
+    const scaled = (v: Vector3, s: Vector3) => new Vector3(v.x * s.x, v.y * s.y, v.z * s.z)
+
+    const SNAP_DISTANCE = 0.3
+    let best: {
+      delta: Vector3
+      newQuat: Quaternion
+      dist: number
+    } | null = null
+
+    const quatFromUnitVectors = (vFrom: Vector3, vTo: Vector3): Quaternion => {
+      const EPS = 1e-6
+      let r = vFrom.dot(vTo) + 1
+      let q: Quaternion
+      if (r < EPS) {
+        // 180° rotation, pick orthogonal axis
+        let axis = Math.abs(vFrom.x) > Math.abs(vFrom.z)
+          ? new Vector3(-vFrom.y, vFrom.x, 0)
+          : new Vector3(0, -vFrom.z, vFrom.y)
+        axis.normalize()
+        q = new Quaternion(axis.x, axis.y, axis.z, 0)
+      } else {
+        const axis = vFrom.cross(vTo)
+        q = new Quaternion(axis.x, axis.y, axis.z, r)
+        q.normalize()
+      }
+      return q
+    }
+
+    for (const [otherId, otherMesh] of this.meshMap.entries()) {
+      if (otherId === meshId) continue
+      const otherCPs = ((otherMesh.metadata as any)?.connectionPoints || []) as ConnectionPoint[]
+      if (!otherCPs.length) continue
+
+      const otherQuat = otherMesh.rotationQuaternion ?? Quaternion.RotationYawPitchRoll(
+        otherMesh.rotation.y,
+        otherMesh.rotation.x,
+        otherMesh.rotation.z
+      )
+      const rotMatrixOther = Matrix.Identity()
+      otherQuat.toRotationMatrix(rotMatrixOther)
+
+      for (const cpMoving of movingCPs) {
+        // moving point/normal in world after desired transform
+        const worldPosMoving = Vector3.TransformCoordinates(
+          scaled(cpMoving.position, movingMesh.scaling),
+          rotMatrixMoving
+        ).add(desiredPosition)
+        const worldNormalMoving = Vector3.TransformNormal(cpMoving.normal, rotMatrixMoving).normalize()
+
+        for (const cpOther of otherCPs) {
+          const worldPosOther = Vector3.TransformCoordinates(
+            scaled(cpOther.position, otherMesh.scaling),
+            rotMatrixOther
+          ).add(otherMesh.position)
+          const worldNormalOther = Vector3.TransformNormal(cpOther.normal, rotMatrixOther).normalize()
+
+          const dist = Vector3.Distance(worldPosMoving, worldPosOther)
+          if (dist > SNAP_DISTANCE) continue
+
+          const dot = worldNormalMoving.dot(worldNormalOther)
+          const isOpposite = dot < -0.95
+          const isPerp = Math.abs(dot) < 0.05
+          if (!isOpposite && !isPerp) continue
+
+          // Alignment quaternion: rotate moving normal to -otherNormal
+          const alignQuat = quatFromUnitVectors(worldNormalMoving, worldNormalOther.scale(-1))
+          const newQuat = alignQuat.multiply(desiredQuat)
+
+          // Recompute moving connection point world position after rotation
+          const newRotMatrix = Matrix.Identity()
+          newQuat.toRotationMatrix(newRotMatrix)
+          const newWorldPosMoving = Vector3.TransformCoordinates(
+            scaled(cpMoving.position, movingMesh.scaling),
+            newRotMatrix
+          ).add(desiredPosition)
+
+          const delta = worldPosOther.subtract(newWorldPosMoving)
+
+          const score = dist // simple; could combine angle
+          if (!best || score < best.dist) {
+            best = { delta, newQuat, dist: score }
+          }
+        }
+      }
+    }
+
+    if (best) {
+      const finalPos = desiredPosition.add(best.delta)
+      const finalRot = best.newQuat.toEulerAngles()
+      return { position: finalPos, rotation: finalRot }
+    }
+
+    return { position: desiredPosition.clone(), rotation: desiredRotation.clone() }
+  }
+  // (OPTIONAL) keep old method for backward compatibility
+  public computeSnapPosition(meshId: string, pos: Vector3, rot: Vector3): Vector3 {
+    return this.computeSnapTransform(meshId, pos, rot).position
+  }
+
   public getScene(): Scene | null {
     return this.scene
   }
 
+  private connectionPointDebugMeshes: Mesh[] = []
+
+  public visualizeConnectionPoints(enabled: boolean): void {
+    if (!this.scene) return
+
+    // Clear previous
+    this.connectionPointDebugMeshes.forEach(m => m.dispose())
+    this.connectionPointDebugMeshes = []
+
+    if (!enabled) return
+
+    const sphereMat = new StandardMaterial('cp-debug-mat', this.scene)
+    sphereMat.diffuseColor = new Color3(1, 0, 1) // magenta
+
+    this.meshMap.forEach(mesh => {
+      const cps = ((mesh.metadata as any)?.connectionPoints || []) as ConnectionPoint[]
+      if (!cps.length) return
+      const rotMatrix = Matrix.RotationYawPitchRoll(mesh.rotation.y, mesh.rotation.x, mesh.rotation.z)
+      cps.forEach(cp => {
+        const s = MeshBuilder.CreateSphere('cp-debug', { diameter: 0.1 }, this.scene!)
+        s.material = sphereMat
+        s.isPickable = false
+        // Position sphere in local space and parent to mesh so it tracks movement/rotation/scale
+        s.position = cp.position.clone()
+        s.parent = mesh
+        this.connectionPointDebugMeshes.push(s)
+      })
+    })
+  }
+
   public dispose(): void {
     this.cleanupGizmoObservers()
+    // dispose debug spheres
+    this.connectionPointDebugMeshes.forEach(m => m.dispose())
+    this.connectionPointDebugMeshes = []
     
     if (this.gridMesh) {
       this.gridMesh.dispose()

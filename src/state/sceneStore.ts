@@ -34,6 +34,8 @@ interface SceneState {
     wireframeMode: boolean
     showGrid: boolean
     snapToGrid: boolean
+    snapToObjects: boolean
+    showConnectionPoints: boolean
     gridSize: number
     gridMesh: Mesh | null
     collisionDetectionEnabled: boolean
@@ -99,6 +101,8 @@ interface SceneActions {
     setWireframeMode: (enabled: boolean) => void
     setShowGrid: (enabled: boolean) => void
     setSnapToGrid: (enabled: boolean) => void
+    setSnapToObjects: (enabled: boolean) => void
+    setShowConnectionPoints: (enabled: boolean) => void
     setGridSize: (size: number) => void
     setGridMesh: (mesh: Mesh | null) => void
     setCollisionDetectionEnabled: (enabled: boolean) => void
@@ -188,6 +192,8 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             wireframeMode: false,
             showGrid: true,
             snapToGrid: false,
+            snapToObjects: true,
+            showConnectionPoints: false,
             gridSize: 1,
             gridMesh: null,
             collisionDetectionEnabled: true,
@@ -289,6 +295,10 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             setShowGrid: (enabled) => set({ showGrid: enabled }),
             
             setSnapToGrid: (enabled) => set({ snapToGrid: enabled }),
+            
+            setSnapToObjects: (enabled: boolean) => set({ snapToObjects: enabled }),
+            
+            setShowConnectionPoints: (enabled: boolean) => set({ showConnectionPoints: enabled }),
             
             setGridSize: (size) => set({ gridSize: size }),
             

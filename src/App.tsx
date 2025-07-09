@@ -53,6 +53,8 @@ function App() {
     sidebarCollapsed,
     activeDropdown,
     collisionDetectionEnabled,
+    snapToObjects,
+    showConnectionPoints,
 
     // Actions
     setSceneObjects,
@@ -85,6 +87,8 @@ function App() {
     addObject,
     removeObject,
     setCollisionDetectionEnabled,
+    setSnapToObjects,
+    setShowConnectionPoints,
     
     // Getters from store (for checking object status)
     hasSelection,
@@ -1019,6 +1023,26 @@ function App() {
                       onChange={(e) => setSnapToGrid(e.target.checked)}
                     />
                     <span>Snap to Grid</span>
+                  </label>
+                </div>
+                <div className="control-row">
+                  <label className="control-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={snapToObjects}
+                      onChange={(e) => setSnapToObjects(e.target.checked)}
+                    />
+                    <span>Snap to Objects</span>
+                  </label>
+                </div>
+                <div className="control-row">
+                  <label className="control-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={showConnectionPoints}
+                      onChange={(e) => setShowConnectionPoints(e.target.checked)}
+                    />
+                    <span>Show Connection Points</span>
                   </label>
                 </div>
                 <div className="control-row">

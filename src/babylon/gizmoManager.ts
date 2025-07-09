@@ -250,6 +250,7 @@ export const useGizmoManager = (
   getMeshById: (id: string) => Mesh | null,
   multiSelectPivot: Mesh | null,
   snapToGrid: boolean,
+  snapToObjects: boolean,
   gridSize: number,
   sceneManager: SceneManager | null
 ) => {
@@ -346,7 +347,7 @@ export const useGizmoManager = (
           }
         })
       } else if (selectedObjectId) {
-        // Single object transform with collision checking
+        // Single object transform with collision checking (including snap-to-object)
         let newPosition = position.clone()
         if (snapToGrid) {
           newPosition = new Vector3(
@@ -356,13 +357,24 @@ export const useGizmoManager = (
           )
         }
 
+        // Snap to nearby objects using connection points
+        if (snapToObjects && sceneManager && (sceneManager as any).computeSnapTransform) {
+          const res = (sceneManager as any).computeSnapTransform(
+            selectedObjectId,
+            newPosition,
+            rotation.clone()
+          )
+          newPosition = res.position
+          rotation = res.rotation
+        }
+
         // Check for collision before applying transform (for single object)
         const storeState = useSceneStore.getState()
-        const sceneManager = storeState.collisionDetectionEnabled && gizmoControllerRef.current ? 
+        const smForCollision = storeState.collisionDetectionEnabled && gizmoControllerRef.current ? 
           (gizmoControllerRef.current as any).sceneManager : null
 
-        if (sceneManager && sceneManager.checkCollisionAtTransform) {
-          if (!sceneManager.checkCollisionAtTransform(selectedObjectId, newPosition, rotation.clone(), scale.clone())) {
+        if (smForCollision && smForCollision.checkCollisionAtTransform) {
+          if (!smForCollision.checkCollisionAtTransform(selectedObjectId, newPosition, rotation.clone(), scale.clone())) {
             updateObject(selectedObjectId, { 
               position: newPosition, 
               rotation: rotation.clone(), 
@@ -388,7 +400,8 @@ export const useGizmoManager = (
     transformMode, 
     multiSelectPivot, 
     multiSelectInitialStates, 
-    snapToGrid, 
+    snapToGrid,
+    snapToObjects,
     gridSize,
     scene
   ])

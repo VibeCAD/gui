@@ -150,6 +150,9 @@ export interface SceneObject {
     }
     // Housing-specific properties (for backward compatibility)
     housingData?: ModularHousingObject
+
+    /** Optional list of connection points used for snapping/alignment */
+    connectionPoints?: ConnectionPoint[]
 }
 
 // NURBS control point visualization data
@@ -184,6 +187,18 @@ export const materialPresets: MaterialPreset[] = [
     { name: 'Pink', color: '#ff8fab' },
     { name: 'Cyan', color: '#87ceeb' },
 ]
+
+// Add after materialPresets definition or maybe before utility types
+export interface ConnectionPoint {
+    /** A unique id within the object */
+    id: string
+    /** Local-space position of the point (before world transform) */
+    position: Vector3
+    /** Local-space outward normal of the face this point belongs to. Used to orient snapping. */
+    normal: Vector3
+    /** Optional list of object primitive types that are allowed to connect to this point */
+    allowedTypes?: string[]
+}
 
 // Utility types for housing operations
 export type HousingOperation = 
