@@ -53,6 +53,7 @@ function App() {
     textInput,
     sidebarCollapsed,
     activeDropdown,
+    collisionDetectionEnabled,
 
     // Actions
     setSceneObjects,
@@ -84,6 +85,7 @@ function App() {
     updateObject,
     addObject,
     removeObject,
+    setCollisionDetectionEnabled,
     
     // Getters from store (for checking object status)
     hasSelection,
@@ -399,6 +401,12 @@ function App() {
             <span className="status-label">Grid:</span>
             <span className={`status-value ${snapToGrid ? 'on' : 'off'}`}>
               {snapToGrid ? `ON (${gridSize})` : 'OFF'}
+            </span>
+          </span>
+          <span className="status-item">
+            <span className="status-label">Collision:</span>
+            <span className={`status-value ${collisionDetectionEnabled ? 'on' : 'off'}`}>
+              {collisionDetectionEnabled ? 'ON' : 'OFF'}
             </span>
           </span>
           <span className="status-item">
@@ -841,6 +849,26 @@ function App() {
                     step="0.1"
                     className="control-input"
                   />
+                </div>
+              </div>
+            </div>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Physics</div>
+              <div className="dropdown-controls">
+                <div className="control-row">
+                  <label className="control-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={collisionDetectionEnabled}
+                      onChange={(e) => {
+                        setCollisionDetectionEnabled(e.target.checked)
+                        if (sceneAPI) {
+                          sceneAPI.setCollisionDetectionEnabled(e.target.checked)
+                        }
+                      }}
+                    />
+                    <span>Collision Detection</span>
+                  </label>
                 </div>
               </div>
             </div>

@@ -8,17 +8,21 @@ import {
   Quaternion
 } from 'babylonjs'
 import { useSceneStore } from '../state/sceneStore'
+import { SceneManager } from './sceneManager'
 import type { TransformMode, MultiSelectInitialState } from '../types/types'
 
 export class GizmoController {
   private gizmoManager: GizmoManager | null = null
   private scene: Scene | null = null
+  private sceneManager: SceneManager | null = null
   private gizmoObservers: { observable: any, observer: any }[] = []
   private currentTargetMesh: Mesh | null = null
   private onDragEndCallback?: (position: Vector3, rotation: Vector3, scale: Vector3) => void
+  private originalTransform: { position: Vector3, rotation: Vector3, scale: Vector3 } | null = null
 
-  constructor(scene: Scene) {
+  constructor(scene: Scene, sceneManager: SceneManager) {
     this.scene = scene
+    this.sceneManager = sceneManager
     this.initializeGizmoManager()
   }
 
@@ -92,8 +96,37 @@ export class GizmoController {
     const { positionGizmo, rotationGizmo, scaleGizmo } = this.gizmoManager.gizmos
     const boundingBoxGizmo = (this.gizmoManager as any).boundingBoxGizmo
 
-    // Position gizmo observer
+    // Position gizmo observer with collision detection
     if (positionGizmo) {
+      // Store initial position when drag starts
+      const dragStartObservable = positionGizmo.onDragStartObservable
+      const dragStartObserver = dragStartObservable.add(() => {
+        const attachedMesh = this.gizmoManager?.attachedMesh
+        if (attachedMesh) {
+          this.originalTransform = {
+            position: attachedMesh.position.clone(),
+            rotation: attachedMesh.rotation.clone(),
+            scale: attachedMesh.scaling.clone()
+          }
+        }
+      })
+      this.gizmoObservers.push({ observable: dragStartObservable, observer: dragStartObserver })
+
+      // Check collision during drag
+      const dragObservable = positionGizmo.onDragObservable
+      const dragObserver = dragObservable.add(() => {
+        const attachedMesh = this.gizmoManager?.attachedMesh
+        if (attachedMesh && this.sceneManager && this.originalTransform) {
+          const meshId = attachedMesh.name || attachedMesh.id
+          if (this.sceneManager.checkCollisionAtPosition(meshId, attachedMesh.position)) {
+            // Revert to original position if collision detected
+            attachedMesh.position.copyFrom(this.originalTransform.position)
+            console.log(`🚫 Movement blocked due to collision for ${meshId}`)
+          }
+        }
+      })
+      this.gizmoObservers.push({ observable: dragObservable, observer: dragObserver })
+
       const observable = positionGizmo.onDragEndObservable
       const observer = observable.add(() => {
         const attachedMesh = this.gizmoManager?.attachedMesh
@@ -104,7 +137,7 @@ export class GizmoController {
       this.gizmoObservers.push({ observable, observer })
     }
 
-    // Rotation gizmo observer
+    // Rotation gizmo observer (less collision checking needed for rotation)
     if (rotationGizmo) {
       const observable = rotationGizmo.onDragEndObservable
       const observer = observable.add(() => {
@@ -116,8 +149,37 @@ export class GizmoController {
       this.gizmoObservers.push({ observable, observer })
     }
 
-    // Scale gizmo observer
+    // Scale gizmo observer with collision detection
     if (scaleGizmo) {
+      // Store initial scale when drag starts
+      const dragStartObservable = scaleGizmo.onDragStartObservable
+      const dragStartObserver = dragStartObservable.add(() => {
+        const attachedMesh = this.gizmoManager?.attachedMesh
+        if (attachedMesh) {
+          this.originalTransform = {
+            position: attachedMesh.position.clone(),
+            rotation: attachedMesh.rotation.clone(),
+            scale: attachedMesh.scaling.clone()
+          }
+        }
+      })
+      this.gizmoObservers.push({ observable: dragStartObservable, observer: dragStartObserver })
+
+      // Check collision during scale
+      const dragObservable = scaleGizmo.onDragObservable
+      const dragObserver = dragObservable.add(() => {
+        const attachedMesh = this.gizmoManager?.attachedMesh
+        if (attachedMesh && this.sceneManager && this.originalTransform) {
+          const meshId = attachedMesh.name || attachedMesh.id
+          if (this.sceneManager.checkCollisionAtTransform(meshId, attachedMesh.position, attachedMesh.rotation, attachedMesh.scaling)) {
+            // Revert to original scale if collision detected
+            attachedMesh.scaling.copyFrom(this.originalTransform.scale)
+            console.log(`🚫 Scaling blocked due to collision for ${meshId}`)
+          }
+        }
+      })
+      this.gizmoObservers.push({ observable: dragObservable, observer: dragObserver })
+
       const observable = scaleGizmo.onDragEndObservable
       const observer = observable.add(() => {
         const attachedMesh = this.gizmoManager?.attachedMesh
@@ -188,7 +250,8 @@ export const useGizmoManager = (
   getMeshById: (id: string) => Mesh | null,
   multiSelectPivot: Mesh | null,
   snapToGrid: boolean,
-  gridSize: number
+  gridSize: number,
+  sceneManager: SceneManager | null
 ) => {
   const store = useSceneStore()
   const {
@@ -203,10 +266,10 @@ export const useGizmoManager = (
 
   // Initialize gizmo controller when scene is ready
   React.useEffect(() => {
-    if (!scene) return
+    if (!scene || !sceneManager) return
 
     console.log('🎯 Initializing GizmoController')
-    gizmoControllerRef.current = new GizmoController(scene)
+    gizmoControllerRef.current = new GizmoController(scene, sceneManager)
 
     return () => {
       if (gizmoControllerRef.current) {
@@ -214,7 +277,7 @@ export const useGizmoManager = (
         gizmoControllerRef.current = null
       }
     }
-  }, [scene])
+  }, [scene, sceneManager])
 
   // Update gizmos when selection or transform mode changes
   React.useEffect(() => {
@@ -233,7 +296,7 @@ export const useGizmoManager = (
     // Handle gizmo drag end
     const handleGizmoDragEnd = (position: Vector3, rotation: Vector3, scale: Vector3) => {
       if (isMultiSelect && multiSelectPivot) {
-        // Apply transform to all selected objects
+        // Apply transform to all selected objects with collision checking
         selectedObjectIds.forEach(id => {
           const initialState = multiSelectInitialStates[id]
           if (!initialState) return
@@ -254,10 +317,23 @@ export const useGizmoManager = (
           const newRotation = initialState.rotation.add(rotation)
           const newScale = initialState.scale.multiply(scale)
 
-          updateObject(id, { position: newPosition, rotation: newRotation, scale: newScale })
+          // Check for collision before applying transform (for multi-select)
+          const storeState = useSceneStore.getState()
+          const sceneManager = storeState.collisionDetectionEnabled && gizmoControllerRef.current ? 
+            (gizmoControllerRef.current as any).sceneManager : null
+          
+          if (sceneManager && sceneManager.checkCollisionAtTransform) {
+            if (!sceneManager.checkCollisionAtTransform(id, newPosition, newRotation, newScale)) {
+              updateObject(id, { position: newPosition, rotation: newRotation, scale: newScale })
+            } else {
+              console.log(`🚫 Multi-select transform blocked for ${id} due to collision`)
+            }
+          } else {
+            updateObject(id, { position: newPosition, rotation: newRotation, scale: newScale })
+          }
         })
       } else if (selectedObjectId) {
-        // Single object transform
+        // Single object transform with collision checking
         let newPosition = position.clone()
         if (snapToGrid) {
           newPosition = new Vector3(
@@ -266,11 +342,29 @@ export const useGizmoManager = (
             Math.round(newPosition.z / gridSize) * gridSize
           )
         }
-        updateObject(selectedObjectId, { 
-          position: newPosition, 
-          rotation: rotation.clone(), 
-          scale: scale.clone() 
-        })
+
+        // Check for collision before applying transform (for single object)
+        const storeState = useSceneStore.getState()
+        const sceneManager = storeState.collisionDetectionEnabled && gizmoControllerRef.current ? 
+          (gizmoControllerRef.current as any).sceneManager : null
+
+        if (sceneManager && sceneManager.checkCollisionAtTransform) {
+          if (!sceneManager.checkCollisionAtTransform(selectedObjectId, newPosition, rotation.clone(), scale.clone())) {
+            updateObject(selectedObjectId, { 
+              position: newPosition, 
+              rotation: rotation.clone(), 
+              scale: scale.clone() 
+            })
+          } else {
+            console.log(`🚫 Transform blocked for ${selectedObjectId} due to collision`)
+          }
+        } else {
+          updateObject(selectedObjectId, { 
+            position: newPosition, 
+            rotation: rotation.clone(), 
+            scale: scale.clone() 
+          })
+        }
       }
     }
 

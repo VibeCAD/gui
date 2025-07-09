@@ -30,6 +30,7 @@ interface SceneState {
     snapToGrid: boolean
     gridSize: number
     gridMesh: Mesh | null
+    collisionDetectionEnabled: boolean
     
     // Object properties
     objectVisibility: {[key: string]: boolean}
@@ -86,6 +87,7 @@ interface SceneActions {
     setSnapToGrid: (enabled: boolean) => void
     setGridSize: (size: number) => void
     setGridMesh: (mesh: Mesh | null) => void
+    setCollisionDetectionEnabled: (enabled: boolean) => void
     
     // Object property actions
     setObjectVisibility: (objectId: string, visible: boolean) => void
@@ -145,6 +147,7 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             snapToGrid: false,
             gridSize: 1,
             gridMesh: null,
+            collisionDetectionEnabled: true,
             
             objectVisibility: {},
             objectLocked: {},
@@ -239,6 +242,8 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             setGridSize: (size) => set({ gridSize: size }),
             
             setGridMesh: (mesh) => set({ gridMesh: mesh }),
+            
+            setCollisionDetectionEnabled: (enabled) => set({ collisionDetectionEnabled: enabled }),
             
             setObjectVisibility: (objectId, visible) => set((state) => ({
                 objectVisibility: { ...state.objectVisibility, [objectId]: visible }
@@ -350,7 +355,8 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 apiKey: state.apiKey,
                 showApiKeyInput: state.showApiKeyInput,
                 transformMode: state.transformMode,
-                multiSelectMode: state.multiSelectMode
+                multiSelectMode: state.multiSelectMode,
+                collisionDetectionEnabled: state.collisionDetectionEnabled
             })
         }
     )

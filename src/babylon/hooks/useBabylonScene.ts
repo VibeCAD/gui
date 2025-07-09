@@ -10,7 +10,7 @@ function usePrevious<T>(value: T): T | undefined {
   const ref = useRef<T>()
   useEffect(() => {
     ref.current = value
-  })
+  }, [value])
   return ref.current
 }
 
@@ -116,17 +116,7 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
           console.log('🔗 Setting up object hover callback')
           sceneManager.setObjectHoverCallback(handleObjectHover)
           
-          // Create initial scene objects
-          const initialCube: SceneObject = {
-            id: 'cube-initial',
-            type: 'cube',
-            position: new Vector3(0, 1, 0),
-            scale: new Vector3(1, 1, 1),
-            rotation: new Vector3(0, 0, 0),
-            color: '#ff6b6b',
-            isNurbs: false
-          }
-
+          // Create initial scene objects - only ground, no cube
           const initialGround: SceneObject = {
             id: 'ground',
             type: 'ground',
@@ -137,14 +127,13 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
             isNurbs: false
           }
 
-          console.log('🎲 Adding initial objects to scene...')
+          console.log('🎲 Adding initial ground to scene...')
           
-          // Add initial objects to the scene and store
-          sceneManager.addMesh(initialCube)
+          // Add initial ground to the scene and store
           sceneManager.addMesh(initialGround)
           
-          // Initialize store with initial objects
-          store.setSceneObjects([initialCube, initialGround])
+          // Initialize store with initial ground only
+          store.setSceneObjects([initialGround])
           
           setSceneInitialized(true)
           console.log('✅ useBabylonScene initialized successfully')
@@ -330,6 +319,12 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     sceneManagerRef.current.createVisualGrid(snapToGrid && showGrid, gridSize)
   }, [snapToGrid, showGrid, gridSize, sceneInitialized])
 
+  // Handle collision detection changes
+  useEffect(() => {
+    if (!sceneManagerRef.current || !sceneInitialized) return
+    sceneManagerRef.current.setCollisionDetectionEnabled(store.collisionDetectionEnabled)
+  }, [store.collisionDetectionEnabled, sceneInitialized])
+
   // Handle selection visual feedback
   useEffect(() => {
     if (!sceneManagerRef.current || !sceneInitialized) return
@@ -415,7 +410,8 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     (id: string) => sceneManagerRef.current?.getMeshById(id) || null,
     multiSelectPivot,
     snapToGrid,
-    gridSize
+    gridSize,
+    sceneManagerRef.current
   )
 
   // Expose scene manager methods for external use
@@ -433,6 +429,10 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
         return sceneManagerRef.current.snapToGrid(position, gridSize)
       }
       return position
+    },
+    
+    setCollisionDetectionEnabled: (enabled: boolean) => {
+      sceneManagerRef.current?.setCollisionDetectionEnabled(enabled)
     },
     
     getSceneManager: () => sceneManagerRef.current

@@ -24,6 +24,7 @@ export class SceneManager {
   private gridMesh: Mesh | null = null
   private multiSelectPivot: Mesh | null = null
   private pointerDownPosition: { x: number, y: number } | null = null
+  private collisionDetectionEnabled: boolean = true
   
   // Event callbacks
   private onObjectClickCallback?: (pickInfo: PickingInfo, isCtrlHeld: boolean) => void
@@ -40,6 +41,9 @@ export class SceneManager {
       // Create engine and scene
       this.engine = new Engine(canvas, true)
       this.scene = new Scene(this.engine)
+      
+      // Enable collision detection by default
+      this.scene.collisionsEnabled = this.collisionDetectionEnabled
       
       // Create camera
       this.camera = new ArcRotateCamera('camera', -Math.PI / 2, Math.PI / 2.5, 10, Vector3.Zero(), this.scene)
@@ -219,7 +223,7 @@ export class SceneManager {
       }
       
       mesh.isPickable = true
-      mesh.checkCollisions = false
+      mesh.checkCollisions = this.collisionDetectionEnabled
       
       // Store mesh reference
       this.meshMap.set(sceneObject.id, mesh)
@@ -307,6 +311,96 @@ export class SceneManager {
     if (mesh && mesh.material instanceof StandardMaterial) {
       mesh.material.emissiveColor = color
     }
+  }
+
+  public setCollisionDetectionEnabled(enabled: boolean): void {
+    this.collisionDetectionEnabled = enabled
+    console.log(`🔧 Collision detection ${enabled ? 'enabled' : 'disabled'}`)
+    
+    // Update all existing meshes
+    this.meshMap.forEach((mesh, id) => {
+      if (id !== 'ground') { // Ground should always have collision
+        mesh.checkCollisions = enabled
+        if (this.scene) {
+          // Enable/disable collision detection for the scene
+          this.scene.collisionsEnabled = enabled
+        }
+      }
+    })
+  }
+
+  public isCollisionDetectionEnabled(): boolean {
+    return this.collisionDetectionEnabled
+  }
+
+  public checkCollisionAtPosition(meshId: string, newPosition: Vector3): boolean {
+    if (!this.collisionDetectionEnabled || !this.scene) return false
+    
+    const mesh = this.meshMap.get(meshId)
+    if (!mesh) return false
+    
+    // Store original position
+    const originalPosition = mesh.position.clone()
+    
+    // Temporarily move mesh to new position for collision testing
+    mesh.position = newPosition
+    mesh.computeWorldMatrix(true)
+    
+    let hasCollision = false
+    
+    // Check collision with all other meshes (except ground and itself)
+    this.meshMap.forEach((otherMesh, otherId) => {
+      if (otherId !== meshId && otherId !== 'ground' && !hasCollision) {
+        if (mesh.intersectsMesh(otherMesh, true)) {
+          hasCollision = true
+          console.log(`🚫 Collision detected between ${meshId} and ${otherId}`)
+        }
+      }
+    })
+    
+    // Restore original position
+    mesh.position = originalPosition
+    mesh.computeWorldMatrix(true)
+    
+    return hasCollision
+  }
+
+  public checkCollisionAtTransform(meshId: string, newPosition: Vector3, newRotation?: Vector3, newScale?: Vector3): boolean {
+    if (!this.collisionDetectionEnabled || !this.scene) return false
+    
+    const mesh = this.meshMap.get(meshId)
+    if (!mesh) return false
+    
+    // Store original transform
+    const originalPosition = mesh.position.clone()
+    const originalRotation = mesh.rotation.clone()
+    const originalScale = mesh.scaling.clone()
+    
+    // Apply new transform for collision testing
+    mesh.position = newPosition
+    if (newRotation) mesh.rotation = newRotation
+    if (newScale) mesh.scaling = newScale
+    mesh.computeWorldMatrix(true)
+    
+    let hasCollision = false
+    
+    // Check collision with all other meshes (except ground and itself)
+    this.meshMap.forEach((otherMesh, otherId) => {
+      if (otherId !== meshId && otherId !== 'ground' && !hasCollision) {
+        if (mesh.intersectsMesh(otherMesh, true)) {
+          hasCollision = true
+          console.log(`🚫 Transform collision detected between ${meshId} and ${otherId}`)
+        }
+      }
+    })
+    
+    // Restore original transform
+    mesh.position = originalPosition
+    mesh.rotation = originalRotation
+    mesh.scaling = originalScale
+    mesh.computeWorldMatrix(true)
+    
+    return hasCollision
   }
 
   public createVisualGrid(enabled: boolean, gridSize: number): void {
