@@ -12,7 +12,8 @@ import type {
     HousingOperation,
     Door,
     Window,
-    Wall
+    Wall,
+    ImportError
 } from '../types/types'
 
 // Store State Interface
@@ -63,6 +64,10 @@ interface SceneState {
     
     // Text input for AI
     textInput: string
+    
+    // GLB Import state
+    isImporting: boolean
+    importError: ImportError | null
     
     // Housing-specific state
     housingComponents: {[objectId: string]: ModularHousingObject}
@@ -133,6 +138,12 @@ interface SceneActions {
     setResponseLog: (log: string[]) => void
     setSceneInitialized: (initialized: boolean) => void
     setTextInput: (text: string) => void
+    
+    // GLB Import actions
+    startImport: () => void
+    importSuccess: () => void
+    setImportError: (error: ImportError) => void
+    clearImportError: () => void
     
     // Housing-specific actions
     addHousingComponent: (objectId: string, housingObject: ModularHousingObject) => void
@@ -216,6 +227,10 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             sceneInitialized: false,
             
             textInput: '',
+            
+            // GLB Import state
+            isImporting: false,
+            importError: null,
             
             // Housing-specific initial state
             housingComponents: {},
@@ -364,6 +379,12 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             setSceneInitialized: (initialized) => set({ sceneInitialized: initialized }),
             
             setTextInput: (text) => set({ textInput: text }),
+            
+            // GLB Import actions
+            startImport: () => set({ isImporting: true, importError: null }),
+            importSuccess: () => set({ isImporting: false }),
+            setImportError: (error) => set({ isImporting: false, importError: error }),
+            clearImportError: () => set({ importError: null }),
             
             // Housing-specific actions
             addHousingComponent: (objectId, housingObject) => set((state) => ({
@@ -745,5 +766,6 @@ export type {
     HousingOperation,
     Door,
     Window,
-    Wall
+    Wall,
+    ImportError
 }

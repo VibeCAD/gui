@@ -84,6 +84,20 @@ export const createGround = (scene: Scene, options: MeshCreationOptions = {}): M
 };
 
 /**
+ * Integrates an imported GLB mesh into the scene with standard options
+ */
+export const integrateImportedMesh = (mesh: Mesh, options: MeshCreationOptions = {}): Mesh => {
+  // Apply standard options to the imported mesh
+  applyMeshOptions(mesh, options);
+  
+  // Ensure the mesh is pickable and enabled
+  mesh.isPickable = true;
+  mesh.setEnabled(true);
+  
+  return mesh;
+};
+
+/**
  * Factory function that creates a mesh based on the primitive type
  */
 export const createPrimitiveMesh = (
@@ -112,6 +126,11 @@ export const createPrimitiveMesh = (
     case 'nurbs':
       // NURBS is handled separately, not through this factory
       throw new Error('NURBS meshes are not supported in this factory');
+    case 'imported-glb':
+    case 'imported-stl':
+    case 'imported-obj':
+      // Imported models are handled separately through integrateImportedMesh
+      throw new Error('Imported models should use integrateImportedMesh function');
     default:
       throw new Error(`Unknown primitive type: ${type}`);
   }

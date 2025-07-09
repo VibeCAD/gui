@@ -909,6 +909,60 @@ body {
   transform: none;
 }
 
+/* Import Button Styles */
+.import-button {
+  width: 100%;
+  padding: 12px;
+  background: #27ae60;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.import-button:hover:not(:disabled) {
+  background: #229954;
+  transform: translateY(-1px);
+}
+
+.import-button:disabled {
+  background: #bdc3c7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.import-error {
+  background: #fdf2f2;
+  border: 1px solid #fdeaea;
+  border-left: 3px solid #e74c3c;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #c0392b;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.import-error-message {
+  background: #fdf2f2;
+  border: 1px solid #fdeaea;
+  border-left: 3px solid #e74c3c;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #c0392b;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
 .loading-indicator {
   text-align: center;
   padding: 24px;
