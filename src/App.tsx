@@ -17,13 +17,14 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useSceneStore } from './state/sceneStore'
 import type { SceneObject, PrimitiveType, TransformMode, ControlPointVisualization } from './types/types'
 import { CustomRoomModal } from './components/modals/CustomRoomModal'
+import { MeshBuilder } from 'babylonjs'
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   
   // Modal state for custom room drawing
   const [showCustomRoomModal, setShowCustomRoomModal] = useState(false)
-
+  
   // Use the new babylon scene hook
   const { sceneAPI, sceneInitialized } = useBabylonScene(canvasRef)
 
@@ -247,6 +248,8 @@ function App() {
 
     const SVG_SIZE = 400 // matches modal SVG dimension
     const SCALE = 0.05 // px -> world units (adjust as desired)
+    const WALL_HEIGHT = 2.0
+    const WALL_THICKNESS = 0.15
 
     // Convert SVG (origin top-left, +y down) to Babylon XZ plane (origin center, +z forward)
     const vertices2D = points.map(p => new Vector2(
@@ -258,25 +261,77 @@ function App() {
 
     const newId = `custom-room-${Date.now()}`
 
-    // Build polygon and extrude upward to height 2
-    const polyBuilder = new PolygonMeshBuilder(newId, vertices2D, scene)
-    const mesh = polyBuilder.build(false, 2)
+    // Create a root mesh to act as the parent for all room components
+    const rootMesh = new Mesh(newId, scene)
 
-    // Basic material
-    const material = new StandardMaterial(`${newId}-mat`, scene)
-    material.diffuseColor = Color3.FromHexString('#DEB887')
-    mesh.material = material
+    // --- Create Floor ---
+    // Convert 2D vertices to 3D for the floor polygon
+    const floorVertices = vertices2D.map(p => new Vector3(p.x, 0, p.y))
 
-    // Register mesh with SceneManager so it participates in picking, gizmos, etc.
-    sceneManager.addPreExistingMesh(mesh, newId)
+    // Use CreatePolygon to build a solid floor with thickness (depth)
+    const floor = MeshBuilder.CreatePolygon(`${newId}-floor`, {
+      shape: floorVertices,
+      depth: WALL_THICKNESS
+    }, scene)
+    floor.position.y -= WALL_THICKNESS / 2 // Position floor correctly
+    const floorMaterial = new StandardMaterial(`${newId}-floor-mat`, scene)
+    floorMaterial.diffuseColor = Color3.FromHexString('#A0522D') // Sienna brown
+    floor.material = floorMaterial
+    floor.parent = rootMesh
+
+    // --- Create Walls ---
+    const wallMaterial = new StandardMaterial(`${newId}-wall-mat`, scene)
+    wallMaterial.diffuseColor = Color3.FromHexString('#DEB887') // BurlyWood
+
+    for (let i = 0; i < vertices2D.length; i++) {
+      const p1 = new Vector3(vertices2D[i].x, 0, vertices2D[i].y)
+      const p2 = new Vector3(vertices2D[(i + 1) % vertices2D.length].x, 0, vertices2D[(i + 1) % vertices2D.length].y)
+
+      const wallLength = Vector3.Distance(p1, p2)
+      if (wallLength < 0.01) continue // Skip zero-length walls
+
+      const wall = MeshBuilder.CreateBox(`${newId}-wall-${i}`, {
+        width: wallLength,
+        height: WALL_HEIGHT,
+        depth: WALL_THICKNESS
+      }, scene)
+
+      // Compute wall direction vector
+      const direction = p2.subtract(p1).normalize()
+
+      // Base midpoint
+      let wallPos = Vector3.Lerp(p1, p2, 0.5)
+      // Compute outward normal (cross(direction, Up))
+      const outward = Vector3.Cross(direction, Vector3.Up()).normalize()
+      // Determine correct side (ensure outward points away from center).
+      // For simplicity, always push outward by half thickness.
+      wallPos = wallPos.add(outward.scale(WALL_THICKNESS / 2))
+      wall.position = wallPos
+      wall.position.y += WALL_HEIGHT / 2
+       
+      // Rotate the wall to align with the segment
+      // Use GetAngleBetweenVectors for a more robust rotation calculation
+      const angle = Vector3.GetAngleBetweenVectors(new Vector3(1, 0, 0), direction, Vector3.Up())
+       
+      // Determine the correct sign for the angle
+      const crossProduct = Vector3.Cross(new Vector3(1, 0, 0), direction)
+      // If crossProduct.y is negative, it's a counter-clockwise angle, which requires a positive rotation.
+      wall.rotation.y = crossProduct.y < 0 ? angle : -angle
+
+      wall.material = wallMaterial
+      wall.parent = rootMesh
+    }
+    
+    // Register the root mesh with the SceneManager
+    sceneManager.addPreExistingMesh(rootMesh, newId)
 
     // Store SceneObject
     const newObj: SceneObject = {
       id: newId,
       type: 'custom-room',
-      position: mesh.position.clone(),
-      scale: mesh.scaling.clone(),
-      rotation: mesh.rotation.clone(),
+      position: rootMesh.position.clone(),
+      scale: rootMesh.scaling.clone(),
+      rotation: rootMesh.rotation.clone(),
       color: '#DEB887',
       isNurbs: false
     }
