@@ -21,7 +21,6 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   
   // Use the new babylon scene hook
-  console.log('🎮 App.tsx: Calling useBabylonScene hook with canvasRef:', canvasRef.current)
   const { sceneAPI, sceneInitialized } = useBabylonScene(canvasRef)
 
   // Use keyboard shortcuts hook
@@ -133,6 +132,7 @@ function App() {
   // Scene synchronization is now handled by the useBabylonScene hook
 
   // Track canvas ref changes
+  /*
   useEffect(() => {
     console.log('🎯 App.tsx: Canvas ref changed:', {
       hasCanvas: !!canvasRef.current,
@@ -140,6 +140,7 @@ function App() {
       canvasElement: canvasRef.current
     })
   }, [canvasRef.current, showApiKeyInput])
+  */
   
   // Keyboard shortcuts are now handled by the useKeyboardShortcuts hook
 
@@ -1392,7 +1393,7 @@ function App() {
     )
   }
 
-  console.log('🎨 App.tsx: Rendering main app with canvas')
+  //console.log('🎨 App.tsx: Rendering main app with canvas')
   
   return (
     <div className="app-container">

@@ -160,53 +160,65 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
 
   // Handle object click events
   const handleObjectClick = (pickInfo: PickingInfo, isCtrlHeld: boolean = false) => {
-    console.log('🎯 [handleObjectClick] === CALLBACK TRIGGERED ===')
-    console.log('🎯 [handleObjectClick] Received pick info:', {
-      hit: pickInfo.hit,
-      pickedMesh: pickInfo.pickedMesh?.name,
-      pickedMeshId: pickInfo.pickedMesh?.id,
-      isCtrlHeld,
-      currentSceneObjects: sceneObjectsRef.current.map(obj => obj.id)
-    })
+    // Get fresh state from the store at the moment of the click to avoid stale closures
+    const {
+      sceneObjects,
+      multiSelectMode,
+      selectedObjectIds,
+      isObjectLocked,
+      setSelectedObjectId,
+      setSelectedObjectIds,
+      clearSelection,
+    } = useSceneStore.getState();
 
-    if (pickInfo.hit && pickInfo.pickedMesh) {
-      const meshName = pickInfo.pickedMesh.name
-      const meshId = pickInfo.pickedMesh.id
-      
-      console.log('🎯 [handleObjectClick] Looking for object with name/id:', meshName, '/', meshId)
-      
-      // Try to find the object by both name and ID to be more robust
-      let clickedObject = sceneObjectsRef.current.find(obj => obj.id === meshName)
-      if (!clickedObject) {
-        clickedObject = sceneObjectsRef.current.find(obj => obj.id === meshId)
+    // If the click didn't hit anything, or didn't hit a mesh, clear selection
+    // unless the user is holding control to multi-select.
+    if (!pickInfo.hit || !pickInfo.pickedMesh) {
+      if (!isCtrlHeld) {
+        clearSelection();
       }
+      return;
+    }
 
-      console.log('🎯 [handleObjectClick] Object lookup result:', {
-        meshName,
-        meshId,
-        foundObject: clickedObject?.id,
-        objectType: clickedObject?.type,
-        allObjects: sceneObjectsRef.current.map(obj => ({ id: obj.id, type: obj.type }))
-      })
+    let pickedMesh = pickInfo.pickedMesh;
+    // The clicked mesh may be a child mesh; walk up until we find a mesh whose
+    // name matches one of our scene object IDs (or we reach the root).
+    const sceneIds = new Set(sceneObjects.map(o => o.id))
+    while (pickedMesh && !sceneIds.has(pickedMesh.name) && pickedMesh.parent) {
+      pickedMesh = pickedMesh.parent as any;
+    }
 
-      if (clickedObject && clickedObject.type !== 'ground') {
-        console.log('🎯 [handleObjectClick] ✅ VALID OBJECT FOUND - Attempting to select:', clickedObject.id)
-        
-        // Use the same simple approach as SceneGraph's selectObjectById
-        try {
-          setSelectedObjectId(clickedObject.id)
-          setSelectedObjectIds([])
-          console.log('🎯 [handleObjectClick] ✅ Called setSelectedObjectId with:', clickedObject.id)
-        } catch (error) {
-          console.error('🎯 [handleObjectClick] ❌ Error calling setSelectedObjectId:', error)
-        }
-      } else {
-        console.log('🎯 [handleObjectClick] No valid object found or ground clicked, clearing selection')
-        clearSelection()
+    const objectId = pickedMesh?.name;
+
+    if (!objectId) {
+      if (!isCtrlHeld) clearSelection();
+      return;
+    }
+
+    const clickedObject = sceneObjects.find(obj => obj.id === objectId);
+
+    // If we didn't find a corresponding object in our store, or if it's the ground,
+    // or if the object is locked, clear the selection.
+    if (!clickedObject || clickedObject.type === 'ground' || isObjectLocked(objectId)) {
+      if (!isCtrlHeld) {
+        clearSelection();
       }
+      return;
+    }
+
+    // Handle selection logic based on the mode
+    if (multiSelectMode || isCtrlHeld) {
+      const isAlreadySelected = selectedObjectIds.includes(objectId);
+      const newSelection = isAlreadySelected
+        ? selectedObjectIds.filter(id => id !== objectId) // Deselect if already selected
+        : [...selectedObjectIds, objectId]; // Add to selection
+      
+      setSelectedObjectIds(newSelection);
+      setSelectedObjectId(null); // In multi-select, no single object is the "primary" selection
     } else {
-      console.log('🎯 [handleObjectClick] No hit or no picked mesh, clearing selection')
-      clearSelection()
+      // Single selection mode – first clear multi-selection, then set single selection
+      setSelectedObjectIds([]);
+      setSelectedObjectId(objectId);
     }
   }
 
@@ -397,7 +409,13 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
   // Use gizmo management hook
   useGizmoManager(
     sceneManagerRef.current?.getScene() || null,
-    (id: string) => sceneManagerRef.current?.getMeshById(id) || null,
+    (id: string) => {
+      console.log('🎯 getMeshById called with:', id)
+      console.log('🎯 sceneManagerRef.current:', !!sceneManagerRef.current)
+      const mesh = sceneManagerRef.current?.getMeshById(id) || null
+      console.log('🎯 getMeshById result:', mesh?.name || 'null')
+      return mesh
+    },
     multiSelectPivot,
     snapToGrid,
     gridSize,

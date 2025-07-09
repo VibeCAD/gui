@@ -281,6 +281,14 @@ export const useGizmoManager = (
 
   // Update gizmos when selection or transform mode changes
   React.useEffect(() => {
+    console.log('🎯 [GizmoManager] useEffect triggered with:', {
+      selectedObjectId,
+      selectedObjectIds,
+      transformMode,
+      hasController: !!gizmoControllerRef.current,
+      hasScene: !!scene
+    })
+    
     if (!gizmoControllerRef.current || !scene) return
 
     const isMultiSelect = selectedObjectIds.length > 0
@@ -289,8 +297,13 @@ export const useGizmoManager = (
     // Choose which mesh to attach gizmo to
     if (isMultiSelect && multiSelectPivot) {
       targetMesh = multiSelectPivot
+      console.log('🎯 [GizmoManager] Using multiSelectPivot as target')
     } else if (selectedObjectId) {
+      console.log('🎯 [GizmoManager] Calling getMeshById with:', selectedObjectId)
       targetMesh = getMeshById(selectedObjectId)
+      console.log('🎯 [GizmoManager] getMeshById returned:', targetMesh?.name || 'null')
+    } else {
+      console.log('🎯 [GizmoManager] No selection, targetMesh will be null')
     }
 
     // Handle gizmo drag end
