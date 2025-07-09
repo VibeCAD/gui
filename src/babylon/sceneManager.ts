@@ -12,7 +12,8 @@ import {
   PointerEventTypes,
   PickingInfo,
   Matrix,
-  Quaternion
+  Quaternion,
+  CSG
 } from 'babylonjs'
 import type { SceneObject, PrimitiveType, TransformMode, ConnectionPoint } from '../types/types'
 import { createHousingMesh } from './housingFactory'
@@ -74,7 +75,7 @@ export class SceneManager {
       this.engine.runRenderLoop(() => {
         this.scene?.render()
       })
-      
+
       // Handle resize
       const handleResize = () => {
         this.engine?.resize()
@@ -887,4 +888,5 @@ export class SceneManager {
     this.camera = null
     this.gizmoManager = null
   }
+
 }

@@ -3,6 +3,41 @@ import type { MeshCreationOptions } from './objectFactory';
 import type { Wall, Door, Window, HousingComponent, ModularHousingObject, DoorType, WindowType, WallType } from '../types/types';
 
 /**
+ * Creates a wall with a pre-cut door opening.
+ */
+export const createWallWithDoorCutout = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
+  // 1. Create a "wall" mesh
+  const wall = MeshBuilder.CreateBox(options.name || 'wall-with-door', { width: 5, height: 3, depth: 0.1 }, scene);
+  wall.position = new Vector3(0, 1.5, 0);
+
+  // 2. Create a "door" mesh to be the cutter
+  const doorCutter = MeshBuilder.CreateBox('door-cutter', { width: 1, height: 2, depth: 0.2 }, scene);
+  doorCutter.position = new Vector3(0, 1, 0);
+
+  // 3. Perform CSG subtraction
+  const wallCSG = CSG.FromMesh(wall);
+  const doorCSG = CSG.FromMesh(doorCutter);
+  const resultCSG = wallCSG.subtract(doorCSG);
+
+  // 4. Convert back to mesh
+  const finalMesh = resultCSG.toMesh(options.name || 'wall-with-door', new StandardMaterial('wall-mat', scene), scene);
+
+  // 5. Clean up temporary meshes
+  wall.dispose();
+  doorCutter.dispose();
+
+  // Apply common options
+  if (options.position) finalMesh.position = options.position;
+  if (options.color && finalMesh.material instanceof StandardMaterial) {
+    finalMesh.material.diffuseColor = Color3.FromHexString(options.color);
+  } else if (finalMesh.material instanceof StandardMaterial) {
+    finalMesh.material.diffuseColor = new Color3(0.7, 0.7, 0.7);
+  }
+
+  return finalMesh;
+};
+
+/**
  * Creates a wall mesh with specified dimensions and properties
  */
 export const createWall = (scene: Scene, wall: Wall, options: MeshCreationOptions = {}): Mesh => {
@@ -1672,6 +1707,9 @@ export const createHousingMesh = (
     case 'house-foundation':
       return createStandaloneFoundation(scene, options);
     
+    case 'house-wall-with-doorcutout':
+      return createWallWithDoorCutout(scene, options);
+
     default:
       throw new Error(`Unknown housing type: ${type}`);
   }

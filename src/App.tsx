@@ -620,6 +620,10 @@ function App() {
                   <span className="dropdown-icon">🚪</span>
                   Hallway
                 </button>
+                <button className="dropdown-button" onClick={() => createPrimitive('house-wall-with-doorcutout')}>
+                  <span className="dropdown-icon">🧱</span>
+                  Wall w/ Door
+                </button>
                 <button className="dropdown-button" onClick={() => createPrimitive('house-roof-flat')}>
                   <span className="dropdown-icon">🏢</span>
                   Flat Roof
