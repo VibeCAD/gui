@@ -1,5 +1,5 @@
-import { useEffect, useRef, useMemo } from 'react'
-import { Vector3, StandardMaterial, Color3, Mesh, Engine, ArcRotateCamera, GizmoManager, PickingInfo, Matrix, HemisphericLight } from 'babylonjs';
+import { useEffect, useRef, useMemo, useState } from 'react'
+import { Vector3, Vector2, StandardMaterial, Color3, Mesh, PolygonMeshBuilder } from 'babylonjs'
 import './App.css'
 
 // Import material presets constant (value)
@@ -16,10 +16,14 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 
 import { useSceneStore } from './state/sceneStore'
 import type { SceneObject, PrimitiveType, TransformMode, ControlPointVisualization } from './types/types'
+import { CustomRoomModal } from './components/modals/CustomRoomModal'
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   
+  // Modal state for custom room drawing
+  const [showCustomRoomModal, setShowCustomRoomModal] = useState(false)
+
   // Use the new babylon scene hook
   const { sceneAPI, sceneInitialized } = useBabylonScene(canvasRef)
 
@@ -227,6 +231,62 @@ function App() {
     addObject(newObj);
     setSelectedObjectId(newId);
     setActiveDropdown(null);
+  }
+
+  /**
+   * Callback invoked when the user finishes drawing a custom room shape in the modal.
+   * Converts 2D SVG coordinates to 3D world-space points, extrudes the polygon,
+   * registers the mesh with the scene, and stores a SceneObject entry.
+   */
+  const handleCreateCustomRoom = (points: { x: number; y: number }[]) => {
+    if (!sceneInitialized) return
+
+    const sceneManager = sceneAPI.getSceneManager()
+    const scene = sceneManager?.getScene()
+    if (!scene || !sceneManager) return
+
+    const SVG_SIZE = 400 // matches modal SVG dimension
+    const SCALE = 0.05 // px -> world units (adjust as desired)
+
+    // Convert SVG (origin top-left, +y down) to Babylon XZ plane (origin center, +z forward)
+    const vertices2D = points.map(p => new Vector2(
+      (p.x - SVG_SIZE / 2) * SCALE,
+      ((SVG_SIZE / 2) - p.y) * SCALE // flip Y
+    ))
+
+    if (vertices2D.length < 3) return
+
+    const newId = `custom-room-${Date.now()}`
+
+    // Build polygon and extrude upward to height 2
+    const polyBuilder = new PolygonMeshBuilder(newId, vertices2D, scene)
+    const mesh = polyBuilder.build(false, 2)
+
+    // Basic material
+    const material = new StandardMaterial(`${newId}-mat`, scene)
+    material.diffuseColor = Color3.FromHexString('#DEB887')
+    mesh.material = material
+
+    // Register mesh with SceneManager so it participates in picking, gizmos, etc.
+    sceneManager.addPreExistingMesh(mesh, newId)
+
+    // Store SceneObject
+    const newObj: SceneObject = {
+      id: newId,
+      type: 'custom-room',
+      position: mesh.position.clone(),
+      scale: mesh.scaling.clone(),
+      rotation: mesh.rotation.clone(),
+      color: '#DEB887',
+      isNurbs: false
+    }
+
+    addObject(newObj)
+    setSelectedObjectId(newId)
+
+    // Close modal
+    setShowCustomRoomModal(false)
+    setActiveDropdown(null)
   }
 
   const createHousingComponent = (componentType: string, subType?: string) => {
@@ -720,6 +780,16 @@ function App() {
                 <button className="dropdown-button" onClick={() => createHousingComponent('window', 'skylight')}>
                   <span className="dropdown-icon">🪟</span>
                   Skylight
+                </button>
+              </div>
+            </div>
+            {/* Custom */}
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Custom</div>
+              <div className="dropdown-grid">
+                <button className="dropdown-button" onClick={() => { setShowCustomRoomModal(true); setActiveDropdown(null) }}>
+                  <span className="dropdown-icon">📐</span>
+                  Custom Room
                 </button>
               </div>
             </div>
@@ -1436,6 +1506,12 @@ function App() {
           sceneAPI={sceneAPI}
         />
       </div>
+      {/* Custom Room Drawing Modal */}
+      <CustomRoomModal
+        isOpen={showCustomRoomModal}
+        onCancel={() => setShowCustomRoomModal(false)}
+        onCreate={handleCreateCustomRoom}
+      />
     </div>
   )
 }
