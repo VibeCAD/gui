@@ -6,7 +6,9 @@ import type { SceneObject } from '../../types/types';
 import { SceneGraph } from './SceneGraph';
 import { PropertiesPanel } from './PropertiesPanel';
 import { ImportButton } from './ImportButton';
+import { ExportButton } from './ExportButton';
 import { createGLBImporter } from '../../babylon/glbImporter';
+import { createSTLExporter } from '../../babylon/stlExporter';
 
 interface AISidebarProps {
   apiKey: string;
@@ -219,6 +221,38 @@ export const AISidebar: React.FC<AISidebarProps> = ({
     }
   };
 
+  const handleExportSTL = async () => {
+    if (!sceneInitialized || !sceneAPI) {
+      console.error('Scene not initialized');
+      return;
+    }
+
+    const sceneManager = sceneAPI.getSceneManager();
+    if (!sceneManager || !sceneManager.scene) {
+      console.error('Scene manager not available');
+      return;
+    }
+
+    try {
+      // Create STL exporter
+      const exporter = createSTLExporter(sceneManager.scene);
+      
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const filename = `vibecad-export-${timestamp}.stl`;
+      
+      // Export the scene
+      await exporter.exportSceneToSTL(sceneObjects, filename);
+      
+      // Success!
+      addToResponseLog(`Success: Exported scene to "${filename}"`);
+      
+    } catch (error: any) {
+      console.error('Export failed:', error);
+      addToResponseLog(`Error: Export failed - ${error.message || 'Unknown error'}`);
+    }
+  };
+
   const handleSubmitPrompt = async () => {
     if (!apiKey || !textInput.trim()) return;
 
@@ -330,6 +364,16 @@ export const AISidebar: React.FC<AISidebarProps> = ({
                 {importError.message}
               </div>
             )}
+          </div>
+
+          {/* Export STL Control */}
+          <div className="ai-control-group">
+            <label>Export Scene:</label>
+            <ExportButton
+              onExport={handleExportSTL}
+              disabled={!sceneInitialized}
+              objectCount={sceneObjects.filter(obj => obj.type !== 'ground').length}
+            />
           </div>
 
           {/* Scene Graph Component */}
