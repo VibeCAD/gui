@@ -312,6 +312,18 @@ export class SceneManager {
               this.updateMeshProperties(sceneObject.id, sceneObject)
             }
             return true
+          case 'imported-glb':
+          case 'imported-stl':
+          case 'imported-obj':
+            // For imported models, we need to retrieve the mesh from scene by ID
+            // The mesh should already be in the scene from the import process
+            const importedMesh = this.scene.getMeshById(sceneObject.id)
+            if (!importedMesh || !(importedMesh instanceof Mesh)) {
+              console.error(`❌ Imported mesh ${sceneObject.id} not found in scene`)
+              return false
+            }
+            mesh = importedMesh
+            break
           default:
             console.warn(`Unknown primitive type: ${sceneObject.type}`)
             return false
@@ -328,7 +340,7 @@ export class SceneManager {
       mesh.name = sceneObject.id
       
       // Create material (for non-housing types or if housing mesh doesn't have material)
-      if (!sceneObject.type.startsWith('house-') || !mesh.material) {
+      if (!sceneObject.type.startsWith('house-') && !sceneObject.type.startsWith('imported-') || !mesh.material) {
         const material = new StandardMaterial(`${sceneObject.id}-material`, this.scene)
         material.diffuseColor = Color3.FromHexString(sceneObject.color)
         mesh.material = material
@@ -401,6 +413,43 @@ export class SceneManager {
 
   public getMeshById(id: string): Mesh | null {
     return this.meshMap.get(id) || null
+  }
+
+  /**
+   * Adds a pre-existing mesh to the scene manager
+   * Used for imported meshes that are already created (like from GLB import)
+   */
+  public addPreExistingMesh(mesh: Mesh, id: string): boolean {
+    if (!this.scene || !mesh) return false
+    
+    try {
+      // Ensure the mesh is part of this scene
+      if (mesh.getScene() !== this.scene) {
+        console.error(`❌ Mesh ${id} is not part of the current scene`)
+        return false
+      }
+      
+      // Set mesh properties for proper management
+      mesh.id = id
+      mesh.name = id
+      mesh.isPickable = true
+      mesh.checkCollisions = this.collisionDetectionEnabled
+      
+      // Store mesh reference
+      this.meshMap.set(id, mesh)
+      
+      console.log(`✅ Added pre-existing mesh: ${id}`, {
+        meshName: mesh.name,
+        meshId: mesh.id,
+        isPickable: mesh.isPickable,
+        hasMap: this.meshMap.has(id)
+      })
+      
+      return true
+    } catch (error) {
+      console.error(`❌ Error adding pre-existing mesh ${id}:`, error)
+      return false
+    }
   }
 
   public setWireframeMode(enabled: boolean): void {

@@ -5,6 +5,8 @@ import { createAIService, type SceneCommand } from '../../ai/ai.service';
 import type { SceneObject } from '../../types/types';
 import { SceneGraph } from './SceneGraph';
 import { PropertiesPanel } from './PropertiesPanel';
+import { ImportButton } from './ImportButton';
+import { createGLBImporter } from '../../babylon/glbImporter';
 
 interface AISidebarProps {
   apiKey: string;
@@ -25,6 +27,7 @@ export const AISidebar: React.FC<AISidebarProps> = ({
     textInput,
     responseLog,
     sceneObjects,
+    importError,
     setSidebarCollapsed,
     setTextInput,
     setIsLoading,
@@ -32,6 +35,10 @@ export const AISidebar: React.FC<AISidebarProps> = ({
     updateObject,
     addObject,
     removeObject,
+    startImport,
+    importSuccess,
+    setImportError,
+    clearImportError,
   } = useSceneStore();
 
   /**
@@ -156,6 +163,61 @@ export const AISidebar: React.FC<AISidebarProps> = ({
     }
   };
 
+  const handleImportGLB = async (file: File) => {
+    if (!sceneInitialized || !sceneAPI) {
+      console.error('Scene not initialized');
+      return;
+    }
+
+    const sceneManager = sceneAPI.getSceneManager();
+    if (!sceneManager || !sceneManager.scene) {
+      console.error('Scene manager not available');
+      return;
+    }
+
+    // Clear any previous import error
+    clearImportError();
+    
+    // Start the import process
+    startImport();
+
+    try {
+      // Create model importer with scene and sceneManager
+      const importer = createGLBImporter(sceneManager.scene, sceneManager);
+      
+      // Import the file
+      const sceneObject = await importer.importModel(file);
+      
+      // Add the imported object to the scene
+      addObject(sceneObject);
+      
+      // Success!
+      importSuccess();
+      addToResponseLog(`Success: Imported 3D model "${file.name}"`);
+      
+    } catch (error: any) {
+      console.error('Import failed:', error);
+      
+      // Set the import error based on the error message
+      let errorType: 'FILE_TOO_LARGE' | 'INVALID_FORMAT' | 'LOADING_FAILED' = 'LOADING_FAILED';
+      
+      if (error instanceof Error) {
+        if (error.message === 'FILE_TOO_LARGE') {
+          errorType = 'FILE_TOO_LARGE';
+        } else if (error.message === 'INVALID_FORMAT') {
+          errorType = 'INVALID_FORMAT';
+        }
+      }
+      
+      setImportError({
+        type: errorType,
+        message: 'IMPORT FAILED'
+      });
+      
+      addToResponseLog('Error: IMPORT FAILED');
+    }
+  };
+
   const handleSubmitPrompt = async () => {
     if (!apiKey || !textInput.trim()) return;
 
@@ -253,6 +315,20 @@ export const AISidebar: React.FC<AISidebarProps> = ({
             >
               {isLoading ? 'Processing...' : 'Execute AI Command'}
             </button>
+          </div>
+
+          {/* Import GLB Control */}
+          <div className="ai-control-group">
+            <label>Import 3D Model:</label>
+            <ImportButton 
+              onImport={handleImportGLB}
+              disabled={!sceneInitialized}
+            />
+            {importError && (
+              <div className="import-error-message">
+                {importError.message}
+              </div>
+            )}
           </div>
 
           {/* Scene Graph Component */}
