@@ -107,7 +107,8 @@ export const AISidebar: React.FC<AISidebarProps> = ({
 
         case 'create':
           if (command.type) {
-            const newId = `${command.type}-${Date.now()}`;
+            // Generate a robust unique ID (avoids same-millisecond collisions when executing multiple creates at once)
+            const newId = `${command.type}-${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now()}`;
             const newObj: SceneObject = {
               id: newId,
               type: command.type,
