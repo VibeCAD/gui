@@ -485,6 +485,23 @@ function App() {
               {selectedObjectId ? '1' : selectedObjectIds.length}
             </span>
           </span>
+          {/* Quick test button */}
+          <button 
+            className="test-button"
+            onClick={() => createPrimitive('cube')}
+            disabled={!sceneInitialized}
+            style={{
+              marginLeft: '10px',
+              padding: '4px 8px',
+              backgroundColor: '#3498db',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            🧪 Add Test Cube
+          </button>
         </div>
         
         {/* Transform Tools */}
@@ -935,7 +952,9 @@ function App() {
                   </>
                 ) : (
                   <div className="no-selection-text">
-                    {multiSelectMode ? 'Ctrl+Click objects to select multiple' : 'Click an object in the 3D scene to select it'}
+                    {multiSelectMode ? 'Ctrl+Click objects to select multiple' : 'Click objects in the 3D scene to select them'}
+                    <br/>
+                    <small>💡 You can also select from the sidebar</small>
                   </div>
                 )}
               </div>

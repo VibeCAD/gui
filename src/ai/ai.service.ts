@@ -649,7 +649,7 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
         : prompt;
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4o',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: enhancedPrompt }

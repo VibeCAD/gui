@@ -160,62 +160,52 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
 
   // Handle object click events
   const handleObjectClick = (pickInfo: PickingInfo, isCtrlHeld: boolean = false) => {
-    // Get latest state directly from the store to prevent stale closures
-    const state = useSceneStore.getState()
-    
+    console.log('🎯 [handleObjectClick] === CALLBACK TRIGGERED ===')
     console.log('🎯 [handleObjectClick] Received pick info:', {
       hit: pickInfo.hit,
       pickedMesh: pickInfo.pickedMesh?.name,
+      pickedMeshId: pickInfo.pickedMesh?.id,
       isCtrlHeld,
       currentSceneObjects: sceneObjectsRef.current.map(obj => obj.id)
     })
 
     if (pickInfo.hit && pickInfo.pickedMesh) {
       const meshName = pickInfo.pickedMesh.name
-      const clickedObject = sceneObjectsRef.current.find(obj => obj.id === meshName)
+      const meshId = pickInfo.pickedMesh.id
+      
+      console.log('🎯 [handleObjectClick] Looking for object with name/id:', meshName, '/', meshId)
+      
+      // Try to find the object by both name and ID to be more robust
+      let clickedObject = sceneObjectsRef.current.find(obj => obj.id === meshName)
+      if (!clickedObject) {
+        clickedObject = sceneObjectsRef.current.find(obj => obj.id === meshId)
+      }
 
-      console.log('🎯 [handleObjectClick] Object lookup:', {
+      console.log('🎯 [handleObjectClick] Object lookup result:', {
         meshName,
+        meshId,
         foundObject: clickedObject?.id,
-        objectType: clickedObject?.type
+        objectType: clickedObject?.type,
+        allObjects: sceneObjectsRef.current.map(obj => ({ id: obj.id, type: obj.type }))
       })
 
       if (clickedObject && clickedObject.type !== 'ground') {
-        // Check if object is locked
-        if (state.objectLocked[clickedObject.id]) {
-          console.log(`🔒 [handleObjectClick] Object is locked: ${clickedObject.id}`)
-          return
-        }
-
-        if (state.multiSelectMode || isCtrlHeld) {
-          // Multi-select mode
-          const newIds = state.selectedObjectIds.includes(clickedObject.id)
-            ? state.selectedObjectIds.filter(id => id !== clickedObject.id)
-            : [...state.selectedObjectIds, clickedObject.id]
-          console.log('🎯 [handleObjectClick] Multi-select mode:', {
-            objectId: clickedObject.id,
-            newSelection: newIds
-          })
-          setSelectedObjectIds(newIds)
-          setSelectedObjectId(null)
-        } else {
-          // Single select mode
-          console.log('🎯 [handleObjectClick] Single select mode:', {
-            objectId: clickedObject.id
-          })
+        console.log('🎯 [handleObjectClick] ✅ VALID OBJECT FOUND - Attempting to select:', clickedObject.id)
+        
+        // Use the same simple approach as SceneGraph's selectObjectById
+        try {
           setSelectedObjectId(clickedObject.id)
           setSelectedObjectIds([])
+          console.log('🎯 [handleObjectClick] ✅ Called setSelectedObjectId with:', clickedObject.id)
+        } catch (error) {
+          console.error('🎯 [handleObjectClick] ❌ Error calling setSelectedObjectId:', error)
         }
-        
-        state.setActiveDropdown(null)
       } else {
-        // If the ground or an unmanaged mesh is clicked, deselect everything
-        console.log('🎯 [handleObjectClick] Clicked ground or unmanaged mesh, clearing selection')
+        console.log('🎯 [handleObjectClick] No valid object found or ground clicked, clearing selection')
         clearSelection()
       }
     } else {
-      // If empty space is clicked, deselect everything
-      console.log('🎯 [handleObjectClick] Clicked empty space, clearing selection')
+      console.log('🎯 [handleObjectClick] No hit or no picked mesh, clearing selection')
       clearSelection()
     }
   }

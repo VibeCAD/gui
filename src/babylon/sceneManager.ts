@@ -103,6 +103,10 @@ export class SceneManager {
     
     console.log('🖱️ SceneManager: Setting up pointer events')
     
+    // Store the original camera control behavior
+    const originalCameraControl = this.camera?.attachControl
+    
+    // Set up pointer event handling that works with camera controls
     this.scene.onPointerObservable.add((pointerInfo) => {
       switch (pointerInfo.type) {
         case PointerEventTypes.POINTERDOWN:
@@ -119,24 +123,38 @@ export class SceneManager {
             console.log('🖱️ POINTERUP delta:', { deltaX, deltaY, threshold: clickThreshold })
             
             if (deltaX < clickThreshold && deltaY < clickThreshold) {
-              // It's a click, not a drag. Use the pick info from the pointer event.
-              const pickInfo = pointerInfo.pickInfo
+              // It's a click, not a drag. Perform our own ray casting to ensure we get the correct object
+              const pickInfo = this.performCustomPick(this.scene!.pointerX, this.scene!.pointerY)
               const isGizmoClick = pickInfo?.pickedMesh?.name?.toLowerCase().includes('gizmo')
               
               console.log('🖱️ Click detected:', {
                 hit: pickInfo?.hit,
                 pickedMesh: pickInfo?.pickedMesh?.name,
+                pickedMeshId: pickInfo?.pickedMesh?.id,
                 isGizmoClick,
                 hasCallback: !!this.onObjectClickCallback
               })
               
               if (!isGizmoClick && pickInfo && this.onObjectClickCallback) {
                 const isCtrlHeld = (pointerInfo.event as PointerEvent).ctrlKey || (pointerInfo.event as PointerEvent).metaKey;
-                console.log('🖱️ Calling click callback with:', {
+                console.log('🖱️ ✅ CALLING CLICK CALLBACK with:', {
                   meshName: pickInfo.pickedMesh?.name,
-                  isCtrlHeld
+                  meshId: pickInfo.pickedMesh?.id,
+                  isCtrlHeld,
+                  callbackExists: !!this.onObjectClickCallback
                 })
-                this.onObjectClickCallback(pickInfo, isCtrlHeld)
+                try {
+                  this.onObjectClickCallback(pickInfo, isCtrlHeld)
+                  console.log('🖱️ ✅ Click callback completed successfully')
+                } catch (error) {
+                  console.error('🖱️ ❌ Error in click callback:', error)
+                }
+              } else {
+                console.log('🖱️ ⚠️ Not calling callback because:', {
+                  isGizmoClick,
+                  hasPickInfo: !!pickInfo,
+                  hasCallback: !!this.onObjectClickCallback
+                })
               }
             }
           }
@@ -152,6 +170,99 @@ export class SceneManager {
           break
       }
     })
+    
+    // Also add a fallback click handler directly to the canvas
+    // This ensures we catch clicks even if the pointer observable doesn't fire
+    if (this.engine && this.engine.getInputElement()) {
+      const canvas = this.engine.getInputElement() as HTMLCanvasElement
+      
+      let canvasPointerDown: { x: number, y: number } | null = null
+      
+      canvas.addEventListener('pointerdown', (event) => {
+        canvasPointerDown = { x: event.clientX, y: event.clientY }
+        console.log('🖱️ Canvas POINTERDOWN at:', canvasPointerDown)
+      })
+      
+      canvas.addEventListener('pointerup', (event) => {
+        if (canvasPointerDown) {
+          const deltaX = Math.abs(canvasPointerDown.x - event.clientX)
+          const deltaY = Math.abs(canvasPointerDown.y - event.clientY)
+          const clickThreshold = 5
+          
+          console.log('🖱️ Canvas POINTERUP delta:', { deltaX, deltaY, threshold: clickThreshold })
+          
+          if (deltaX < clickThreshold && deltaY < clickThreshold) {
+            // Convert canvas coordinates to scene coordinates
+            const rect = canvas.getBoundingClientRect()
+            const sceneX = event.clientX - rect.left
+            const sceneY = event.clientY - rect.top
+            
+            console.log('🖱️ Canvas click detected at scene coords:', { sceneX, sceneY })
+            
+            // Perform custom pick using scene coordinates
+            const pickInfo = this.performCustomPick(sceneX, sceneY)
+            const isGizmoClick = pickInfo?.pickedMesh?.name?.toLowerCase().includes('gizmo')
+            
+            console.log('🖱️ Canvas click pick result:', {
+              hit: pickInfo?.hit,
+              pickedMesh: pickInfo?.pickedMesh?.name,
+              pickedMeshId: pickInfo?.pickedMesh?.id,
+              isGizmoClick,
+              hasCallback: !!this.onObjectClickCallback
+            })
+            
+            if (!isGizmoClick && pickInfo && this.onObjectClickCallback) {
+              const isCtrlHeld = event.ctrlKey || event.metaKey
+              console.log('🖱️ ✅ CANVAS CALLING CLICK CALLBACK with:', {
+                meshName: pickInfo.pickedMesh?.name,
+                meshId: pickInfo.pickedMesh?.id,
+                isCtrlHeld,
+                callbackExists: !!this.onObjectClickCallback
+              })
+              try {
+                this.onObjectClickCallback(pickInfo, isCtrlHeld)
+                console.log('🖱️ ✅ Canvas click callback completed successfully')
+              } catch (error) {
+                console.error('🖱️ ❌ Error in canvas click callback:', error)
+              }
+            } else {
+              console.log('🖱️ ⚠️ Canvas not calling callback because:', {
+                isGizmoClick,
+                hasPickInfo: !!pickInfo,
+                hasCallback: !!this.onObjectClickCallback
+              })
+            }
+          }
+        }
+        canvasPointerDown = null
+      })
+    }
+  }
+
+  // Custom pick method to ensure reliable object selection
+  private performCustomPick(x: number, y: number): PickingInfo | null {
+    if (!this.scene) return null
+    
+    try {
+      // Use the scene's pick method with the given coordinates
+      const pickInfo = this.scene.pick(x, y, (mesh) => {
+        // Only pick meshes that are in our meshMap and are pickable
+        return mesh.isPickable && (this.meshMap.has(mesh.name) || this.meshMap.has(mesh.id))
+      })
+      
+      console.log('🎯 Custom pick result:', {
+        hit: pickInfo.hit,
+        pickedMesh: pickInfo.pickedMesh?.name,
+        pickedMeshId: pickInfo.pickedMesh?.id,
+        distance: pickInfo.distance,
+        coords: { x, y }
+      })
+      
+      return pickInfo
+    } catch (error) {
+      console.error('❌ Error in custom pick:', error)
+      return null
+    }
   }
 
   public addMesh(sceneObject: SceneObject): boolean {
@@ -212,8 +323,9 @@ export class SceneManager {
       mesh.rotation = sceneObject.rotation.clone()
       mesh.scaling = sceneObject.scale.clone()
       
-      // Ensure the mesh ID is set to our object ID for reliable picking
+      // Ensure the mesh ID and name are set to our object ID for reliable picking
       mesh.id = sceneObject.id
+      mesh.name = sceneObject.id
       
       // Create material (for non-housing types or if housing mesh doesn't have material)
       if (!sceneObject.type.startsWith('house-') || !mesh.material) {
@@ -603,6 +715,7 @@ export class SceneManager {
   public setObjectClickCallback(callback: (pickInfo: PickingInfo, isCtrlHeld: boolean) => void): void {
     console.log('🔗 SceneManager: Setting object click callback')
     this.onObjectClickCallback = callback
+    console.log('🔗 SceneManager: Callback set, type:', typeof callback)
   }
 
   public setObjectHoverCallback(callback: (pickInfo: PickingInfo) => void): void {
