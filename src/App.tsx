@@ -1076,6 +1076,7 @@ function App() {
         <AISidebar 
           apiKey={apiKey}
           sceneInitialized={sceneInitialized}
+          sceneAPI={sceneAPI}
         />
       </div>
     </div>

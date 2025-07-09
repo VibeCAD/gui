@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import type { SceneObject } from '../types/types';
+import { Vector3 } from 'babylonjs';
 
 export interface SceneCommand {
   action: 'move' | 'color' | 'scale' | 'create' | 'delete';
@@ -10,6 +11,13 @@ export interface SceneCommand {
   z?: number;
   color?: string;
   size?: number;
+  scaleX?: number;
+  scaleY?: number;
+  scaleZ?: number;
+  relativeToObject?: string;
+  spatialRelation?: 'on-top-of' | 'beside' | 'in-front-of' | 'behind' | 'above' | 'below' | 'inside';
+  matchDimensions?: boolean;
+  contactType?: 'direct' | 'gap' | 'overlap';
 }
 
 export interface AIServiceResult {
@@ -34,80 +42,503 @@ export class AIService {
   }
 
   /**
-   * Generate a description of the current scene
+   * Calculate the effective size of an object based on its type and scale
+   */
+  private getObjectDimensions(obj: SceneObject): { width: number; height: number; depth: number } {
+    // Base dimensions for different object types (as used in sceneManager.ts)
+    const baseDimensions: { [key: string]: { width: number; height: number; depth: number } } = {
+      'cube': { width: 2, height: 2, depth: 2 },
+      'sphere': { width: 2, height: 2, depth: 2 },
+      'cylinder': { width: 2, height: 2, depth: 2 },
+      'plane': { width: 2, height: 0.1, depth: 2 },
+      'torus': { width: 2, height: 0.5, depth: 2 },
+      'cone': { width: 2, height: 2, depth: 2 },
+      'house-basic': { width: 2, height: 2, depth: 1.5 },
+      'house-room': { width: 2, height: 1.5, depth: 2 },
+      'house-hallway': { width: 1, height: 1.5, depth: 3 },
+      'house-roof-flat': { width: 2, height: 0.1, depth: 1.5 },
+      'house-roof-pitched': { width: 2, height: 0.8, depth: 1.5 },
+      'ground': { width: 10, height: 1, depth: 10 }
+    };
+
+    const base = baseDimensions[obj.type] || { width: 1, height: 1, depth: 1 };
+    
+    // Apply scale factors
+    return {
+      width: base.width * obj.scale.x,
+      height: base.height * obj.scale.y,
+      depth: base.depth * obj.scale.z
+    };
+  }
+
+  /**
+   * Calculate the bounding box of an object
+   */
+  private getBoundingBox(obj: SceneObject): { min: Vector3; max: Vector3 } {
+    const dimensions = this.getObjectDimensions(obj);
+    const halfWidth = dimensions.width / 2;
+    const halfHeight = dimensions.height / 2;
+    const halfDepth = dimensions.depth / 2;
+
+    return {
+      min: new Vector3(
+        obj.position.x - halfWidth,
+        obj.position.y - halfHeight,
+        obj.position.z - halfDepth
+      ),
+      max: new Vector3(
+        obj.position.x + halfWidth,
+        obj.position.y + halfHeight,
+        obj.position.z + halfDepth
+      )
+    };
+  }
+
+  /**
+   * Find an object by color or name from the scene
+   */
+  private findObjectByDescription(description: string, sceneObjects: SceneObject[]): SceneObject | undefined {
+    const lowerDesc = description.toLowerCase();
+    
+    // First try to find by color
+    const colorMatches = sceneObjects.filter(obj => {
+      if (obj.color) {
+        const colorName = this.getColorName(obj.color);
+        return colorName.includes(lowerDesc) || lowerDesc.includes(colorName);
+      }
+      return false;
+    });
+
+    if (colorMatches.length === 1) {
+      return colorMatches[0];
+    }
+
+    // Then try to find by type
+    const typeMatches = sceneObjects.filter(obj => 
+      obj.type.toLowerCase().includes(lowerDesc) || lowerDesc.includes(obj.type.toLowerCase())
+    );
+
+    if (typeMatches.length === 1) {
+      return typeMatches[0];
+    }
+
+    // Finally try to find by ID
+    const idMatch = sceneObjects.find(obj => 
+      obj.id.toLowerCase().includes(lowerDesc) || lowerDesc.includes(obj.id.toLowerCase())
+    );
+
+    return idMatch || undefined;
+  }
+
+  /**
+   * Get a human-readable color name from hex value
+   */
+  private getColorName(hex: string): string {
+    const colorMap: { [key: string]: string } = {
+      '#ff6b6b': 'red',
+      '#4ecdc4': 'blue',
+      '#95e1d3': 'green',
+      '#fce38a': 'yellow',
+      '#a8e6cf': 'purple',
+      '#ffb347': 'orange',
+      '#ff8fab': 'pink',
+      '#87ceeb': 'cyan',
+      '#808080': 'gray',
+      '#8B4513': 'brown',
+      '#DEB887': 'tan',
+      '#654321': 'dark brown'
+    };
+
+    return colorMap[hex.toLowerCase()] || 'unknown';
+  }
+
+  /**
+   * Calculate precise position and scaling for spatial relationships
+   */
+  private calculatePreciseSpatialPlacement(
+    targetObject: SceneObject,
+    referenceObject: SceneObject,
+    relation: string,
+    sceneObjects: SceneObject[]
+  ): { 
+    position: { x: number; y: number; z: number };
+    scale?: { x: number; y: number; z: number };
+    matchDimensions: boolean;
+  } {
+    const refDimensions = this.getObjectDimensions(referenceObject);
+    const targetDimensions = this.getObjectDimensions(targetObject);
+    const refBox = this.getBoundingBox(referenceObject);
+    
+    // Determine if we should match dimensions based on relationship and object types
+    const shouldMatchDimensions = this.shouldMatchDimensions(targetObject, referenceObject, relation);
+    
+    let position: { x: number; y: number; z: number };
+    let scale: { x: number; y: number; z: number } | undefined;
+    
+    if (shouldMatchDimensions) {
+      // Calculate scale factors to match reference object dimensions
+      const scaleFactors = this.calculateDimensionMatchingScale(targetObject, referenceObject, relation);
+      scale = scaleFactors;
+      
+      // Recalculate target dimensions with new scale
+      const scaledTargetDimensions = {
+        width: targetDimensions.width * scaleFactors.x,
+        height: targetDimensions.height * scaleFactors.y,
+        depth: targetDimensions.depth * scaleFactors.z
+      };
+      
+      position = this.calculatePreciseContactPosition(
+        referenceObject, 
+        scaledTargetDimensions, 
+        relation
+      );
+    } else {
+      // Use original dimensions for positioning
+      position = this.calculatePreciseContactPosition(
+        referenceObject, 
+        targetDimensions, 
+        relation
+      );
+    }
+    
+    return {
+      position,
+      scale,
+      matchDimensions: shouldMatchDimensions
+    };
+  }
+
+  /**
+   * Determine if objects should match dimensions based on relationship
+   */
+  private shouldMatchDimensions(
+    targetObject: SceneObject, 
+    referenceObject: SceneObject, 
+    relation: string
+  ): boolean {
+    // Housing objects should match dimensions for roofs on rooms/buildings
+    if (targetObject.type.includes('roof') && referenceObject.type.startsWith('house-')) {
+      return true;
+    }
+    
+    // Basic objects placed "on top of" each other should match dimensions
+    if (relation === 'on-top-of' && 
+        !targetObject.type.startsWith('house-') && 
+        !referenceObject.type.startsWith('house-')) {
+      return true;
+    }
+    
+    // Spheres and cylinders on cubes should match the cube's footprint
+    if (relation === 'on-top-of' && 
+        referenceObject.type === 'cube' && 
+        (targetObject.type === 'sphere' || targetObject.type === 'cylinder')) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Calculate scale factors to match reference object dimensions
+   */
+  private calculateDimensionMatchingScale(
+    targetObject: SceneObject,
+    referenceObject: SceneObject,
+    relation: string
+  ): { x: number; y: number; z: number } {
+    const refDimensions = this.getObjectDimensions(referenceObject);
+    const targetDimensions = this.getObjectDimensions(targetObject);
+    
+    // Special case: roofs should match building footprint but keep their own height
+    if (targetObject.type.includes('roof')) {
+      return {
+        x: refDimensions.width / targetDimensions.width,
+        y: 1, // Keep original roof height
+        z: refDimensions.depth / targetDimensions.depth
+      };
+    }
+    
+    // For "on-top-of" relationships, match the footprint but keep original height
+    if (relation === 'on-top-of') {
+      return {
+        x: refDimensions.width / targetDimensions.width,
+        y: 1, // Keep original height unless it's a cube on cube
+        z: refDimensions.depth / targetDimensions.depth
+      };
+    }
+    
+    // Default: match all dimensions
+    return {
+      x: refDimensions.width / targetDimensions.width,
+      y: refDimensions.height / targetDimensions.height,
+      z: refDimensions.depth / targetDimensions.depth
+    };
+  }
+
+  /**
+   * Calculate precise contact position for direct contact
+   */
+  private calculatePreciseContactPosition(
+    referenceObject: SceneObject,
+    targetDimensions: { width: number; height: number; depth: number },
+    relation: string
+  ): { x: number; y: number; z: number } {
+    const refDimensions = this.getObjectDimensions(referenceObject);
+    const refBox = this.getBoundingBox(referenceObject);
+    
+    switch (relation) {
+      case 'on-top-of':
+        // Place object directly on top with perfect contact
+        return {
+          x: referenceObject.position.x, // Same X position (centered)
+          y: refBox.max.y + targetDimensions.height / 2, // Bottom of target touches top of reference
+          z: referenceObject.position.z  // Same Z position (centered)
+        };
+      
+      case 'above':
+        // Place object above with small gap
+        return {
+          x: referenceObject.position.x,
+          y: refBox.max.y + targetDimensions.height / 2 + 0.2, // Small gap
+          z: referenceObject.position.z
+        };
+      
+      case 'below':
+        // Place object below with direct contact
+        return {
+          x: referenceObject.position.x,
+          y: refBox.min.y - targetDimensions.height / 2, // Top of target touches bottom of reference
+          z: referenceObject.position.z
+        };
+      
+      case 'beside':
+      case 'next-to':
+        // Place object beside with direct contact
+        return {
+          x: refBox.max.x + targetDimensions.width / 2, // Direct contact on X axis
+          y: referenceObject.position.y, // Same Y position (aligned)
+          z: referenceObject.position.z  // Same Z position (aligned)
+        };
+      
+      case 'in-front-of':
+        // Place object in front with direct contact
+        return {
+          x: referenceObject.position.x,
+          y: referenceObject.position.y,
+          z: refBox.max.z + targetDimensions.depth / 2 // Direct contact on Z axis
+        };
+      
+      case 'behind':
+        // Place object behind with direct contact
+        return {
+          x: referenceObject.position.x,
+          y: referenceObject.position.y,
+          z: refBox.min.z - targetDimensions.depth / 2 // Direct contact on Z axis
+        };
+      
+      default:
+        // Default: same position
+        return {
+          x: referenceObject.position.x,
+          y: referenceObject.position.y,
+          z: referenceObject.position.z
+        };
+    }
+  }
+
+  /**
+   * Enhanced roof positioning for housing objects
+   */
+  private calculateRoofPlacement(
+    roofType: string,
+    targetStructure: SceneObject,
+    sceneObjects: SceneObject[]
+  ): { 
+    position: { x: number; y: number; z: number };
+    scale: { x: number; y: number; z: number };
+  } {
+    const structureDimensions = this.getObjectDimensions(targetStructure);
+    const structureBox = this.getBoundingBox(targetStructure);
+    
+    // Get base dimensions for roof type
+    const baseDimensions = this.getBaseDimensionsForType(roofType);
+    
+    // Calculate scale to match structure footprint
+    const scale = {
+      x: structureDimensions.width / baseDimensions.width,
+      y: 1, // Keep original roof height
+      z: structureDimensions.depth / baseDimensions.depth
+    };
+    
+    // Calculate roof height with scale
+    const roofHeight = baseDimensions.height * scale.y;
+    
+    // Position roof directly on top of structure
+    const position = {
+      x: targetStructure.position.x,
+      y: structureBox.max.y + roofHeight / 2, // Bottom of roof touches top of structure
+      z: targetStructure.position.z
+    };
+    
+    return { position, scale };
+  }
+
+  /**
+   * Get base dimensions for object type
+   */
+  private getBaseDimensionsForType(type: string): { width: number; height: number; depth: number } {
+    const baseDimensions: { [key: string]: { width: number; height: number; depth: number } } = {
+      'cube': { width: 2, height: 2, depth: 2 },
+      'sphere': { width: 2, height: 2, depth: 2 },
+      'cylinder': { width: 2, height: 2, depth: 2 },
+      'plane': { width: 2, height: 0.1, depth: 2 },
+      'torus': { width: 2, height: 0.5, depth: 2 },
+      'cone': { width: 2, height: 2, depth: 2 },
+      'house-basic': { width: 2, height: 2, depth: 1.5 },
+      'house-room': { width: 2, height: 1.5, depth: 2 },
+      'house-hallway': { width: 1, height: 1.5, depth: 3 },
+      'house-roof-flat': { width: 2, height: 0.1, depth: 1.5 },
+      'house-roof-pitched': { width: 2, height: 0.8, depth: 1.5 }
+    };
+    
+    return baseDimensions[type] || { width: 1, height: 1, depth: 1 };
+  }
+
+  /**
+   * Generate a description of the current scene with spatial relationships
    */
   public describeScene(sceneObjects: SceneObject[]): string {
+    // Debug: Log received scene objects
+    console.log('🤖 AI Service received scene objects:');
+    sceneObjects.forEach(obj => {
+      console.log(`  - ${obj.id} (${obj.type}): position (${obj.position.x.toFixed(2)}, ${obj.position.y.toFixed(2)}, ${obj.position.z.toFixed(2)})`);
+    });
+
     const housingObjects = sceneObjects.filter(obj => obj.type.startsWith('house-'));
     const primitiveObjects = sceneObjects.filter(obj => !obj.type.startsWith('house-') && obj.type !== 'ground');
+    const groundObject = sceneObjects.find(obj => obj.type === 'ground');
     
     let description = '';
+    
+    if (groundObject) {
+      description += `Ground plane at (0, 0, 0). `;
+    }
+    
+    if (primitiveObjects.length > 0) {
+      const primitiveDescription = primitiveObjects
+        .map(obj => {
+          const dimensions = this.getObjectDimensions(obj);
+          const colorName = this.getColorName(obj.color);
+          const sizeDesc = dimensions.width !== dimensions.height || dimensions.height !== dimensions.depth 
+            ? `${dimensions.width.toFixed(1)}×${dimensions.height.toFixed(1)}×${dimensions.depth.toFixed(1)}` 
+            : `${dimensions.width.toFixed(1)} units`;
+          
+          return `${colorName} ${obj.type} "${obj.id}" (${sizeDesc}) at (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)})`;
+        })
+        .join(', ');
+      description += `Objects: ${primitiveDescription}`;
+    }
     
     if (housingObjects.length > 0) {
       const housingDescription = housingObjects
         .map(obj => {
           const friendlyType = obj.type.replace('house-', '').replace('-', ' ');
-          return `${friendlyType} "${obj.id}" at (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)})`;
+          const dimensions = this.getObjectDimensions(obj);
+          const colorName = this.getColorName(obj.color);
+          
+          return `${colorName} ${friendlyType} "${obj.id}" (${dimensions.width.toFixed(1)}×${dimensions.height.toFixed(1)}×${dimensions.depth.toFixed(1)}) at (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)})`;
         })
         .join(', ');
-      description += `Housing structures: ${housingDescription}`;
+      description += (description ? '. ' : '') + `Housing structures: ${housingDescription}`;
     }
     
-    if (primitiveObjects.length > 0) {
-      const primitiveDescription = primitiveObjects
-        .map(obj => `${obj.type} "${obj.id}" at (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)})`)
-        .join(', ');
-      description += (description ? '; ' : '') + `Objects: ${primitiveDescription}`;
-    }
+    const finalDescription = `Current scene: ${description || 'just a ground plane'}`;
     
-    return `Current scene contains: ${description || 'just a ground plane'}`;
+    // Debug: Log generated scene description
+    console.log('🤖 AI Service generated scene description:', finalDescription);
+    
+    return finalDescription;
   }
 
   /**
-   * Generate the system prompt for the AI
+   * Generate the system prompt for the AI with enhanced spatial reasoning
    */
   private generateSystemPrompt(sceneDescription: string, objectIds: string[]): string {
-    return `You are a 3D architectural scene assistant. You can modify a Babylon.js scene with both basic objects and housing structures.
+    return `You are a 3D scene assistant with advanced spatial reasoning and precise positioning capabilities. You can modify a Babylon.js scene with millimeter-accurate positioning and automatic dimension matching.
 
-Current scene: ${sceneDescription}
+${sceneDescription}
 
 Available actions:
 1. move: Move an object to x,y,z coordinates
-2. color: Change object color (use hex colors)
-3. scale: Scale an object by x,y,z factors
-4. create: Create objects
+2. color: Change object color (use hex colors like #ff6b6b, #4ecdc4, #95e1d3, etc.)
+3. scale: Scale an object by scaleX, scaleY, scaleZ factors
+4. create: Create new objects with intelligent positioning and automatic scaling
 5. delete: Remove an object
 
 OBJECT TYPES:
 Basic: cube, sphere, cylinder, plane, torus, cone
 Housing: house-basic, house-room, house-hallway, house-roof-flat, house-roof-pitched
 
-ARCHITECTURAL INTELLIGENCE:
-- Rooms typically connect to hallways at ground level (y=0)
-- Roofs go above existing structures (add 2-3 units to y position)
-- Houses and rooms should be spaced 3-4 units apart when "connecting"
-- Hallways can bridge between rooms (position between them)
-- Use appropriate colors: browns for houses, grays for hallways, darker colors for roofs
+PRECISION SPATIAL INTELLIGENCE:
+- Objects have exact dimensions and bounding boxes
+- Automatic dimension matching for "on top of" relationships
+- Direct contact positioning (no gaps unless specified)
+- Identical orientation for stacked objects
+- Specialized housing logic for roofs matching room dimensions
 
-POSITIONING LOGIC:
-- Ground level objects: y=0
-- Roofs above structures: y=2 to y=3
-- When connecting structures, maintain 3-4 unit spacing
-- Hallways should be positioned to logically connect rooms
+AUTOMATIC DIMENSION MATCHING:
+- Blue cube "on top of" red cube → Blue cube automatically scaled to match red cube's footprint
+- Roof on room → Roof automatically scaled to match room's exact dimensions
+- Sphere on cube → Sphere scaled to match cube's width and depth
+- All objects maintain their original height unless explicitly scaling cubes
 
-NATURAL LANGUAGE UNDERSTANDING:
-- "add roof" = create appropriate roof type above existing structure
-- "connect rooms" = create hallway between existing rooms
-- "build house" = create house-basic
-- "create room" = create house-room
-- "make hallway" = create house-hallway
-- "flat roof" = house-roof-flat
-- "pitched roof" = house-roof-pitched
+POSITIONING PRECISION:
+- "on top of" = Perfect contact, no gaps, centered alignment, matching dimensions
+- "beside" = Direct contact on sides, aligned heights
+- "in front of" = Direct contact on front face, aligned positions
+- "behind" = Direct contact on back face, aligned positions
+- "above" = Small gap above, centered alignment
+- "below" = Direct contact below, centered alignment
 
-EXAMPLES:
-Add roof to house: [{"action": "create", "type": "house-roof-pitched"}]
-Connect rooms with hallway: [{"action": "create", "type": "house-hallway"}]
-Create house layout: [{"action": "create", "type": "house-basic"}, {"action": "create", "type": "house-room"}]
-Build 3 connected rooms: [{"action": "create", "type": "house-room"}, {"action": "create", "type": "house-room"}, {"action": "create", "type": "house-room"}, {"action": "create", "type": "house-hallway"}]
+SPATIAL COMMAND EXAMPLES:
+"Put a blue cube on top of the red cube":
+[{"action": "create", "type": "cube", "color": "#4ecdc4", "x": 0, "y": 2.0, "z": 0, "scaleX": 1.0, "scaleY": 1.0, "scaleZ": 1.0}]
+
+"Place a yellow sphere on the green cube":
+[{"action": "create", "type": "sphere", "color": "#fce38a", "x": 0, "y": 2.0, "z": 0, "scaleX": 1.0, "scaleY": 1.0, "scaleZ": 1.0}]
+
+"Add a roof to the room":
+[{"action": "create", "type": "house-roof-pitched", "color": "#654321", "x": 0, "y": 2.25, "z": 0, "scaleX": 1.0, "scaleY": 1.0, "scaleZ": 1.33}]
+
+"Move the red sphere on top of the blue cube":
+[{"action": "move", "objectId": "sphere-id", "x": 0, "y": 2.0, "z": 0}]
+
+HOUSING OBJECT LOGIC:
+- Roofs automatically match underlying structure dimensions
+- Rooms and hallways connect at ground level
+- Proper architectural proportions maintained
+- Direct contact between walls and roofs
+
+CRITICAL REQUIREMENTS:
+1. ALWAYS identify the reference object from the scene when spatial relationships are mentioned
+2. ALWAYS calculate precise x, y, z coordinates based on exact object dimensions
+3. ALWAYS include calculated coordinates in your JSON response
+4. For "on top of" positioning: place bottom of target object touching top of reference object
+5. For dimension matching: automatically calculate scaleX, scaleY, scaleZ factors
+6. Use exact object dimensions from the scene description for all calculations
+7. Ensure perfect contact - no gaps, no overlaps, just touching surfaces
+
+DIMENSION MATCHING RULES:
+- Objects placed "on top of" automatically match the footprint (width × depth) of the reference object
+- Roofs automatically match the exact dimensions of the building they're placed on
+- Heights are preserved unless explicitly scaling identical object types
+- Spheres and cylinders on cubes match the cube's footprint dimensions
+
+When creating objects with spatial relationships, you MUST:
+1. Identify the reference object from the scene
+2. Calculate precise position for direct contact
+3. Calculate scale factors for dimension matching when appropriate
+4. Include x, y, z coordinates AND scaleX, scaleY, scaleZ factors in your response
 
 Respond ONLY with valid JSON array of commands.
 
@@ -129,26 +560,37 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
   }
 
   /**
-   * Parse and validate AI response into commands
+   * Parse commands with enhanced spatial understanding
    */
-  private parseCommands(response: string): SceneCommand[] {
+  private parseCommandsWithSpatialLogic(response: string, sceneObjects: SceneObject[]): SceneCommand[] {
     const cleanedResponse = this.cleanResponse(response);
     
     try {
       const parsed = JSON.parse(cleanedResponse);
+      const commands = Array.isArray(parsed) ? parsed : [parsed];
       
-      if (Array.isArray(parsed)) {
-        return parsed as SceneCommand[];
-      } else {
-        return [parsed as SceneCommand];
-      }
+      // Extract spatial relationships from command structure
+      return commands.map((command: any) => {
+        // Look for spatial relationship patterns in the command
+        if (command.action === 'create' || command.action === 'move') {
+          // Check for implicit spatial relationships based on missing coordinates
+          if (command.x === undefined && command.y === undefined && command.z === undefined) {
+            // This might be a spatial relationship command
+            // The AI should have provided explicit coordinates, but we can try to infer
+            const enhancedCommand = this.enhanceCommandsWithSpatialLogic([command], sceneObjects)[0];
+            return enhancedCommand;
+          }
+        }
+        
+        return command as SceneCommand;
+      });
     } catch (error) {
       throw new Error(`Failed to parse AI response: ${error instanceof Error ? error.message : 'Unknown parsing error'}`);
     }
   }
 
   /**
-   * Get scene commands from user prompt
+   * Get scene commands from user prompt with enhanced spatial reasoning
    */
   public async getSceneCommands(
     prompt: string, 
@@ -164,14 +606,19 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
     try {
       const sceneDescription = this.describeScene(sceneObjects);
       const objectIds = sceneObjects.map(obj => obj.id);
-      const architecturalContext = this.extractArchitecturalContext(prompt);
+      const spatialContext = this.extractSpatialContext(prompt, sceneObjects);
       const systemPrompt = this.generateSystemPrompt(sceneDescription, objectIds);
+
+      // Enhanced prompt with spatial context
+      const enhancedPrompt = spatialContext.spatialRelationDetected 
+        ? `${prompt}\n\nSpatial context: ${spatialContext.description}`
+        : prompt;
 
       const response = await this.openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt }
+          { role: 'user', content: enhancedPrompt }
         ],
         temperature: 0.1,
         max_tokens: 500
@@ -188,8 +635,8 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
       }
 
       try {
-        const rawCommands = this.parseCommands(aiResponse);
-        const commands = this.enhanceCommandsWithArchitecturalLogic(rawCommands, sceneObjects, architecturalContext);
+        const rawCommands = this.parseCommandsWithSpatialLogic(aiResponse, sceneObjects);
+        const commands = this.enhanceCommandsWithSpatialLogic(rawCommands, sceneObjects);
         
         return {
           success: true,
@@ -245,33 +692,6 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
   }
 
   /**
-   * Extract architectural context from user prompt
-   */
-  private extractArchitecturalContext(prompt: string): { targetStructure?: string; connectionIntent?: boolean } {
-    const lowerPrompt = prompt.toLowerCase();
-    
-    // Look for references to specific structures
-    const objectMatches = lowerPrompt.match(/(?:to|on|above|for)\s+(\w+(?:-\w+)*)/g);
-    let targetStructure: string | undefined;
-    
-    if (objectMatches) {
-      for (const match of objectMatches) {
-        const extracted = match.replace(/^(?:to|on|above|for)\s+/, '');
-        if (extracted.includes('house') || extracted.includes('room') || extracted.includes('hall')) {
-          targetStructure = extracted;
-          break;
-        }
-      }
-    }
-    
-    // Check for connection intent
-    const connectionKeywords = ['connect', 'link', 'join', 'bridge', 'between'];
-    const connectionIntent = connectionKeywords.some(keyword => lowerPrompt.includes(keyword));
-    
-    return { targetStructure, connectionIntent };
-  }
-
-  /**
    * Find the best position to connect structures (like rooms with hallways)
    */
   private findConnectionPosition(sceneObjects: SceneObject[], type: string): { x: number, y: number, z: number } {
@@ -306,43 +726,228 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
   }
 
   /**
-   * Enhance the AI response with architectural intelligence
+   * Extract spatial context from user prompt
    */
-  private enhanceCommandsWithArchitecturalLogic(commands: SceneCommand[], sceneObjects: SceneObject[], context?: { targetStructure?: string; connectionIntent?: boolean }): SceneCommand[] {
-    return commands.map(command => {
-      if (command.action === 'create') {
-        // Auto-position housing objects intelligently
-        if (command.type?.startsWith('house-')) {
-          if (command.type.includes('roof')) {
-            // Position roofs above existing structures
-            const roofPos = this.findRoofPosition(sceneObjects, context?.targetStructure);
-            if (roofPos && command.x === undefined && command.y === undefined && command.z === undefined) {
-              return { ...command, ...roofPos };
+  private extractSpatialContext(prompt: string, sceneObjects: SceneObject[]): { 
+    spatialRelationDetected: boolean; 
+    description: string;
+    referenceObject?: SceneObject;
+    relation?: string;
+  } {
+    const lowerPrompt = prompt.toLowerCase();
+    
+    // Spatial relationship patterns
+    const spatialPatterns = [
+      { pattern: /on top of|on|above/, relation: 'on-top-of' },
+      { pattern: /beside|next to|near/, relation: 'beside' },
+      { pattern: /in front of|front/, relation: 'in-front-of' },
+      { pattern: /behind/, relation: 'behind' },
+      { pattern: /below|under/, relation: 'below' }
+    ];
+
+    let detectedRelation: string | undefined;
+    let description = '';
+
+    for (const { pattern, relation } of spatialPatterns) {
+      if (pattern.test(lowerPrompt)) {
+        detectedRelation = relation;
+        break;
+      }
+    }
+
+    if (detectedRelation) {
+      // Try to find the reference object
+      const colorMatches = lowerPrompt.match(/(red|blue|green|yellow|purple|orange|pink|cyan|brown|gray|tan)\s+(cube|sphere|cylinder|box|ball)/g);
+      const typeMatches = lowerPrompt.match(/(cube|sphere|cylinder|box|ball|house|room|hallway)/g);
+      
+      let referenceObject: SceneObject | undefined;
+      
+      if (colorMatches && colorMatches.length > 0) {
+        const colorMatch = colorMatches[0];
+        referenceObject = this.findObjectByDescription(colorMatch, sceneObjects);
+      } else if (typeMatches && typeMatches.length > 0) {
+        const typeMatch = typeMatches[0];
+        referenceObject = this.findObjectByDescription(typeMatch, sceneObjects);
+      }
+
+      if (referenceObject) {
+        const refDimensions = this.getObjectDimensions(referenceObject);
+        const colorName = this.getColorName(referenceObject.color);
+        description = `Reference object: ${colorName} ${referenceObject.type} at (${referenceObject.position.x.toFixed(1)}, ${referenceObject.position.y.toFixed(1)}, ${referenceObject.position.z.toFixed(1)}) with dimensions ${refDimensions.width.toFixed(1)}×${refDimensions.height.toFixed(1)}×${refDimensions.depth.toFixed(1)}`;
+        
+        return {
+          spatialRelationDetected: true,
+          description,
+          referenceObject,
+          relation: detectedRelation
+        };
+      }
+    }
+
+    return {
+      spatialRelationDetected: false,
+      description: ''
+    };
+  }
+
+  /**
+   * Enhance the AI response with spatial intelligence
+   */
+  private enhanceCommandsWithSpatialLogic(commands: SceneCommand[], sceneObjects: SceneObject[]): SceneCommand[] {
+    const enhancedCommands: SceneCommand[] = [];
+    
+    commands.forEach(command => {
+      // Handle spatial relationships for creation and movement
+      if ((command.action === 'create' || command.action === 'move') && command.relativeToObject && command.spatialRelation) {
+        const referenceObject = this.findObjectByDescription(command.relativeToObject, sceneObjects);
+        
+        if (referenceObject) {
+          // Create a temporary object to calculate dimensions
+          const tempObject: SceneObject = {
+            id: 'temp',
+            type: command.type || 'cube',
+            position: new Vector3(0, 0, 0),
+            scale: new Vector3(1, 1, 1),
+            rotation: new Vector3(0, 0, 0),
+            color: command.color || '#ffffff',
+            isNurbs: false
+          };
+
+          const placementResult = this.calculatePreciseSpatialPlacement(
+            tempObject,
+            referenceObject,
+            command.spatialRelation,
+            sceneObjects
+          );
+
+          // Create the primary command (create/move) with position and embedded scale
+          const primaryCommand: SceneCommand = {
+            ...command,
+            x: placementResult.position.x,
+            y: placementResult.position.y,
+            z: placementResult.position.z,
+            matchDimensions: placementResult.matchDimensions,
+            contactType: 'direct'
+          };
+
+          // If dimension matching is needed, embed scale in the create command
+          if (placementResult.scale && command.action === 'create') {
+            primaryCommand.scaleX = placementResult.scale.x;
+            primaryCommand.scaleY = placementResult.scale.y;
+            primaryCommand.scaleZ = placementResult.scale.z;
+          }
+
+          enhancedCommands.push(primaryCommand);
+
+          // For move commands, add a separate scale command if needed
+          if (placementResult.scale && command.action === 'move' && command.objectId) {
+            const scaleCommand: SceneCommand = {
+              action: 'scale',
+              objectId: command.objectId,
+              scaleX: placementResult.scale.x,
+              scaleY: placementResult.scale.y,
+              scaleZ: placementResult.scale.z
+            };
+            enhancedCommands.push(scaleCommand);
+          }
+        } else {
+          // If reference object not found, use original command
+          enhancedCommands.push(command);
+        }
+      } else {
+        // Handle architectural positioning (existing logic)
+        if (command.action === 'create') {
+          if (command.type?.startsWith('house-')) {
+            if (command.type.includes('roof')) {
+              // Enhanced roof positioning
+              const targetStructure = this.findBestStructureForRoof(sceneObjects);
+              if (targetStructure) {
+                const roofPlacement = this.calculateRoofPlacement(
+                  command.type,
+                  targetStructure,
+                  sceneObjects
+                );
+                
+                const roofCommand: SceneCommand = {
+                  ...command,
+                  x: roofPlacement.position.x,
+                  y: roofPlacement.position.y,
+                  z: roofPlacement.position.z,
+                  scaleX: roofPlacement.scale.x,
+                  scaleY: roofPlacement.scale.y,
+                  scaleZ: roofPlacement.scale.z,
+                  matchDimensions: true,
+                  contactType: 'direct'
+                };
+                
+                enhancedCommands.push(roofCommand);
+              } else {
+                // No structure found, use original logic
+                const roofPos = this.findRoofPosition(sceneObjects);
+                if (roofPos && command.x === undefined && command.y === undefined && command.z === undefined) {
+                  enhancedCommands.push({ ...command, ...roofPos });
+                } else {
+                  enhancedCommands.push(command);
+                }
+              }
+            } else {
+              // Other housing structures
+              const connectionPos = this.findConnectionPosition(sceneObjects, command.type);
+              if (command.x === undefined && command.y === undefined && command.z === undefined) {
+                enhancedCommands.push({ ...command, ...connectionPos });
+              } else {
+                enhancedCommands.push(command);
+              }
             }
           } else {
-            // Position other housing structures logically
-            const connectionPos = this.findConnectionPosition(sceneObjects, command.type);
-            if (command.x === undefined && command.y === undefined && command.z === undefined) {
-              return { ...command, ...connectionPos };
+            // Non-housing objects
+            enhancedCommands.push(command);
+          }
+          
+          // Set default colors for housing objects if not specified
+          if (command.type?.startsWith('house-') && !command.color) {
+            const colorMap: { [key: string]: string } = {
+              'house-basic': '#8B4513',
+              'house-room': '#DEB887',
+              'house-hallway': '#808080',
+              'house-roof-flat': '#654321',
+              'house-roof-pitched': '#654321'
+            };
+            const lastCommand = enhancedCommands[enhancedCommands.length - 1];
+            if (lastCommand) {
+              lastCommand.color = colorMap[command.type] || '#8B4513';
             }
           }
-        }
-        
-        // Set default colors for housing objects if not specified
-        if (command.type?.startsWith('house-') && !command.color) {
-          const colorMap: { [key: string]: string } = {
-            'house-basic': '#8B4513',
-            'house-room': '#DEB887',
-            'house-hallway': '#808080',
-            'house-roof-flat': '#654321',
-            'house-roof-pitched': '#654321'
-          };
-          return { ...command, color: colorMap[command.type] || '#8B4513' };
+        } else {
+          // Non-create actions
+          enhancedCommands.push(command);
         }
       }
-      
-      return command;
     });
+    
+    return enhancedCommands;
+  }
+
+  /**
+   * Find the best structure to place a roof on
+   */
+  private findBestStructureForRoof(sceneObjects: SceneObject[]): SceneObject | null {
+    // Look for rooms first, then basic houses
+    const structures = sceneObjects.filter(obj => 
+      obj.type.startsWith('house-') && 
+      !obj.type.includes('roof') &&
+      obj.type !== 'ground'
+    );
+    
+    // Prioritize rooms over basic houses
+    const room = structures.find(obj => obj.type === 'house-room');
+    if (room) return room;
+    
+    const basicHouse = structures.find(obj => obj.type === 'house-basic');
+    if (basicHouse) return basicHouse;
+    
+    // Return first available structure
+    return structures[0] || null;
   }
 
   /**
