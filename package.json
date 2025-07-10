@@ -13,6 +13,7 @@
     "@types/earcut": "^3.0.0",
     "babylonjs": "^8.15.1",
     "babylonjs-loaders": "^8.15.1",
+    "babylonjs-serializers": "^8.15.1",
     "earcut": "^3.0.1",
     "openai": "^5.8.2",
     "react": "^19.1.0",
