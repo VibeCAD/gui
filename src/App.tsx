@@ -419,10 +419,14 @@ function App() {
     
     console.log('Duplicating object:', selectedObject.id, 'as', newId)
 
+    // Compute new position with optional grid snapping
+    const offsetPosition = selectedObject.position.clone().add(new Vector3(2, 0, 0))
+    const snappedPosition = snapToGrid ? sceneAPI.snapToGrid(offsetPosition) : offsetPosition
+
     const newObj: SceneObject = {
       id: newId,
       type: selectedObject.type,
-      position: selectedObject.position.clone().add(new Vector3(2, 0, 0)),
+      position: snappedPosition,
       scale: selectedObject.scale.clone(),
       rotation: selectedObject.rotation.clone(),
       color: selectedObject.color,
@@ -430,9 +434,21 @@ function App() {
       verbData: selectedObject.isNurbs ? selectedObject.verbData : undefined
     }
 
-    addObject(newObj);
-    setSelectedObjectId(newId);
-    setActiveDropdown(null);
+    // --- Special handling for mesh-based types that cannot be recreated via the factory (e.g. custom-room) ---
+    if (selectedObject.type === 'custom-room') {
+      const sceneManager = sceneAPI.getSceneManager()
+      const originalMesh = sceneManager?.getMeshById(selectedObject.id)
+      if (sceneManager && originalMesh) {
+        const clonedMesh = originalMesh.clone(newId, null, false) as Mesh
+        clonedMesh.position = snappedPosition.clone()
+        sceneManager.addPreExistingMesh(clonedMesh, newId)
+        newObj.mesh = clonedMesh
+      }
+    }
+
+    addObject(newObj)
+    setSelectedObjectId(newId)
+    setActiveDropdown(null)
   }
 
   const deleteSelectedObject = () => {
@@ -573,6 +589,18 @@ function App() {
         color: originalObject.color,
         isNurbs: originalObject.isNurbs,
         verbData: originalObject.isNurbs ? originalObject.verbData : undefined
+      }
+      
+      // Handle custom-room duplication by cloning the existing mesh hierarchy
+      if (originalObject.type === 'custom-room') {
+        const sceneManager = sceneAPI.getSceneManager()
+        const originalMesh = sceneManager?.getMeshById(originalObject.id)
+        if (sceneManager && originalMesh) {
+          const clonedMesh = originalMesh.clone(newId, null, false) as Mesh
+          clonedMesh.position = snappedPosition.clone()
+          sceneManager.addPreExistingMesh(clonedMesh, newId)
+          newObj.mesh = clonedMesh
+        }
       }
       
       newObjects.push(newObj)

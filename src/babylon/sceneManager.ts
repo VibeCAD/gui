@@ -211,6 +211,17 @@ export class SceneManager {
             }
             mesh = importedMesh
             break
+          case 'custom-room':
+            // Custom rooms are generated procedurally outside the factory (e.g., via cloning)
+            // Simply look up an existing mesh with the same ID that should have been
+            // added via addPreExistingMesh. If it exists, register it; otherwise warn.
+            const roomMesh = this.scene.getMeshById(sceneObject.id)
+            if (!roomMesh || !(roomMesh instanceof Mesh)) {
+              console.error(`❌ Custom room mesh ${sceneObject.id} not found in scene`)
+              return false
+            }
+            mesh = roomMesh
+            break
           default:
             console.warn(`Unknown primitive type: ${sceneObject.type}`)
             return false
