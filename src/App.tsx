@@ -13,6 +13,9 @@ import { useBabylonScene } from './babylon/hooks/useBabylonScene'
 // Import the new AISidebar component
 import { AISidebar } from './components/sidebar/AISidebar'
 
+// Import the CompassOverlay component
+import { CompassOverlay } from './components/ui/CompassOverlay'
+
 // Import the keyboard shortcuts hook
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 
@@ -1631,6 +1634,8 @@ function App() {
             className="babylon-canvas" 
             onLoad={() => console.log('📺 Canvas onLoad event')}
           />
+          {/* Compass overlay for directional reference */}
+          <CompassOverlay />
         </div>
         <AISidebar 
           apiKey={apiKey}
