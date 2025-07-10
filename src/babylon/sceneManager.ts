@@ -18,6 +18,7 @@ import {
 import type { SceneObject, PrimitiveType, TransformMode, ConnectionPoint, TextureAsset, TextureType } from '../types/types'
 import { createHousingMesh } from './housingFactory'
 import { TextureManager } from './textureManager'
+import { MovementController } from './movementController'
 
 
 export class SceneManager {
@@ -31,6 +32,7 @@ export class SceneManager {
   private pointerDownPosition: { x: number, y: number } | null = null
   private collisionDetectionEnabled: boolean = false
   private textureManager: TextureManager | null = null
+  private movementController: MovementController | null = null
   
   // Event callbacks
   private onObjectClickCallback?: (pickInfo: PickingInfo, isCtrlHeld: boolean) => void
@@ -58,6 +60,9 @@ export class SceneManager {
       // Create camera
       this.camera = new ArcRotateCamera('camera', -Math.PI / 2, Math.PI / 2.5, 10, Vector3.Zero(), this.scene)
       this.camera.attachControl(canvas, true)
+      
+      // Create movement controller
+      this.movementController = new MovementController(this.scene, this.camera, this.engine)
       
       // Create gizmo manager
       this.gizmoManager = new GizmoManager(this.scene)
@@ -999,6 +1004,27 @@ export class SceneManager {
     })
   }
 
+  // Movement controller methods
+  public setMovementEnabled(enabled: boolean): void {
+    if (this.movementController) {
+      this.movementController.setEnabled(enabled)
+    }
+  }
+
+  public setMovementSpeed(speed: number): void {
+    if (this.movementController) {
+      this.movementController.setMoveSpeed(speed)
+    }
+  }
+
+  public getMovementSpeed(): number {
+    return this.movementController?.getMoveSpeed() || 0.1
+  }
+
+  public getMovementEnabled(): boolean {
+    return this.movementController?.getEnabled() || false
+  }
+
   public dispose(): void {
     this.cleanupGizmoObservers()
     // dispose debug spheres
@@ -1013,6 +1039,12 @@ export class SceneManager {
     if (this.multiSelectPivot) {
       this.multiSelectPivot.dispose()
       this.multiSelectPivot = null
+    }
+    
+    // Dispose movement controller
+    if (this.movementController) {
+      this.movementController.dispose()
+      this.movementController = null
     }
     
     this.meshMap.clear()
