@@ -1569,6 +1569,12 @@ function App() {
       setShowApiKeyInput(false)
     }
   }
+
+  // Callback function to open custom room modal
+  const handleOpenCustomRoomModal = () => {
+    console.log('🎨 Opening custom room modal from AI command')
+    setShowCustomRoomModal(true)
+  }
   /*
   const clearAllObjects = () => {
     // Detach gizmo first
@@ -1652,6 +1658,7 @@ function App() {
           apiKey={apiKey}
           sceneInitialized={sceneInitialized}
           sceneAPI={sceneAPI}
+          onOpenCustomRoomModal={handleOpenCustomRoomModal}
         />
       </div>
       {/* Custom Room Drawing Modal */}
