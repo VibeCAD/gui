@@ -26,6 +26,8 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useSceneStore } from './state/sceneStore'
 import type { SceneObject, PrimitiveType, TransformMode, ControlPointVisualization } from './types/types'
 import { CustomRoomModal } from './components/modals/CustomRoomModal'
+import { SelectionModeIndicator } from './components/ui/SelectionModeIndicator'
+import { SelectionInfoDisplay } from './components/ui/SelectionInfoDisplay'
 import { MeshBuilder } from 'babylonjs'
 
 function App() {
@@ -1439,32 +1441,7 @@ function App() {
             </div>
             <div className="dropdown-section">
               <div className="dropdown-section-title">Current Selection</div>
-              <div className={`selection-info ${hasSelectionFlag ? 'has-selection' : ''}`}>
-                {selectedObject ? (
-                  <>
-                    <div className="selected-object-name">{selectedObject.type.toUpperCase()}</div>
-                    <div className="selected-object-details">
-                      ID: {selectedObject.id}<br/>
-                      Position: ({selectedObject.position.x.toFixed(1)}, {selectedObject.position.y.toFixed(1)}, {selectedObject.position.z.toFixed(1)})
-                    </div>
-                  </>
-                ) : selectedObjectIds.length > 0 ? (
-                  <>
-                    <div className="selected-object-name">MULTIPLE OBJECTS</div>
-                    <div className="selected-object-details">
-                      {selectedObjectIds.length} objects selected<br/>
-                      {selectedObjectIds.slice(0, 3).join(', ')}
-                      {selectedObjectIds.length > 3 ? '...' : ''}
-                    </div>
-                  </>
-                ) : (
-                  <div className="no-selection-text">
-                    {multiSelectMode ? 'Ctrl+Click objects to select multiple' : 'Click objects in the 3D scene to select them'}
-                    <br/>
-                    <small>💡 You can also select from the sidebar</small>
-                  </div>
-                )}
-              </div>
+              <SelectionInfoDisplay />
             </div>
             {hasSelectionFlag && (
               <div className="dropdown-section">
@@ -1992,6 +1969,8 @@ function App() {
           <CompassOverlay />
           {/* Measurement overlay for grid coordinates and distance measurement */}
           <MeasurementOverlay scene={sceneAPI.getSceneManager()?.getScene() || null} />
+          {/* Selection mode indicator for multi-select feedback */}
+          <SelectionModeIndicator isVisible={sceneInitialized} />
         </div>
         <AISidebar 
           apiKey={apiKey}

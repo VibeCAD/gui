@@ -46,6 +46,12 @@ export const PropertiesPanel: React.FC = () => {
     setHousingEditMode,
     addHousingComponent,
     updateHousingComponent,
+    removeObject,
+    setObjectVisibility,
+    setObjectLocked,
+    clearSelection,
+    isObjectVisible,
+    isObjectLocked,
   } = useSceneStore();
 
   const selectedObject = getSelectedObject();
@@ -1810,6 +1816,184 @@ export const PropertiesPanel: React.FC = () => {
         </div>
       </div>
 
+      {/* Bulk Scale Operations */}
+      <div className="property-group">
+        <label>Bulk Scale:</label>
+        <div className="bulk-scale-controls">
+          <button
+            onClick={() => {
+              selectedObjects.forEach(obj => {
+                updateObject(obj.id, { scale: new Vector3(1, 1, 1) });
+              });
+            }}
+            className="bulk-action-btn"
+          >
+            Reset Scale
+          </button>
+          <button
+            onClick={() => {
+              selectedObjects.forEach(obj => {
+                updateObject(obj.id, { scale: obj.scale.scale(1.5) });
+              });
+            }}
+            className="bulk-action-btn"
+          >
+            Scale Up 1.5x
+          </button>
+          <button
+            onClick={() => {
+              selectedObjects.forEach(obj => {
+                updateObject(obj.id, { scale: obj.scale.scale(0.75) });
+              });
+            }}
+            className="bulk-action-btn"
+          >
+            Scale Down 0.75x
+          </button>
+        </div>
+      </div>
+
+      {/* Bulk Visibility Operations */}
+      <div className="property-group">
+        <label>Bulk Visibility:</label>
+        <div className="bulk-visibility-controls">
+          <button
+            onClick={() => {
+              selectedObjects.forEach(obj => {
+                setObjectVisibility(obj.id, true);
+              });
+            }}
+            className="bulk-action-btn"
+          >
+            👁️ Show All
+          </button>
+          <button
+            onClick={() => {
+              selectedObjects.forEach(obj => {
+                setObjectVisibility(obj.id, false);
+              });
+            }}
+            className="bulk-action-btn"
+          >
+            🚫 Hide All
+          </button>
+          <button
+            onClick={() => {
+              selectedObjects.forEach(obj => {
+                const currentVisibility = isObjectVisible(obj.id);
+                setObjectVisibility(obj.id, !currentVisibility);
+              });
+            }}
+            className="bulk-action-btn"
+          >
+            🔄 Toggle Visibility
+          </button>
+        </div>
+      </div>
+
+      {/* Bulk Lock Operations */}
+      <div className="property-group">
+        <label>Bulk Lock/Unlock:</label>
+        <div className="bulk-lock-controls">
+          <button
+            onClick={() => {
+              selectedObjects.forEach(obj => {
+                setObjectLocked(obj.id, true);
+              });
+              clearSelection(); // Clear selection since locked objects can't be selected
+            }}
+            className="bulk-action-btn"
+          >
+            🔒 Lock All
+          </button>
+          <button
+            onClick={() => {
+              selectedObjects.forEach(obj => {
+                setObjectLocked(obj.id, false);
+              });
+            }}
+            className="bulk-action-btn"
+          >
+            🔓 Unlock All
+          </button>
+          <button
+            onClick={() => {
+              selectedObjects.forEach(obj => {
+                const currentLocked = isObjectLocked(obj.id);
+                setObjectLocked(obj.id, !currentLocked);
+              });
+            }}
+            className="bulk-action-btn"
+          >
+            🔄 Toggle Lock
+          </button>
+        </div>
+      </div>
+
+      {/* Bulk Transform Operations */}
+      <div className="property-group">
+        <label>Bulk Transform:</label>
+        <div className="bulk-transform-controls">
+          <button
+            onClick={() => {
+              selectedObjects.forEach(obj => {
+                updateObject(obj.id, { 
+                  position: new Vector3(obj.position.x, 0, obj.position.z),
+                  rotation: new Vector3(0, obj.rotation.y, 0)
+                });
+              });
+            }}
+            className="bulk-action-btn"
+          >
+            📐 Align to Ground
+          </button>
+          <button
+            onClick={() => {
+              selectedObjects.forEach(obj => {
+                updateObject(obj.id, { rotation: new Vector3(0, 0, 0) });
+              });
+            }}
+            className="bulk-action-btn"
+          >
+            🔄 Reset Rotation
+          </button>
+          <button
+            onClick={() => {
+              const center = selectedObjects.reduce((acc, obj) => {
+                return acc.add(obj.position);
+              }, new Vector3(0, 0, 0)).scale(1 / selectedObjects.length);
+              
+              selectedObjects.forEach(obj => {
+                updateObject(obj.id, { position: center.clone() });
+              });
+            }}
+            className="bulk-action-btn"
+          >
+            📍 Stack at Center
+          </button>
+        </div>
+      </div>
+
+      {/* Bulk Delete */}
+      <div className="property-group">
+        <label>Bulk Actions:</label>
+        <div className="bulk-actions">
+          <button
+            onClick={() => {
+              if (confirm(`Delete ${selectedObjects.length} selected objects?`)) {
+                selectedObjects.forEach(obj => {
+                  removeObject(obj.id);
+                });
+                clearSelection();
+              }
+            }}
+            className="bulk-action-btn danger"
+          >
+            🗑️ Delete All ({selectedObjects.length})
+          </button>
+        </div>
+      </div>
+
       {/* Object List */}
       <div className="property-group">
         <label>Selected Objects:</label>
@@ -1819,6 +2003,10 @@ export const PropertiesPanel: React.FC = () => {
               <span className="object-type">{obj.type}</span>
               <span className="object-id">{obj.id}</span>
               <div className="object-color" style={{ backgroundColor: obj.color }}></div>
+              <span className="object-status">
+                {!isObjectVisible(obj.id) && '🚫'}
+                {isObjectLocked(obj.id) && '🔒'}
+              </span>
             </div>
           ))}
         </div>

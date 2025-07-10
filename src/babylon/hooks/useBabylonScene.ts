@@ -176,6 +176,12 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
 
   // Handle object click events
   const handleObjectClick = (pickInfo: PickingInfo, isCtrlHeld: boolean = false) => {
+    console.log('🖱️ handleObjectClick called:', { 
+      hit: pickInfo.hit, 
+      meshName: pickInfo.pickedMesh?.name, 
+      isCtrlHeld 
+    });
+
     // Get fresh state from the store at the moment of the click to avoid stale closures
     const {
       sceneObjects,
@@ -187,9 +193,16 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
       clearSelection,
     } = useSceneStore.getState();
 
+    console.log('🔍 Current state:', { 
+      multiSelectMode, 
+      selectedObjectIds: [...selectedObjectIds],
+      sceneObjectCount: sceneObjects.length 
+    });
+
     // If the click didn't hit anything, or didn't hit a mesh, clear selection
     // unless the user is holding control to multi-select.
     if (!pickInfo.hit || !pickInfo.pickedMesh) {
+      console.log('❌ No hit or no mesh');
       if (!isCtrlHeld) {
         clearSelection();
       }
@@ -205,17 +218,25 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     }
 
     const objectId = pickedMesh?.name;
+    console.log('🎯 Found objectId:', objectId);
 
     if (!objectId) {
+      console.log('❌ No objectId found');
       if (!isCtrlHeld) clearSelection();
       return;
     }
 
     const clickedObject = sceneObjects.find(obj => obj.id === objectId);
+    console.log('📦 Found clickedObject:', clickedObject?.type);
 
     // If we didn't find a corresponding object in our store, or if it's the ground,
     // or if the object is locked, clear the selection.
     if (!clickedObject || clickedObject.type === 'ground' || isObjectLocked(objectId)) {
+      console.log('❌ Object not valid for selection:', { 
+        found: !!clickedObject, 
+        type: clickedObject?.type, 
+        locked: isObjectLocked(objectId) 
+      });
       if (!isCtrlHeld) {
         clearSelection();
       }
@@ -224,14 +245,22 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
 
     // Handle selection logic based on the mode
     if (multiSelectMode || isCtrlHeld) {
+      console.log('🔄 Multi-select mode triggered');
       const isAlreadySelected = selectedObjectIds.includes(objectId);
       const newSelection = isAlreadySelected
         ? selectedObjectIds.filter(id => id !== objectId) // Deselect if already selected
         : [...selectedObjectIds, objectId]; // Add to selection
       
+      console.log('✅ Setting new multi-selection:', { 
+        old: [...selectedObjectIds], 
+        new: [...newSelection],
+        wasSelected: isAlreadySelected 
+      });
+      
       setSelectedObjectIds(newSelection);
-      setSelectedObjectId(null); // In multi-select, no single object is the "primary" selection
+      // Note: setSelectedObjectIds automatically clears selectedObjectId in the store
     } else {
+      console.log('📝 Single select mode');
       // Single selection mode – first clear multi-selection, then set single selection
       setSelectedObjectIds([]);
       setSelectedObjectId(objectId);
