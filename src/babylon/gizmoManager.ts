@@ -35,8 +35,6 @@ export class GizmoController {
     this.gizmoManager.scaleGizmoEnabled = false
     this.gizmoManager.boundingBoxGizmoEnabled = false
     this.gizmoManager.usePointerToAttachGizmos = false
-    
-    console.log('🎯 GizmoController initialized')
   }
 
   public updateGizmos(
@@ -45,8 +43,6 @@ export class GizmoController {
     onDragEnd: (position: Vector3, rotation: Vector3, scale: Vector3) => void
   ): void {
     if (!this.gizmoManager) return
-
-    console.log('🔧 Updating gizmos:', { transformMode, targetMesh: targetMesh?.name })
     
     // Clean up existing observers
     this.cleanupGizmoObservers()
@@ -224,7 +220,7 @@ export class GizmoController {
       try {
         observable.remove(observer)
       } catch (error) {
-        console.warn('Error removing gizmo observer:', error)
+        // This can throw if the gizmo is already disposed, so we can ignore it.
       }
     })
     this.gizmoObservers = []
@@ -260,7 +256,10 @@ export const useGizmoManager = (
     selectedObjectIds,
     transformMode,
     multiSelectInitialStates,
-    updateObject
+    updateObject,
+    selectedOpeningId,
+    updateOpeningInWall,
+    walls,
   } = store
 
   const gizmoControllerRef = React.useRef<GizmoController | null>(null)
@@ -269,7 +268,6 @@ export const useGizmoManager = (
   React.useEffect(() => {
     if (!scene || !sceneManager) return
 
-    console.log('🎯 Initializing GizmoController')
     gizmoControllerRef.current = new GizmoController(scene, sceneManager)
 
     return () => {
@@ -282,14 +280,6 @@ export const useGizmoManager = (
 
   // Update gizmos when selection or transform mode changes
   React.useEffect(() => {
-    console.log('🎯 [GizmoManager] useEffect triggered with:', {
-      selectedObjectId,
-      selectedObjectIds,
-      transformMode,
-      hasController: !!gizmoControllerRef.current,
-      hasScene: !!scene
-    })
-    
     if (!gizmoControllerRef.current || !scene) return
 
     const isMultiSelect = selectedObjectIds.length > 0
@@ -298,13 +288,13 @@ export const useGizmoManager = (
     // Choose which mesh to attach gizmo to
     if (isMultiSelect && multiSelectPivot) {
       targetMesh = multiSelectPivot
-      console.log('🎯 [GizmoManager] Using multiSelectPivot as target')
+    } else if (selectedOpeningId) {
+        const proxyMesh = scene.getMeshByName(`proxy-${selectedOpeningId}`);
+        if (proxyMesh instanceof Mesh) {
+            targetMesh = proxyMesh;
+        }
     } else if (selectedObjectId) {
-      console.log('🎯 [GizmoManager] Calling getMeshById with:', selectedObjectId)
       targetMesh = getMeshById(selectedObjectId)
-      console.log('🎯 [GizmoManager] getMeshById returned:', targetMesh?.name || 'null')
-    } else {
-      console.log('🎯 [GizmoManager] No selection, targetMesh will be null')
     }
 
     // Handle gizmo drag end
@@ -346,6 +336,35 @@ export const useGizmoManager = (
             updateObject(id, { position: newPosition, rotation: newRotation, scale: newScale })
           }
         })
+      } else if (selectedOpeningId) {
+        // Find the opening and its parent wall
+        let parentWall: any;
+        let opening: any;
+
+        for (const wall of walls) {
+            const foundOpening = wall.openings.find(o => o.id === selectedOpeningId);
+            if (foundOpening) {
+                parentWall = wall;
+                opening = foundOpening;
+                break;
+            }
+        }
+
+        if (parentWall && opening) {
+            const wallMesh = getMeshById(parentWall.id);
+            if(wallMesh) {
+                const localPosition = position.subtract(wallMesh.position);
+                updateOpeningInWall(parentWall.id, selectedOpeningId, {
+                    parameters: {
+                        ...opening.parameters,
+                        position: {
+                            offsetX: localPosition.x,
+                            elevation: localPosition.y
+                        }
+                    }
+                });
+            }
+        }
       } else if (selectedObjectId) {
         // Single object transform with collision checking (including snap-to-object)
         let newPosition = position.clone()
@@ -397,6 +416,7 @@ export const useGizmoManager = (
   }, [
     selectedObjectId, 
     selectedObjectIds, 
+    selectedOpeningId,
     transformMode, 
     multiSelectPivot, 
     multiSelectInitialStates, 

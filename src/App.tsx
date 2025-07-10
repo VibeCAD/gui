@@ -20,6 +20,7 @@ import { useSceneStore } from './state/sceneStore'
 import type { SceneObject, PrimitiveType, TransformMode, ControlPointVisualization } from './types/types'
 import { CustomRoomModal } from './components/modals/CustomRoomModal'
 import { MeshBuilder } from 'babylonjs'
+import { AppLayout } from './components/layout/AppLayout'
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -1622,29 +1623,26 @@ function App() {
   //console.log('🎨 App.tsx: Rendering main app with canvas')
   
   return (
-    <div className="app-container">
-      {renderTopToolbar()}
-      <div className="main-content">
-        <div className="canvas-container">
-          <canvas 
-            ref={canvasRef} 
-            className="babylon-canvas" 
-            onLoad={() => console.log('📺 Canvas onLoad event')}
-          />
-        </div>
-        <AISidebar 
-          apiKey={apiKey}
-          sceneInitialized={sceneInitialized}
-          sceneAPI={sceneAPI}
+    <AppLayout>
+      <div className="canvas-container">
+        <canvas 
+          ref={canvasRef} 
+          className="babylon-canvas" 
+          onLoad={() => console.log('📺 Canvas onLoad event')}
         />
       </div>
+      <AISidebar 
+        apiKey={apiKey}
+        sceneInitialized={sceneInitialized}
+        sceneAPI={sceneAPI}
+      />
       {/* Custom Room Drawing Modal */}
       <CustomRoomModal
         isOpen={showCustomRoomModal}
         onCancel={() => setShowCustomRoomModal(false)}
         onCreate={handleCreateCustomRoom}
       />
-    </div>
+    </AppLayout>
   )
 }
 

@@ -1,9 +1,11 @@
 import React from 'react';
 import { Vector3 } from 'babylonjs';
 import { useSceneStore } from '../../state/sceneStore';
-import type { SceneObject, ModularHousingObject, Door, Window, Wall } from '../../types/types';
+import type { SceneObject, ModularHousingObject } from '../../types/types';
 import { TextureUpload } from './TextureUpload';
 import { TextureLibrary } from './TextureLibrary';
+import type { Wall } from '../../models/Wall';
+import type { Opening } from '../../models/Opening';
 
 export const PropertiesPanel: React.FC = () => {
   const {
@@ -13,9 +15,6 @@ export const PropertiesPanel: React.FC = () => {
     tessellationQuality,
     controlPointVisualizations,
     selectedControlPointIndex,
-    selectedWallId,
-    selectedDoorId,
-    selectedWindowId,
     housingEditMode,
     updateObject,
     setTessellationQuality,
@@ -23,29 +22,23 @@ export const PropertiesPanel: React.FC = () => {
     getSelectedObject,
     getSelectedObjects,
     hasSelection,
-    // Texture-related state
     textureAssets,
     setTextureScale,
     setTextureOffset,
     removeTextureFromObject,
-    // Housing-specific actions
+    // Housing-specific state and actions are being phased out
+    // but some are kept for now to avoid breaking existing functionality.
     getHousingComponent,
-    getSelectedWall,
-    getSelectedDoor,
-    getSelectedWindow,
-    addDoor,
-    removeDoor,
-    addWindow,
-    removeWindow,
-    changeWallThickness,
-    toggleCeiling,
-    toggleFloor,
-    setSelectedWallId,
-    setSelectedDoorId,
-    setSelectedWindowId,
-    setHousingEditMode,
-    addHousingComponent,
     updateHousingComponent,
+    // New wall actions
+    walls,
+    updateWall,
+    addOpeningToWall,
+    removeOpeningFromWall,
+    updateOpeningInWall,
+    enterAddOpeningMode,
+    selectedOpeningId,
+    setSelectedOpeningId,
   } = useSceneStore();
 
   const selectedObject = getSelectedObject();
@@ -333,6 +326,79 @@ export const PropertiesPanel: React.FC = () => {
     );
   };
 
+  const renderWallProperties = (wall: Wall) => {
+    
+    const handleAddOpening = (type: 'door' | 'window') => {
+        console.log(`[PropertiesPanel] Clicked "Add ${type}" for wall: ${wall.id}`);
+        enterAddOpeningMode(wall.id, type);
+    };
+
+    return (
+        <div className="properties-section">
+            <h4>Wall Properties</h4>
+            <div className="property-group">
+                <label>Length:</label>
+                <input
+                    type="number"
+                    value={wall.parameters.length}
+                    onChange={(e) => updateWall(wall.id, { 
+                        parameters: { ...wall.parameters, length: parseFloat(e.target.value) } 
+                    })}
+                    step="0.1"
+                    className="vector-component"
+                />
+            </div>
+            <div className="property-group">
+                <label>Height:</label>
+                <input
+                    type="number"
+                    value={wall.parameters.height}
+                    onChange={(e) => updateWall(wall.id, {
+                        parameters: { ...wall.parameters, height: parseFloat(e.target.value) }
+                    })}
+                    step="0.1"
+                    className="vector-component"
+                />
+            </div>
+            <div className="property-group">
+                <label>Thickness:</label>
+                <input
+                    type="number"
+                    value={wall.parameters.thickness}
+                    onChange={(e) => updateWall(wall.id, {
+                        parameters: { ...wall.parameters, thickness: parseFloat(e.target.value) }
+                    })}
+                    step="0.05"
+                    className="vector-component"
+                />
+            </div>
+
+            <div className="property-group">
+                <label>Openings ({wall.openings.length})</label>
+                <div className="openings-list">
+                    {wall.openings.map(opening => (
+                        <div 
+                            key={opening.id} 
+                            className={`opening-item ${selectedOpeningId === opening.id ? 'selected' : ''}`}
+                            onClick={() => setSelectedOpeningId(opening.id)}
+                        >
+                            <span>{opening.type}</span>
+                            <button onClick={(e) => {
+                                e.stopPropagation();
+                                removeOpeningFromWall(wall.id, opening.id)
+                            }}>Remove</button>
+                        </div>
+                    ))}
+                </div>
+                <div className="add-opening-buttons">
+                    <button onClick={() => handleAddOpening('door')}>+ Add Door</button>
+                    <button onClick={() => handleAddOpening('window')}>+ Add Window</button>
+                </div>
+            </div>
+        </div>
+    );
+  }
+
   const renderNurbsProperties = (obj: SceneObject) => {
     if (!obj.isNurbs || !obj.verbData) return null;
 
@@ -454,7 +520,7 @@ export const PropertiesPanel: React.FC = () => {
               max="1.0"
               step="0.05"
               value={housingComponent.wallThickness}
-              onChange={(e) => changeWallThickness(obj.id, parseFloat(e.target.value))}
+              onChange={(e) => updateHousingComponent(obj.id, { wallThickness: parseFloat(e.target.value) })}
               className="thickness-slider"
             />
             <span className="thickness-value">{housingComponent.wallThickness.toFixed(2)}m</span>
@@ -467,184 +533,11 @@ export const PropertiesPanel: React.FC = () => {
             <input
               type="checkbox"
               checked={housingComponent.hasCeiling}
-              onChange={(e) => toggleCeiling(obj.id, e.target.checked)}
+              onChange={(e) => updateHousingComponent(obj.id, { hasCeiling: e.target.checked })}
             />
             Has Ceiling
           </label>
         </div>
-
-        {/* Ceiling Height */}
-        {housingComponent.hasCeiling && (
-          <div className="property-group">
-            <label>Ceiling Height:</label>
-            <input
-              type="number"
-              value={housingComponent.ceilingHeight}
-              onChange={(e) => updateHousingComponent(obj.id, { ceilingHeight: parseFloat(e.target.value) })}
-              step="0.1"
-              min="2.0"
-              max="5.0"
-              className="height-input"
-            />
-          </div>
-        )}
-
-        {/* Enhanced Ceiling Management */}
-        {housingComponent.hasCeiling && (
-          <>
-            <div className="property-group">
-              <label>Ceiling Type:</label>
-              <select
-                value={housingComponent.ceilingType || 'flat'}
-                onChange={(e) => updateHousingComponent(obj.id, { ceilingType: e.target.value as any })}
-                className="ceiling-type-select"
-              >
-                <option value="flat">Flat Ceiling</option>
-                <option value="vaulted">Vaulted Ceiling</option>
-                <option value="coffered">Coffered Ceiling</option>
-                <option value="tray">Tray Ceiling</option>
-                <option value="cathedral">Cathedral Ceiling</option>
-                <option value="beam">Exposed Beam</option>
-              </select>
-            </div>
-
-            <div className="property-group">
-              <label>Ceiling Material:</label>
-              <select
-                value={housingComponent.ceilingMaterial || 'drywall'}
-                onChange={(e) => updateHousingComponent(obj.id, { ceilingMaterial: e.target.value })}
-                className="ceiling-material-select"
-              >
-                <option value="drywall">Drywall</option>
-                <option value="plaster">Plaster</option>
-                <option value="wood">Wood Planks</option>
-                <option value="acoustic">Acoustic Tiles</option>
-                <option value="metal">Metal</option>
-                <option value="concrete">Concrete</option>
-                <option value="tin">Tin Tiles</option>
-              </select>
-            </div>
-
-            <div className="property-group">
-              <label>Ceiling Thickness:</label>
-              <div className="thickness-control">
-                <input
-                  type="range"
-                  min="0.05"
-                  max="0.3"
-                  step="0.01"
-                  value={housingComponent.ceilingThickness || 0.1}
-                  onChange={(e) => updateHousingComponent(obj.id, { ceilingThickness: parseFloat(e.target.value) })}
-                  className="thickness-slider"
-                />
-                <span className="thickness-value">{(housingComponent.ceilingThickness || 0.1).toFixed(2)}m</span>
-              </div>
-            </div>
-
-            <div className="property-group">
-              <label>Ceiling Features:</label>
-              <div className="ceiling-features">
-                <div className="feature-option">
-                  <input
-                    type="checkbox"
-                    checked={housingComponent.ceilingFeatures?.hasLights || false}
-                    onChange={(e) => updateHousingComponent(obj.id, { 
-                      ceilingFeatures: { 
-                        ...housingComponent.ceilingFeatures, 
-                        hasLights: e.target.checked 
-                      } 
-                    })}
-                  />
-                  <label>Recessed Lighting</label>
-                </div>
-                <div className="feature-option">
-                  <input
-                    type="checkbox"
-                    checked={housingComponent.ceilingFeatures?.hasFan || false}
-                    onChange={(e) => updateHousingComponent(obj.id, { 
-                      ceilingFeatures: { 
-                        ...housingComponent.ceilingFeatures, 
-                        hasFan: e.target.checked 
-                      } 
-                    })}
-                  />
-                  <label>Ceiling Fan</label>
-                </div>
-                <div className="feature-option">
-                  <input
-                    type="checkbox"
-                    checked={housingComponent.ceilingFeatures?.hasSkylight || false}
-                    onChange={(e) => updateHousingComponent(obj.id, { 
-                      ceilingFeatures: { 
-                        ...housingComponent.ceilingFeatures, 
-                        hasSkylight: e.target.checked 
-                      } 
-                    })}
-                  />
-                  <label>Skylight</label>
-                </div>
-                <div className="feature-option">
-                  <input
-                    type="checkbox"
-                    checked={housingComponent.ceilingFeatures?.hasBeams || false}
-                    onChange={(e) => updateHousingComponent(obj.id, { 
-                      ceilingFeatures: { 
-                        ...housingComponent.ceilingFeatures, 
-                        hasBeams: e.target.checked 
-                      } 
-                    })}
-                  />
-                  <label>Decorative Beams</label>
-                </div>
-              </div>
-            </div>
-
-            <div className="property-group">
-              <label>Ceiling Actions:</label>
-              <div className="ceiling-actions">
-                <button
-                  className="ceiling-action-btn"
-                  onClick={() => {
-                    // Auto-adjust ceiling height based on room type
-                    const roomType = housingComponent.roomType || 'living-room';
-                    const heightMap = {
-                      'living-room': 2.7,
-                      'bedroom': 2.4,
-                      'kitchen': 2.4,
-                      'bathroom': 2.4,
-                      'dining-room': 2.7,
-                      'office': 2.4,
-                      'hallway': 2.4,
-                      'garage': 3.0
-                    };
-                    const suggestedHeight = heightMap[roomType as keyof typeof heightMap] || 2.4;
-                    updateHousingComponent(obj.id, { ceilingHeight: suggestedHeight });
-                  }}
-                >
-                  📏 Auto-Height
-                </button>
-                <button
-                  className="ceiling-action-btn"
-                  onClick={() => {
-                    // Match ceiling to connected rooms
-                    console.log('Match ceiling to connected rooms');
-                  }}
-                >
-                  🔗 Match Connected
-                </button>
-                <button
-                  className="ceiling-action-btn"
-                  onClick={() => {
-                    // Preview ceiling changes
-                    console.log('Preview ceiling changes');
-                  }}
-                >
-                  👁️ Preview
-                </button>
-              </div>
-            </div>
-          </>
-        )}
 
         {/* Floor Toggle */}
         <div className="property-group">
@@ -652,977 +545,20 @@ export const PropertiesPanel: React.FC = () => {
             <input
               type="checkbox"
               checked={housingComponent.hasFloor}
-              onChange={(e) => toggleFloor(obj.id, e.target.checked)}
+              onChange={(e) => updateHousingComponent(obj.id, { hasFloor: e.target.checked })}
             />
             Has Floor
           </label>
         </div>
-
-        {/* Enhanced Floor Management */}
-        {housingComponent.hasFloor && (
-          <>
-            <div className="property-group">
-              <label>Floor Material:</label>
-              <select
-                value={housingComponent.floorMaterial || 'hardwood'}
-                onChange={(e) => updateHousingComponent(obj.id, { floorMaterial: e.target.value })}
-                className="floor-material-select"
-              >
-                <option value="hardwood">Hardwood</option>
-                <option value="laminate">Laminate</option>
-                <option value="tile">Tile</option>
-                <option value="carpet">Carpet</option>
-                <option value="concrete">Concrete</option>
-                <option value="vinyl">Vinyl</option>
-                <option value="marble">Marble</option>
-                <option value="bamboo">Bamboo</option>
-              </select>
-            </div>
-
-            <div className="property-group">
-              <label>Floor Thickness:</label>
-              <div className="thickness-control">
-                <input
-                  type="range"
-                  min="0.02"
-                  max="0.15"
-                  step="0.005"
-                  value={housingComponent.floorThickness || 0.05}
-                  onChange={(e) => updateHousingComponent(obj.id, { floorThickness: parseFloat(e.target.value) })}
-                  className="thickness-slider"
-                />
-                <span className="thickness-value">{(housingComponent.floorThickness || 0.05).toFixed(3)}m</span>
-              </div>
-            </div>
-
-            <div className="property-group">
-              <label>Floor Features:</label>
-              <div className="floor-features">
-                <div className="feature-option">
-                  <input
-                    type="checkbox"
-                    checked={housingComponent.floorFeatures?.hasBaseboards || false}
-                    onChange={(e) => updateHousingComponent(obj.id, { 
-                      floorFeatures: { 
-                        ...housingComponent.floorFeatures, 
-                        hasBaseboards: e.target.checked 
-                      } 
-                    })}
-                  />
-                  <label>Baseboards</label>
-                </div>
-                <div className="feature-option">
-                  <input
-                    type="checkbox"
-                    checked={housingComponent.floorFeatures?.hasHeating || false}
-                    onChange={(e) => updateHousingComponent(obj.id, { 
-                      floorFeatures: { 
-                        ...housingComponent.floorFeatures, 
-                        hasHeating: e.target.checked 
-                      } 
-                    })}
-                  />
-                  <label>Radiant Heating</label>
-                </div>
-                <div className="feature-option">
-                  <input
-                    type="checkbox"
-                    checked={housingComponent.floorFeatures?.hasTransition || false}
-                    onChange={(e) => updateHousingComponent(obj.id, { 
-                      floorFeatures: { 
-                        ...housingComponent.floorFeatures, 
-                        hasTransition: e.target.checked 
-                      } 
-                    })}
-                  />
-                  <label>Transition Strips</label>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Room Type */}
-        <div className="property-group">
-          <label>Room Type:</label>
-          <select
-            value={housingComponent.roomType || 'living-room'}
-            onChange={(e) => updateHousingComponent(obj.id, { roomType: e.target.value as any })}
-            className="room-type-select"
-          >
-            <option value="living-room">Living Room</option>
-            <option value="bedroom">Bedroom</option>
-            <option value="kitchen">Kitchen</option>
-            <option value="bathroom">Bathroom</option>
-            <option value="dining-room">Dining Room</option>
-            <option value="office">Office</option>
-            <option value="hallway">Hallway</option>
-            <option value="garage">Garage</option>
-          </select>
-        </div>
-
-        {/* Walls List */}
-        <div className="property-group">
-          <label>Walls ({housingComponent.walls.length}):</label>
-          <div className="walls-list">
-            {housingComponent.walls.map((wall, index) => (
-              <div 
-                key={wall.id} 
-                className={`wall-item ${selectedWallId === wall.id ? 'selected' : ''}`}
-                onClick={() => setSelectedWallId(wall.id)}
-              >
-                <span className="wall-name">{wall.type} Wall {index + 1}</span>
-                <span className="wall-info">
-                  {wall.doors.length} doors, {wall.windows.length} windows
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Selected Wall Properties */}
-        {selectedWallId && renderSelectedWallProperties(obj.id, selectedWallId)}
-
-        {/* Doors List */}
-        <div className="property-group">
-          <label>Doors ({housingComponent.doors.length}):</label>
-          <div className="doors-list">
-            {housingComponent.doors.map((door, index) => (
-              <div 
-                key={door.id} 
-                className={`door-item ${selectedDoorId === door.id ? 'selected' : ''}`}
-                onClick={() => setSelectedDoorId(door.id)}
-              >
-                <span className="door-name">{door.type} Door {index + 1}</span>
-                <span className="door-info">
-                  {door.width.toFixed(2)}×{door.height.toFixed(2)}m
-                </span>
-              </div>
-            ))}
-          </div>
-          <button 
-            className="add-component-btn"
-            onClick={() => setHousingEditMode('door')}
-          >
-            + Add Door
-          </button>
-        </div>
-
-        {/* Selected Door Properties */}
-        {selectedDoorId && renderSelectedDoorProperties(obj.id, selectedDoorId)}
-
-        {/* Windows List */}
-        <div className="property-group">
-          <label>Windows ({housingComponent.windows.length}):</label>
-          <div className="windows-list">
-            {housingComponent.windows.map((window, index) => (
-              <div 
-                key={window.id} 
-                className={`window-item ${selectedWindowId === window.id ? 'selected' : ''}`}
-                onClick={() => setSelectedWindowId(window.id)}
-              >
-                <span className="window-name">{window.type} Window {index + 1}</span>
-                <span className="window-info">
-                  {window.width.toFixed(2)}×{window.height.toFixed(2)}m
-                </span>
-              </div>
-            ))}
-          </div>
-          <button 
-            className="add-component-btn"
-            onClick={() => setHousingEditMode('window')}
-          >
-            + Add Window
-          </button>
-        </div>
-
-        {/* Selected Window Properties */}
-        {selectedWindowId && renderSelectedWindowProperties(obj.id, selectedWindowId)}
-
-        {/* Building Info */}
-        <div className="property-group">
-          <label>Building Information:</label>
-          <div className="building-info">
-            <div>Type: {housingComponent.housingType}</div>
-            <div>Walls: {housingComponent.walls.length}</div>
-            <div>Total Doors: {housingComponent.doors.length}</div>
-            <div>Total Windows: {housingComponent.windows.length}</div>
-          </div>
-        </div>
       </div>
     );
   };
 
-  const renderSelectedWallProperties = (objectId: string, wallId: string) => {
-    const wall = getSelectedWall(objectId);
-    if (!wall) return null;
-
+  const renderSelectedWallProperties = (wall: Wall) => {
     return (
       <div className="property-group selected-wall-properties">
         <h5>Selected Wall Properties</h5>
-        
-        <div className="wall-property">
-          <label>Wall Type:</label>
-          <select
-            value={wall.type}
-            onChange={(e) => {
-              // Update wall type with real-time preview
-              const newType = e.target.value as any;
-              // TODO: Implement wall type update with visual feedback
-              console.log('Update wall type:', newType);
-            }}
-          >
-            <option value="exterior">Exterior</option>
-            <option value="interior">Interior</option>
-            <option value="load-bearing">Load Bearing</option>
-            <option value="partition">Partition</option>
-          </select>
-        </div>
-
-        <div className="wall-property">
-          <label>Wall Thickness:</label>
-          <div className="wall-thickness-control">
-            <input
-              type="range"
-              min="0.05"
-              max="1.0"
-              step="0.025"
-              value={wall.thickness}
-              onChange={(e) => {
-                const newThickness = parseFloat(e.target.value);
-                changeWallThickness(objectId, newThickness, wallId);
-                // Real-time preview implementation
-                const housingComponent = getHousingComponent(objectId);
-                if (housingComponent) {
-                  // Update the mesh in real-time
-                  const sceneObject = sceneObjects.find(obj => obj.id === objectId);
-                  if (sceneObject && sceneObject.mesh) {
-                    // Force mesh regeneration with new thickness
-                    sceneObject.mesh.dispose();
-                    // The mesh will be regenerated by the scene manager
-                  }
-                }
-              }}
-              className="thickness-slider"
-            />
-            <span className="thickness-value">{wall.thickness.toFixed(3)}m</span>
-          </div>
-          <small className="thickness-hint">
-            💡 Real-time preview active
-          </small>
-        </div>
-
-        <div className="wall-property">
-          <label>Wall Height:</label>
-          <div className="height-control">
-            <input
-              type="number"
-              value={wall.height}
-              onChange={(e) => {
-                // Update wall height with auto-adjust connected structures
-                const newHeight = parseFloat(e.target.value);
-                const housingComponent = getHousingComponent(objectId);
-                if (housingComponent) {
-                  // Update the specific wall height
-                  const targetWall = housingComponent.walls.find(w => w.id === wallId);
-                  if (targetWall) {
-                    targetWall.height = newHeight;
-                    updateHousingComponent(objectId, housingComponent);
-                    
-                    // Auto-adjust connected structures
-                    targetWall.connectedWalls.forEach(connectedWallId => {
-                      const connectedWall = housingComponent.walls.find(w => w.id === connectedWallId);
-                      if (connectedWall) {
-                        connectedWall.height = newHeight;
-                      }
-                    });
-                    
-                    // Update ceiling height if needed
-                    if (housingComponent.hasCeiling) {
-                      housingComponent.ceilingHeight = newHeight;
-                    }
-                    
-                    // Force mesh regeneration
-                    const sceneObject = sceneObjects.find(obj => obj.id === objectId);
-                    if (sceneObject && sceneObject.mesh) {
-                      sceneObject.mesh.dispose();
-                    }
-                  }
-                }
-              }}
-              step="0.1"
-              min="2.0"
-              max="5.0"
-              className="height-input"
-            />
-            <button
-              className="auto-adjust-btn"
-              onClick={() => {
-                // Auto-adjust connected structures
-                const housingComponent = getHousingComponent(objectId);
-                if (housingComponent) {
-                  const targetWall = housingComponent.walls.find(w => w.id === wallId);
-                  if (targetWall) {
-                    // Set all connected walls to the same height
-                    const targetHeight = targetWall.height;
-                    targetWall.connectedWalls.forEach(connectedWallId => {
-                      const connectedWall = housingComponent.walls.find(w => w.id === connectedWallId);
-                      if (connectedWall) {
-                        connectedWall.height = targetHeight;
-                      }
-                    });
-                    
-                    // Update ceiling height
-                    if (housingComponent.hasCeiling) {
-                      housingComponent.ceilingHeight = targetHeight;
-                    }
-                    
-                    updateHousingComponent(objectId, housingComponent);
-                    
-                    // Force mesh regeneration
-                    const sceneObject = sceneObjects.find(obj => obj.id === objectId);
-                    if (sceneObject && sceneObject.mesh) {
-                      sceneObject.mesh.dispose();
-                    }
-                  }
-                }
-              }}
-              title="Auto-adjust connected structures"
-            >
-              🔗
-            </button>
-          </div>
-        </div>
-
-        <div className="wall-property">
-          <label>Wall Length:</label>
-          <div className="length-display">
-            <span className="length-value">
-              {wall.startPoint.subtract(wall.endPoint).length().toFixed(2)}m
-            </span>
-            <button
-              className="edit-length-btn"
-              onClick={() => {
-                // Enter wall length edit mode
-                console.log('Enter wall length edit mode');
-              }}
-              title="Edit wall endpoints"
-            >
-              ✏️
-            </button>
-          </div>
-        </div>
-
-        <div className="wall-property">
-          <label>Load Bearing:</label>
-          <div className="load-bearing-control">
-            <input
-              type="checkbox"
-              checked={wall.isLoadBearing}
-              onChange={(e) => {
-                // Update load bearing status with structural warnings
-                const isLoadBearing = e.target.checked;
-                if (!isLoadBearing && wall.connectedWalls.length > 0) {
-                  // Show warning about connected walls
-                  console.log('Warning: This wall supports connected structures');
-                }
-                // TODO: Implement load bearing update
-                console.log('Update load bearing:', isLoadBearing);
-              }}
-            />
-            {wall.isLoadBearing && wall.connectedWalls.length > 0 && (
-              <span className="structural-warning">
-                ⚠️ Supports {wall.connectedWalls.length} connected wall{wall.connectedWalls.length > 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="wall-property">
-          <label>Connected Walls:</label>
-          <div className="connected-walls-list">
-            {wall.connectedWalls.length === 0 ? (
-              <span className="no-connections">No connections</span>
-            ) : (
-              wall.connectedWalls.map((connectedWallId, index) => (
-                <div key={connectedWallId} className="connected-wall-item">
-                  <span className="connected-wall-id">Wall {index + 1}</span>
-                  <button
-                    className="disconnect-btn"
-                    onClick={() => {
-                      // Disconnect wall
-                      console.log('Disconnect wall:', connectedWallId);
-                    }}
-                    title="Disconnect this wall"
-                  >
-                    🔗⚡
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="wall-actions">
-          <button
-            className="wall-action-btn"
-            onClick={() => {
-              // Enter wall segment edit mode
-              console.log('Enter wall segment edit mode');
-            }}
-          >
-            🎯 Edit Segments
-          </button>
-          <button
-            className="wall-action-btn"
-            onClick={() => {
-              // Split wall at midpoint
-              console.log('Split wall at midpoint');
-            }}
-          >
-            ✂️ Split Wall
-          </button>
-          <button
-            className="wall-action-btn danger"
-            onClick={() => {
-              // Remove wall with confirmation
-              if (window.confirm('Remove this wall? This action cannot be undone.')) {
-                console.log('Remove wall');
-              }
-            }}
-          >
-            🗑️ Remove
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  const renderSelectedDoorProperties = (objectId: string, doorId: string) => {
-    const door = getSelectedDoor(objectId);
-    if (!door) return null;
-
-    return (
-      <div className="property-group selected-door-properties">
-        <h5>Selected Door Properties</h5>
-        
-        <div className="door-property">
-          <label>Door Type:</label>
-          <select
-            value={door.type}
-            onChange={(e) => {
-              // Update door type with auto-cutout regeneration
-              const newType = e.target.value as any;
-              // TODO: Implement door type update with CSG regeneration
-              console.log('Update door type:', newType, '- regenerating cutout');
-            }}
-          >
-            <option value="single">Single Door</option>
-            <option value="double">Double Door</option>
-            <option value="sliding">Sliding Door</option>
-            <option value="french">French Door</option>
-            <option value="garage">Garage Door</option>
-          </select>
-        </div>
-
-        <div className="door-property">
-          <label>Door Style:</label>
-          <select
-            value={door.material || 'wood'}
-            onChange={(e) => {
-              // Update door style/material
-              console.log('Update door style:', e.target.value);
-            }}
-          >
-            <option value="wood">Wood Panel</option>
-            <option value="glass">Glass Panel</option>
-            <option value="steel">Steel</option>
-            <option value="composite">Composite</option>
-            <option value="arched">Arched</option>
-          </select>
-        </div>
-
-        <div className="door-property">
-          <label>Dimensions:</label>
-          <div className="dimension-controls">
-            <div className="dimension-input">
-              <label>Width:</label>
-              <input
-                type="number"
-                value={door.width}
-                onChange={(e) => {
-                  const newWidth = parseFloat(e.target.value);
-                  // TODO: Update door width with real-time cutout adjustment
-                  console.log('Update door width:', newWidth);
-                }}
-                step="0.05"
-                min="0.6"
-                max="3.0"
-                className="dimension-field"
-              />
-            </div>
-            <div className="dimension-input">
-              <label>Height:</label>
-              <input
-                type="number"
-                value={door.height}
-                onChange={(e) => {
-                  const newHeight = parseFloat(e.target.value);
-                  // TODO: Update door height with real-time cutout adjustment
-                  console.log('Update door height:', newHeight);
-                }}
-                step="0.05"
-                min="1.8"
-                max="3.0"
-                className="dimension-field"
-              />
-            </div>
-            <div className="dimension-input">
-              <label>Thickness:</label>
-              <input
-                type="number"
-                value={door.thickness}
-                onChange={(e) => {
-                  const newThickness = parseFloat(e.target.value);
-                  console.log('Update door thickness:', newThickness);
-                }}
-                step="0.005"
-                min="0.02"
-                max="0.1"
-                className="dimension-field"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="door-property">
-          <label>Position on Wall:</label>
-          <div className="position-controls">
-            <div className="position-slider">
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={door.position.x} // Normalized position along wall
-                onChange={(e) => {
-                  const newPosition = parseFloat(e.target.value);
-                  // TODO: Update door position with drag-and-drop preview
-                  console.log('Update door position:', newPosition);
-                }}
-                className="position-range"
-              />
-              <span className="position-value">
-                {(door.position.x * 100).toFixed(0)}%
-              </span>
-            </div>
-            <button
-              className="drag-position-btn"
-              onClick={() => {
-                // Enter drag-and-drop positioning mode
-                const housingComponent = getHousingComponent(objectId);
-                if (housingComponent) {
-                  const targetDoor = housingComponent.doors.find(d => d.id === doorId);
-                  if (targetDoor) {
-                    // Enable drag mode for door positioning
-                    setHousingEditMode('door');
-                    setSelectedDoorId(doorId);
-                    
-                    // Create position guides for visual feedback
-                    const wall = housingComponent.walls.find(w => w.id === targetDoor.wallId);
-                    if (wall) {
-                      // Visual feedback: show valid positions along the wall
-                      console.log('Created position guides for door:', doorId, 'on wall:', wall.id);
-                    }
-                  }
-                }
-              }}
-              title="Drag door position in 3D view"
-            >
-              🎯 Drag Position
-            </button>
-          </div>
-        </div>
-
-        <div className="door-property">
-          <label>Door Operation:</label>
-          <div className="operation-controls">
-            <div className="operation-setting">
-              <label>Hinge Direction:</label>
-              <select
-                value={door.hingeDirection}
-                onChange={(e) => {
-                  const newDirection = e.target.value as 'left' | 'right';
-                  // TODO: Update hinge direction with visual feedback
-                  console.log('Update hinge direction:', newDirection);
-                }}
-              >
-                <option value="left">Left Hinge</option>
-                <option value="right">Right Hinge</option>
-              </select>
-            </div>
-            <div className="operation-setting">
-              <label>Open Direction:</label>
-              <select
-                value={door.openDirection}
-                onChange={(e) => {
-                  const newDirection = e.target.value as 'inward' | 'outward';
-                  // TODO: Update open direction with visual feedback
-                  console.log('Update open direction:', newDirection);
-                }}
-              >
-                <option value="inward">Inward</option>
-                <option value="outward">Outward</option>
-              </select>
-            </div>
-            <div className="operation-setting">
-              <label>Currently Open:</label>
-              <input
-                type="checkbox"
-                checked={door.isOpen}
-                onChange={(e) => {
-                  // Toggle door open/closed state
-                  console.log('Toggle door open state:', e.target.checked);
-                }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="door-property">
-          <label>Auto-Cutout:</label>
-          <div className="cutout-controls">
-            <button
-              className="cutout-btn"
-              onClick={() => {
-                // Regenerate door cutout using CSG
-                const housingComponent = getHousingComponent(objectId);
-                if (housingComponent) {
-                  const targetDoor = housingComponent.doors.find(d => d.id === doorId);
-                  if (targetDoor) {
-                    // Force regeneration of the wall mesh with updated cutout
-                    updateHousingComponent(objectId, housingComponent);
-                    
-                    // Force mesh regeneration
-                    const sceneObject = sceneObjects.find(obj => obj.id === objectId);
-                    if (sceneObject && sceneObject.mesh) {
-                      sceneObject.mesh.dispose();
-                      console.log('Regenerated door cutout for door:', doorId);
-                    }
-                  }
-                }
-              }}
-            >
-              🔄 Regenerate Cutout
-            </button>
-            <button
-              className="cutout-btn"
-              onClick={() => {
-                // Preview cutout without applying
-                const housingComponent = getHousingComponent(objectId);
-                if (housingComponent) {
-                  const targetDoor = housingComponent.doors.find(d => d.id === doorId);
-                  if (targetDoor) {
-                    // Create a preview mesh to show the cutout
-                    console.log('Preview cutout for door:', doorId);
-                    // The preview would be implemented in the scene manager
-                  }
-                }
-              }}
-            >
-              👁️ Preview Cutout
-            </button>
-          </div>
-        </div>
-
-        <div className="door-actions">
-          <button
-            className="door-action-btn"
-            onClick={() => {
-              // Duplicate door to another wall
-              console.log('Duplicate door to another wall');
-            }}
-          >
-            📋 Duplicate
-          </button>
-          <button
-            className="door-action-btn"
-            onClick={() => {
-              // Convert door type (e.g., single to double)
-              console.log('Convert door type');
-            }}
-          >
-            🔄 Convert Type
-          </button>
-          <button
-            className="remove-component-btn"
-            onClick={() => {
-              if (window.confirm('Remove this door? This will also remove the wall cutout.')) {
-                removeDoor(objectId, doorId);
-              }
-            }}
-          >
-            🗑️ Remove Door
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  const renderSelectedWindowProperties = (objectId: string, windowId: string) => {
-    const window = getSelectedWindow(objectId);
-    if (!window) return null;
-
-    return (
-      <div className="property-group selected-window-properties">
-        <h5>Selected Window Properties</h5>
-        
-        <div className="window-property">
-          <label>Window Type:</label>
-          <select
-            value={window.type}
-            onChange={(e) => {
-              // Update window type with auto-cutout regeneration
-              const newType = e.target.value as any;
-              // TODO: Implement window type update with CSG regeneration
-              console.log('Update window type:', newType, '- regenerating cutout');
-            }}
-          >
-            <option value="single">Single Window</option>
-            <option value="double">Double Window</option>
-            <option value="bay">Bay Window</option>
-            <option value="casement">Casement Window</option>
-            <option value="sliding">Sliding Window</option>
-            <option value="skylight">Skylight</option>
-          </select>
-        </div>
-
-        <div className="window-property">
-          <label>Window Style:</label>
-          <select
-            value={window.material || 'standard'}
-            onChange={(e) => {
-              // Update window style/material
-              console.log('Update window style:', e.target.value);
-            }}
-          >
-            <option value="standard">Standard</option>
-            <option value="arched">Arched</option>
-            <option value="circular">Circular</option>
-            <option value="stained-glass">Stained Glass</option>
-            <option value="frosted">Frosted</option>
-          </select>
-        </div>
-
-        <div className="window-property">
-          <label>Dimensions:</label>
-          <div className="dimension-controls">
-            <div className="dimension-input">
-              <label>Width:</label>
-              <input
-                type="number"
-                value={window.width}
-                onChange={(e) => {
-                  const newWidth = parseFloat(e.target.value);
-                  // TODO: Update window width with real-time cutout adjustment
-                  console.log('Update window width:', newWidth);
-                }}
-                step="0.05"
-                min="0.3"
-                max="3.0"
-                className="dimension-field"
-              />
-            </div>
-            <div className="dimension-input">
-              <label>Height:</label>
-              <input
-                type="number"
-                value={window.height}
-                onChange={(e) => {
-                  const newHeight = parseFloat(e.target.value);
-                  // TODO: Update window height with real-time cutout adjustment
-                  console.log('Update window height:', newHeight);
-                }}
-                step="0.05"
-                min="0.3"
-                max="2.5"
-                className="dimension-field"
-              />
-            </div>
-            <div className="dimension-input">
-              <label>Sill Height:</label>
-              <input
-                type="number"
-                value={window.sillHeight}
-                onChange={(e) => {
-                  const newSillHeight = parseFloat(e.target.value);
-                  // TODO: Update sill height with real-time preview
-                  console.log('Update sill height:', newSillHeight);
-                }}
-                step="0.05"
-                min="0.3"
-                max="1.5"
-                className="dimension-field"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="window-property">
-          <label>Position on Wall:</label>
-          <div className="position-controls">
-            <div className="position-slider">
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={window.position.x} // Normalized position along wall
-                onChange={(e) => {
-                  const newPosition = parseFloat(e.target.value);
-                  // TODO: Update window position with drag-and-drop preview
-                  console.log('Update window position:', newPosition);
-                }}
-                className="position-range"
-              />
-              <span className="position-value">
-                {(window.position.x * 100).toFixed(0)}%
-              </span>
-            </div>
-            <button
-              className="drag-position-btn"
-              onClick={() => {
-                // Enter drag-and-drop positioning mode
-                console.log('Enter drag-and-drop positioning mode');
-              }}
-              title="Drag window position in 3D view"
-            >
-              🎯 Drag Position
-            </button>
-          </div>
-        </div>
-
-        <div className="window-property">
-          <label>Frame Settings:</label>
-          <div className="frame-controls">
-            <div className="frame-setting">
-              <label>Has Frame:</label>
-              <input
-                type="checkbox"
-                checked={window.hasFrame}
-                onChange={(e) => {
-                  // Toggle frame with real-time preview
-                  console.log('Toggle window frame:', e.target.checked);
-                }}
-              />
-            </div>
-            {window.hasFrame && (
-              <div className="frame-setting">
-                <label>Frame Thickness:</label>
-                <input
-                  type="number"
-                  value={window.frameThickness}
-                  onChange={(e) => {
-                    const newThickness = parseFloat(e.target.value);
-                    console.log('Update frame thickness:', newThickness);
-                  }}
-                  step="0.005"
-                  min="0.02"
-                  max="0.1"
-                  className="dimension-field"
-                />
-              </div>
-            )}
-            <div className="frame-setting">
-              <label>Openable:</label>
-              <input
-                type="checkbox"
-                checked={window.isOpen || false}
-                onChange={(e) => {
-                  // Toggle window open/closed state
-                  console.log('Toggle window open state:', e.target.checked);
-                }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="window-property">
-          <label>Auto-Cutout:</label>
-          <div className="cutout-controls">
-            <button
-              className="cutout-btn"
-              onClick={() => {
-                // Regenerate window cutout using CSG
-                const housingComponent = getHousingComponent(objectId);
-                if (housingComponent) {
-                  const targetWindow = housingComponent.windows.find(w => w.id === windowId);
-                  if (targetWindow) {
-                    // Force regeneration of the wall mesh with updated cutout
-                    updateHousingComponent(objectId, housingComponent);
-                    
-                    // Force mesh regeneration
-                    const sceneObject = sceneObjects.find(obj => obj.id === objectId);
-                    if (sceneObject && sceneObject.mesh) {
-                      sceneObject.mesh.dispose();
-                      console.log('Regenerated window cutout for window:', windowId);
-                    }
-                  }
-                }
-              }}
-            >
-              🔄 Regenerate Cutout
-            </button>
-            <button
-              className="cutout-btn"
-              onClick={() => {
-                // Preview cutout without applying
-                const housingComponent = getHousingComponent(objectId);
-                if (housingComponent) {
-                  const targetWindow = housingComponent.windows.find(w => w.id === windowId);
-                  if (targetWindow) {
-                    // Create a preview mesh to show the cutout
-                    console.log('Preview cutout for window:', windowId);
-                    // The preview would be implemented in the scene manager
-                  }
-                }
-              }}
-            >
-              👁️ Preview Cutout
-            </button>
-          </div>
-        </div>
-
-        <div className="window-actions">
-          <button
-            className="window-action-btn"
-            onClick={() => {
-              // Duplicate window to another wall
-              console.log('Duplicate window to another wall');
-            }}
-          >
-            📋 Duplicate
-          </button>
-          <button
-            className="window-action-btn"
-            onClick={() => {
-              // Convert window type (e.g., single to double)
-              console.log('Convert window type');
-            }}
-          >
-            🔄 Convert Type
-          </button>
-          <button
-            className="remove-component-btn"
-            onClick={() => {
-              if (confirm('Remove this window? This will also remove the wall cutout.')) {
-                removeWindow(objectId, windowId);
-              }
-            }}
-          >
-            🗑️ Remove Window
-          </button>
-        </div>
+        {/* Simplified for now, will be expanded later */}
       </div>
     );
   };
@@ -1668,6 +604,41 @@ export const PropertiesPanel: React.FC = () => {
     </div>
   );
 
+  const renderSelectedOpeningProperties = (opening: Opening) => {
+    const parentWall = walls.find(wall => wall.openings.some(op => op.id === opening.id));
+    if (!parentWall) return null;
+
+    return (
+        <div className="properties-section">
+            <h4>Opening Properties</h4>
+            <div className="property-group">
+                <label>Width:</label>
+                <input
+                    type="number"
+                    value={opening.parameters.width}
+                    onChange={(e) => updateOpeningInWall(parentWall.id, opening.id, {
+                        parameters: { ...opening.parameters, width: parseFloat(e.target.value) }
+                    })}
+                    step="0.1"
+                    className="vector-component"
+                />
+            </div>
+            <div className="property-group">
+                <label>Height:</label>
+                <input
+                    type="number"
+                    value={opening.parameters.height}
+                    onChange={(e) => updateOpeningInWall(parentWall.id, opening.id, {
+                        parameters: { ...opening.parameters, height: parseFloat(e.target.value) }
+                    })}
+                    step="0.1"
+                    className="vector-component"
+                />
+            </div>
+        </div>
+    );
+  };
+
   if (!hasSelectionFlag) {
     return (
       <div className="ai-control-group">
@@ -1689,7 +660,10 @@ export const PropertiesPanel: React.FC = () => {
             {renderTextureProperties(selectedObject)}
             {renderNurbsProperties(selectedObject)}
             {renderHousingProperties(selectedObject)}
+            {walls.find(w => w.id === selectedObject.id) && renderWallProperties(walls.find(w => w.id === selectedObject.id)!)}
           </>
+        ) : selectedOpeningId ? (
+            renderSelectedOpeningProperties(walls.flatMap(w => w.openings).find(o => o.id === selectedOpeningId)!)
         ) : (
           renderMultiSelectProperties()
         )}

@@ -15,10 +15,10 @@
     "babylonjs-loaders": "^8.15.1",
     "babylonjs-serializers": "^8.15.1",
     "earcut": "^3.0.1",
-
     "openai": "^5.8.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "zundo": "^2.3.0",
     "zustand": "^5.0.6"
   },
   "devDependencies": {

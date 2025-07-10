@@ -1,4 +1,6 @@
 import { Vector3, Vector2, Quaternion, Mesh } from 'babylonjs'
+import type { Opening } from '../models/Opening';
+import type { Wall } from '../models/Wall';
 
 export type TransformMode = 'select' | 'move' | 'rotate' | 'scale'
 export type PrimitiveType = 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 'nurbs' | 
@@ -34,57 +36,6 @@ export interface TextureAsset {
 
 // Housing component types
 export type HousingComponentType = 'wall' | 'door' | 'window' | 'ceiling' | 'floor' | 'foundation'
-export type DoorType = 'single' | 'double' | 'sliding' | 'french' | 'garage'
-export type WindowType = 'single' | 'double' | 'bay' | 'casement' | 'sliding' | 'skylight'
-export type WallType = 'interior' | 'exterior' | 'load-bearing' | 'partition'
-
-// Door component interface
-export interface Door {
-    id: string
-    type: DoorType
-    width: number
-    height: number
-    thickness: number
-    position: Vector3  // Position relative to the wall
-    wallId: string     // ID of the wall this door belongs to
-    isOpen: boolean
-    openDirection: 'inward' | 'outward'
-    hingeDirection: 'left' | 'right'
-    color: string
-    material?: string
-}
-
-// Window component interface
-export interface Window {
-    id: string
-    type: WindowType
-    width: number
-    height: number
-    position: Vector3  // Position relative to the wall
-    wallId: string     // ID of the wall this window belongs to
-    sillHeight: number // Height from floor to window sill
-    hasFrame: boolean
-    frameThickness: number
-    color: string
-    material?: string
-    isOpen?: boolean   // For openable windows
-}
-
-// Wall component interface
-export interface Wall {
-    id: string
-    type: WallType
-    startPoint: Vector3
-    endPoint: Vector3
-    height: number
-    thickness: number
-    color: string
-    material?: string
-    doors: Door[]
-    windows: Window[]
-    isLoadBearing: boolean
-    connectedWalls: string[]  // IDs of walls this wall connects to
-}
 
 // Housing component base interface
 export interface HousingComponent {
@@ -122,9 +73,6 @@ export interface ModularHousingObject extends SceneObject {
     hasCeiling: boolean
     hasFloor: boolean
     hasFoundation: boolean
-    walls: Wall[]
-    doors: Door[]
-    windows: Window[]
     ceilingHeight: number
     floorThickness: number
     foundationHeight: number
@@ -267,10 +215,8 @@ export interface Boundary {
 
 // Utility types for housing operations
 export type HousingOperation = 
-  | { type: 'add-door', wallId: string, door: Omit<Door, 'id'> }
-  | { type: 'remove-door', doorId: string }
-  | { type: 'add-window', wallId: string, window: Omit<Window, 'id'> }
-  | { type: 'remove-window', windowId: string }
+  | { type: 'add-opening', wallId: string, opening: Omit<Opening, 'id'> }
+  | { type: 'remove-opening', openingId: string }
   | { type: 'change-wall-thickness', wallId?: string, thickness: number }
   | { type: 'toggle-ceiling', hasCeiling: boolean }
   | { type: 'toggle-floor', hasFloor: boolean }

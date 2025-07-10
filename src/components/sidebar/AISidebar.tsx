@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Vector3 } from 'babylonjs';
 import { useSceneStore } from '../../state/sceneStore';
 import { createAIService, type SceneCommand } from '../../ai/ai.service';
@@ -9,6 +9,7 @@ import { ImportButton } from './ImportButton';
 import { ExportButton } from './ExportButton';
 import { createGLBImporter } from '../../babylon/glbImporter';
 import { createSTLExporter } from '../../babylon/stlExporter';
+import type { Wall } from '../../models/Wall';
 
 interface AISidebarProps {
   apiKey: string;
@@ -41,6 +42,7 @@ export const AISidebar: React.FC<AISidebarProps> = ({
     importSuccess,
     setImportError,
     clearImportError,
+    addWall,
   } = useSceneStore();
 
   /**
@@ -268,6 +270,50 @@ export const AISidebar: React.FC<AISidebarProps> = ({
     }
   };
 
+  const handleExportJSON = () => {
+    const state = useSceneStore.getState();
+    const sceneData = {
+      sceneObjects: state.sceneObjects,
+      walls: state.walls,
+    };
+    const jsonString = JSON.stringify(sceneData, (key, value) => {
+      // Custom replacer to handle Vector3
+      if (value && typeof value === 'object' && value.x !== undefined && value.y !== undefined && value.z !== undefined) {
+        return { __type: 'Vector3', x: value.x, y: value.y, z: value.z };
+      }
+      return value;
+    }, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'scene.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportJSON = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result;
+      if (typeof text === 'string') {
+        const sceneData = JSON.parse(text, (key, value) => {
+          if (value && value.__type === 'Vector3') {
+            return new Vector3(value.x, value.y, value.z);
+          }
+          return value;
+        });
+        useSceneStore.getState().setSceneObjects(sceneData.sceneObjects);
+        useSceneStore.getState().walls.forEach(wall => useSceneStore.getState().removeWall(wall.id));
+        sceneData.walls.forEach((wall: any) => useSceneStore.getState().addWall(wall));
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleSubmitPrompt = async () => {
     if (!apiKey || !textInput.trim()) return;
 
@@ -366,6 +412,44 @@ export const AISidebar: React.FC<AISidebarProps> = ({
               {isLoading ? 'Processing...' : 'Execute AI Command'}
             </button>
           </div>
+          
+          {/* TEMPORARY TEST BUTTON */}
+          <div className="ai-control-group">
+            <button
+              onClick={() => {
+                const wallId = `wall-${Date.now()}`;
+                
+                const newWall: Wall = {
+                  id: wallId,
+                  parameters: {
+                    length: 5,
+                    height: 3,
+                    thickness: 0.2,
+                    position: new Vector3(0, 1.5, 0),
+                  },
+                  openings: []
+                };
+
+                const newSceneObject: SceneObject = {
+                  id: wallId,
+                  type: 'wall', // A new type to represent our parametric walls
+                  position: newWall.parameters.position,
+                  scale: new Vector3(1, 1, 1),
+                  rotation: new Vector3(0, 0, 0),
+                  color: '#C0C0C0',
+                  isNurbs: false,
+                };
+
+                addWall(newWall);
+                addObject(newSceneObject);
+              }}
+              disabled={!sceneInitialized}
+              className="ai-submit-button"
+              style={{backgroundColor: '#e67e22'}}
+            >
+              Add Test Wall
+            </button>
+          </div>
 
           {/* Import GLB Control */}
           <div className="ai-control-group">
@@ -389,6 +473,13 @@ export const AISidebar: React.FC<AISidebarProps> = ({
               disabled={!sceneInitialized}
               objectCount={sceneObjects.filter(obj => obj.type !== 'ground').length}
             />
+          </div>
+          
+          {/* JSON Import/Export */}
+          <div className="ai-control-group">
+              <label>Scene State:</label>
+              <button onClick={handleExportJSON}>Export JSON</button>
+              <input type="file" accept=".json" onChange={handleImportJSON} />
           </div>
 
           {/* Scene Graph Component */}

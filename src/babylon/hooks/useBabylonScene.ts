@@ -1,9 +1,12 @@
 import { useEffect, useRef, useMemo, useState } from 'react'
-import { Vector3, Color3, PickingInfo, Matrix } from 'babylonjs'
+import { Vector3, Color3, PickingInfo, Matrix, Scene, Mesh, StandardMaterial } from 'babylonjs'
 import { SceneManager } from '../sceneManager'
 import { useSceneStore } from '../../state/sceneStore'
 import { useGizmoManager } from '../gizmoManager'
 import type { SceneObject } from '../../types/types'
+import { GeometryService } from '../../services/GeometryService'
+import type { Opening } from '../../models/Opening'
+import type { Wall } from '../../models/Wall'
 
 // Custom hook to get the previous value of a prop or state
 function usePrevious<T>(value: T): T | undefined {
@@ -16,14 +19,15 @@ function usePrevious<T>(value: T): T | undefined {
 
 export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | null>) => {
   const sceneManagerRef = useRef<SceneManager | null>(null)
+  const geometryServiceRef = useRef<GeometryService | null>(null)
   const sceneObjectsRef = useRef<SceneObject[]>([])
   const isInitializedRef = useRef(false)
-  const [canvasAvailable, setCanvasAvailable] = useState(false)
-
+  
   // Get all store state and actions
   const store = useSceneStore()
   const {
     sceneObjects,
+    walls,
     selectedObjectId,
     selectedObjectIds,
     transformMode,
@@ -48,8 +52,15 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     updateObject,
     setMultiSelectPivot,
     setMultiSelectInitialStates,
-    setGridMesh,
-    clearSelection
+    clearSelection,
+    isAddingOpening,
+    openingPreview,
+    exitAddOpeningMode,
+    addOpeningToWall,
+    updateOpeningPreview,
+    selectedOpeningId,
+    setSelectedOpeningId,
+    updateOpeningInWall,
   } = store
 
   // Keep sceneObjectsRef synchronized with sceneObjects state for callbacks
@@ -59,81 +70,35 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
 
   // Get the previous state of sceneObjects for diffing
   const prevSceneObjects = usePrevious(sceneObjects)
-
-  // Watch for canvas ref changes and update canvasAvailable state
-  useEffect(() => {
-    const checkCanvas = () => {
-      const canvas = canvasRef.current
-      const hasCanvas = !!(canvas && canvas.offsetWidth > 0 && canvas.offsetHeight > 0 && canvas.isConnected)
-      console.log('🔍 Canvas availability check:', {
-        hasCanvas,
-        hasCanvasRef: !!canvas,
-        offsetWidth: canvas?.offsetWidth,
-        offsetHeight: canvas?.offsetHeight,
-        isConnected: canvas?.isConnected,
-        parentElement: canvas?.parentElement
-      })
-      setCanvasAvailable(hasCanvas)
-    }
-
-    // Check immediately
-    checkCanvas()
-
-    // If canvas is not available, check again after a short delay
-    if (!canvasAvailable && canvasRef.current) {
-      const timeoutId = setTimeout(() => {
-        console.log('🔄 Retrying canvas availability check...')
-        checkCanvas()
-      }, 100)
-      return () => clearTimeout(timeoutId)
-    }
-  }, [canvasRef.current, canvasAvailable])
+  const prevWalls = usePrevious(walls)
 
   // Initialize the scene manager when canvas is available
   useEffect(() => {
-    // Prevent re-initialization
-    if (isInitializedRef.current) {
-      return
+    const canvas = canvasRef.current;
+    if (!canvas) {
+        return; // Exit if canvas is not yet available
     }
 
-    const intervalId = setInterval(() => {
-      const canvas = canvasRef.current
-      
-      // Check if canvas is mounted and has dimensions
-      if (canvas && canvas.offsetWidth > 0 && canvas.offsetHeight > 0) {
-        clearInterval(intervalId)
-        
-        console.log('🚀 Canvas is ready, initializing Babylon.js scene...')
-        isInitializedRef.current = true
-        const sceneManager = new SceneManager()
-        
-        if (sceneManager.initialize(canvas)) {
-          sceneManagerRef.current = sceneManager
-          
-          // Expose for DevTools debugging
-          if (typeof window !== 'undefined') {
-            // @ts-ignore
-            window.VibeCadSceneManager = sceneManager
-            console.log('🐞 VibeCadSceneManager is available on window for debugging')
-          }
-          
-          console.log('✅ SceneManager initialized, setting up callbacks...')
-          
-          // Set up event callbacks
-          console.log('🔗 Setting up object click callback')
-          sceneManager.setObjectClickCallback(handleObjectClick)
-          console.log('🔗 Setting up object hover callback')
-          sceneManager.setObjectHoverCallback(handleObjectHover)
-          
-          // Set up texture asset callback
-          console.log('🔗 Setting up texture asset callback')
-          sceneManager.setTextureAssetCallback((textureId: string) => {
-            const state = useSceneStore.getState()
-            return state.textureAssets.get(textureId)
-          })
+    const sceneManager = new SceneManager();
+    if (sceneManager.initialize(canvas)) {
+        sceneManagerRef.current = sceneManager;
+        const scene = sceneManager.getScene();
+        if (scene) {
+            geometryServiceRef.current = new GeometryService(scene);
+        }
 
-          // Create initial scene objects - only ground, no cube
-          const initialGround: SceneObject = {
+        if (typeof window !== 'undefined') {
+            // @ts-ignore
+            window.VibeCadSceneManager = sceneManager;
+        }
+
+        sceneManager.setObjectClickCallback(handleObjectClick);
+        sceneManager.setObjectHoverCallback(handleObjectHover);
+        sceneManager.setTextureAssetCallback((textureId: string) => {
+            return store.textureAssets.get(textureId);
+        });
+
+        const initialGround: SceneObject = {
             id: 'ground',
             type: 'ground',
             position: new Vector3(0, 0, 0),
@@ -141,38 +106,22 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
             rotation: new Vector3(0, 0, 0),
             color: '#808080',
             isNurbs: false
-          }
+        };
 
-          console.log('🎲 Adding initial ground to scene...')
-          
-          // Add initial ground to the scene and store
-          sceneManager.addMesh(initialGround)
-          
-          // Initialize store with initial ground only
-          store.setSceneObjects([initialGround])
-          
-          setSceneInitialized(true)
-          console.log('✅ useBabylonScene initialized successfully')
-        } else {
-          console.error('❌ Failed to initialize SceneManager')
-          isInitializedRef.current = false // Allow retry if initialization fails
-        }
-      } else {
-        console.log('⏳ Canvas not ready yet, will check again...')
-      }
-    }, 100) // Poll every 100ms
+        sceneManager.addMesh(initialGround);
+        store.setSceneObjects([initialGround]);
+        setSceneInitialized(true);
+    } else {
+        console.error('❌ Failed to initialize SceneManager');
+    }
 
     return () => {
-      console.log('🧹 Cleaning up Babylon.js scene effect...')
-      clearInterval(intervalId)
-      if (sceneManagerRef.current) {
-        sceneManagerRef.current.dispose()
-        sceneManagerRef.current = null
-      }
-      isInitializedRef.current = false
-      setSceneInitialized(false)
+        sceneManagerRef.current?.dispose();
+        sceneManagerRef.current = null;
+        setSceneInitialized(false);
     }
-  }, []) // Run this effect only once on mount
+  }, [canvasRef.current]);
+
 
   // Handle object click events
   const handleObjectClick = (pickInfo: PickingInfo, isCtrlHeld: boolean = false) => {
@@ -269,63 +218,243 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
 
   // Synchronize scene objects with store state by diffing
   useEffect(() => {
-    if (!sceneManagerRef.current || !sceneInitialized) return
+    if (!sceneManagerRef.current || !geometryServiceRef.current || !sceneInitialized) return
 
     const sceneManager = sceneManagerRef.current
+    const geometryService = geometryServiceRef.current
     const currentObjectsMap = new Map(sceneObjects.map(obj => [obj.id, obj]))
     const prevObjectsMap = new Map(prevSceneObjects?.map(obj => [obj.id, obj]) || [])
 
     // Find added and updated objects
-    currentObjectsMap.forEach((currentObj, id) => {
+    currentObjectsMap.forEach(async (currentObj, id) => {
       const prevObj = prevObjectsMap.get(id)
       
       if (!prevObj) {
         // New object added
-        console.log(`➕ Adding new mesh: ${id} (${currentObj.type})`)
-        sceneManager.addMesh(currentObj)
+        if (currentObj.type === 'wall') {
+            const wallData = store.walls.find(w => w.id === id);
+            if (wallData) {
+                const wallMesh = await geometryService.generateWallMesh(wallData);
+                sceneManager.addPreExistingMesh(wallMesh, id);
+            }
+        } else {
+            sceneManager.addMesh(currentObj)
+        }
       } else if (currentObj !== prevObj) {
-        // Existing object updated, calculate a diff
-        console.log(`🔄 Updating existing mesh: ${id}`)
-        const diff: Partial<SceneObject> = {}
-        
-        if (currentObj.position !== prevObj.position && !currentObj.position.equals(prevObj.position)) {
-          diff.position = currentObj.position
-        }
-        if (currentObj.rotation !== prevObj.rotation && !currentObj.rotation.equals(prevObj.rotation)) {
-          diff.rotation = currentObj.rotation
-        }
-        if (currentObj.scale !== prevObj.scale && !currentObj.scale.equals(prevObj.scale)) {
-          diff.scale = currentObj.scale
-        }
-        if (currentObj.color !== prevObj.color) {
-          diff.color = currentObj.color
-        }
-        
-        // Check for texture changes
-        if (JSON.stringify(currentObj.textureIds) !== JSON.stringify(prevObj.textureIds)) {
-          diff.textureIds = currentObj.textureIds
-        }
-        if (JSON.stringify(currentObj.textureScale) !== JSON.stringify(prevObj.textureScale)) {
-          diff.textureScale = currentObj.textureScale
-        }
-        if (JSON.stringify(currentObj.textureOffset) !== JSON.stringify(prevObj.textureOffset)) {
-          diff.textureOffset = currentObj.textureOffset
-        }
-        
-        if (Object.keys(diff).length > 0) {
-          sceneManager.updateMeshProperties(id, diff)
+        // Existing object updated
+        if (currentObj.type === 'wall') {
+            const wallData = store.walls.find(w => w.id === id);
+            if (wallData) {
+                console.log(`[BabylonScene] Wall ${id} updated. Regenerating mesh...`);
+                sceneManager.removeMeshById(id);
+                const wallMesh = await geometryService.generateWallMesh(wallData);
+                sceneManager.addPreExistingMesh(wallMesh, id);
+            }
+        } else {
+            const diff: Partial<SceneObject> = {}
+            
+            if (currentObj.position !== prevObj.position && !currentObj.position.equals(prevObj.position)) {
+              diff.position = currentObj.position
+            }
+            if (currentObj.rotation !== prevObj.rotation && !currentObj.rotation.equals(prevObj.rotation)) {
+              diff.rotation = currentObj.rotation
+            }
+            if (currentObj.scale !== prevObj.scale && !currentObj.scale.equals(prevObj.scale)) {
+              diff.scale = currentObj.scale
+            }
+            if (currentObj.color !== prevObj.color) {
+              diff.color = currentObj.color
+            }
+            
+            // Check for texture changes
+            if (JSON.stringify(currentObj.textureIds) !== JSON.stringify(prevObj.textureIds)) {
+              diff.textureIds = currentObj.textureIds
+            }
+            if (JSON.stringify(currentObj.textureScale) !== JSON.stringify(prevObj.textureScale)) {
+              diff.textureScale = currentObj.textureScale
+            }
+            if (JSON.stringify(currentObj.textureOffset) !== JSON.stringify(prevObj.textureOffset)) {
+              diff.textureOffset = currentObj.textureOffset
+            }
+            
+            if (Object.keys(diff).length > 0) {
+              sceneManager.updateMeshProperties(id, diff)
+            }
         }
       }
-    })
+    });
 
     // Find removed objects
     prevObjectsMap.forEach((_, id) => {
       if (!currentObjectsMap.has(id)) {
-        console.log(`➖ Removing mesh: ${id}`)
         sceneManager.removeMeshById(id)
       }
-    })
+    });
   }, [sceneObjects, sceneInitialized, prevSceneObjects])
+
+  // Synchronize walls with store state by diffing
+  useEffect(() => {
+    if (!sceneManagerRef.current || !geometryServiceRef.current || !sceneInitialized) return
+
+    const sceneManager = sceneManagerRef.current
+    const geometryService = geometryServiceRef.current
+    const currentWallsMap = new Map(walls.map(wall => [wall.id, wall]))
+    const prevWallsMap = new Map(prevWalls?.map(wall => [wall.id, wall]) || [])
+
+    // Find added and updated walls
+    currentWallsMap.forEach(async (currentWall, id) => {
+      const prevWall = prevWallsMap.get(id)
+      
+      if (!prevWall) {
+        // This case is handled by the sceneObjects effect
+      } else if (currentWall !== prevWall) {
+        // Existing wall updated
+        console.log(`[BabylonScene] Wall ${id} updated. Regenerating mesh...`);
+        sceneManager.removeMeshById(id)
+        const wallMesh = await geometryService.generateWallMesh(currentWall)
+        sceneManager.addPreExistingMesh(wallMesh, id)
+      }
+    })
+
+    // Find removed walls
+    prevWallsMap.forEach((_, id) => {
+      if (!currentWallsMap.has(id)) {
+        sceneManager.removeMeshById(id)
+      }
+    });
+  }, [walls, sceneInitialized, prevWalls])
+
+  // Handle opening preview
+  useEffect(() => {
+    if (!sceneManagerRef.current || !geometryServiceRef.current || !sceneInitialized) return
+
+    const sceneManager = sceneManagerRef.current
+    const geometryService = geometryServiceRef.current
+    let previewMesh: Mesh | null = null;
+
+    if (isAddingOpening && openingPreview) {
+      // Create and show preview mesh
+      const wall = walls.find(w => w.id === openingPreview.wallId);
+      if (wall) {
+        console.log(`[BabylonScene] Creating opening preview for wall: ${wall.id}`);
+        previewMesh = geometryService.createOpeningVolume(openingPreview.opening, wall.parameters.thickness, new Vector3());
+        previewMesh.isPickable = false;
+        previewMesh.isVisible = true; // Make the preview mesh visible
+        const previewMaterial = new StandardMaterial('preview-mat', sceneManager.getScene()!);
+        previewMaterial.diffuseColor = new Color3(0.5, 0.8, 1);
+        previewMaterial.alpha = 0.5;
+        previewMesh.material = previewMaterial;
+        
+        const pointerMoveCallback = (evt: PointerEvent) => {
+          const pickInfo = sceneManager.getScene()?.pick(sceneManager.getScene()!.pointerX, sceneManager.getScene()!.pointerY, (mesh) => mesh.name === openingPreview.wallId);
+          if (pickInfo?.hit && pickInfo.pickedPoint) {
+            previewMesh?.position.copyFrom(pickInfo.pickedPoint);
+            updateOpeningPreview(pickInfo.pickedPoint);
+          }
+        };
+
+        const pointerDownCallback = (evt: PointerEvent) => {
+          if (evt.button === 0) { // Left click
+            const pickInfo = sceneManager.getScene()?.pick(sceneManager.getScene()!.pointerX, sceneManager.getScene()!.pointerY, (mesh) => mesh.name === openingPreview.wallId);
+            if (pickInfo?.hit && pickInfo.pickedPoint) {
+              const wall = walls.find(w => w.id === openingPreview.wallId);
+              if (wall) {
+                console.log(`[BabylonScene] Placing opening on wall ${wall.id} at position:`, pickInfo.pickedPoint);
+                const localPosition = pickInfo.pickedPoint.subtract(wall.parameters.position);
+                const newOpening: Opening = {
+                  ...openingPreview.opening,
+                  id: `${openingPreview.opening.type}-${Date.now()}`,
+                  parameters: {
+                    ...openingPreview.opening.parameters,
+                    position: {
+                      offsetX: localPosition.x,
+                      elevation: localPosition.y
+                    }
+                  }
+                };
+                addOpeningToWall(openingPreview.wallId, newOpening);
+                exitAddOpeningMode();
+              }
+            }
+          }
+        };
+
+        sceneManager.getScene()?.getEngine().getRenderingCanvas()?.addEventListener('pointermove', pointerMoveCallback);
+        sceneManager.getScene()?.getEngine().getRenderingCanvas()?.addEventListener('pointerdown', pointerDownCallback);
+        
+        return () => {
+          sceneManager.getScene()?.getEngine().getRenderingCanvas()?.removeEventListener('pointermove', pointerMoveCallback);
+          sceneManager.getScene()?.getEngine().getRenderingCanvas()?.removeEventListener('pointerdown', pointerDownCallback);
+          if (previewMesh) {
+            previewMesh.dispose();
+          }
+        }
+      }
+    }
+  }, [isAddingOpening, openingPreview, sceneInitialized, walls]);
+
+  // Handle visual feedback for add opening mode
+  useEffect(() => {
+    if (!sceneManagerRef.current) return;
+    const sceneManager = sceneManagerRef.current;
+
+    // Reset all wall colors first
+    walls.forEach(wall => {
+        sceneManager.setMeshEmissive(wall.id, new Color3(0, 0, 0));
+    });
+
+    if (isAddingOpening && openingPreview) {
+      sceneManager.setMeshEmissive(openingPreview.wallId, new Color3(0.5, 0.8, 1));
+    }
+  }, [isAddingOpening, openingPreview, walls]);
+
+  // Handle selected opening gizmo
+  useEffect(() => {
+    if (!sceneManagerRef.current || !sceneInitialized) return
+
+    const sceneManager = sceneManagerRef.current
+    let proxyMesh: Mesh | null = null;
+
+    if (selectedOpeningId) {
+      // Find the opening and its parent wall
+      let parentWall: Wall | undefined;
+      let opening: Opening | undefined;
+
+      for (const wall of walls) {
+        const foundOpening = wall.openings.find(o => o.id === selectedOpeningId);
+        if (foundOpening) {
+          parentWall = wall;
+          opening = foundOpening;
+          break;
+        }
+      }
+
+      if (parentWall && opening) {
+        // Create an invisible proxy mesh for the gizmo to attach to
+        proxyMesh = new Mesh(`proxy-${opening.id}`, sceneManager.getScene());
+        
+        const wallMesh = sceneManager.getMeshById(parentWall.id);
+        if (wallMesh) {
+          const localPosition = new Vector3(
+            opening.parameters.position.offsetX,
+            opening.parameters.position.elevation - wallMesh.position.y + opening.parameters.height / 2,
+            0
+          );
+          proxyMesh.position = wallMesh.position.add(localPosition);
+        }
+
+        // Set up gizmo to move this proxy mesh
+        // The useGizmoManager hook will need to be updated to handle this
+        // For now, we are just creating the mesh.
+      }
+    }
+
+    return () => {
+      if (proxyMesh) {
+        proxyMesh.dispose();
+      }
+    }
+  }, [selectedOpeningId, walls, sceneInitialized]);
 
   // Handle wireframe mode changes
   useEffect(() => {
@@ -443,11 +572,7 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
   useGizmoManager(
     sceneManagerRef.current?.getScene() || null,
     (id: string) => {
-      console.log('🎯 getMeshById called with:', id)
-      console.log('🎯 sceneManagerRef.current:', !!sceneManagerRef.current)
-      const mesh = sceneManagerRef.current?.getMeshById(id) || null
-      console.log('🎯 getMeshById result:', mesh?.name || 'null')
-      return mesh
+      return sceneManagerRef.current?.getMeshById(id) || null
     },
     multiSelectPivot,
     snapToGrid,
