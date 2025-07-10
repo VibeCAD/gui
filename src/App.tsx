@@ -241,7 +241,7 @@ function App() {
    * Converts 2D SVG coordinates to 3D world-space points, extrudes the polygon,
    * registers the mesh with the scene, and stores a SceneObject entry.
    */
-  const handleCreateCustomRoom = (points: { x: number; y: number }[]) => {
+  const handleCreateCustomRoom = (roomData: { points: { x: number; y: number }[]; openings?: { start: { x: number; y: number }; end: { x: number; y: number } }[] }) => {
     if (!sceneInitialized) return
 
     const sceneManager = sceneAPI.getSceneManager()
@@ -252,6 +252,8 @@ function App() {
     const SCALE = 0.05 // px -> world units (adjust as desired)
     const WALL_HEIGHT = 2.0
     const WALL_THICKNESS = 0.15
+
+    const { points, openings } = roomData
 
     // Convert SVG (origin top-left, +y down) to Babylon XZ plane (origin center, +z forward)
     const vertices2D = points.map(p => new Vector2(
@@ -301,12 +303,47 @@ function App() {
 
     const wallTopConnectionPoints: ConnectionPoint[] = []
 
+    // Convert openings to world coordinates for comparison
+    const worldOpenings = openings?.map(opening => ({
+      start: new Vector2(
+        (opening.start.x - SVG_SIZE / 2) * SCALE,
+        ((SVG_SIZE / 2) - opening.start.y) * SCALE
+      ),
+      end: new Vector2(
+        (opening.end.x - SVG_SIZE / 2) * SCALE,
+        ((SVG_SIZE / 2) - opening.end.y) * SCALE
+      )
+    })) || []
+
     for (let i = 0; i < vertices2D.length; i++) {
       const p1 = new Vector3(vertices2D[i].x, 0, vertices2D[i].y)
       const p2 = new Vector3(vertices2D[(i + 1) % vertices2D.length].x, 0, vertices2D[(i + 1) % vertices2D.length].y)
 
       const wallLength = Vector3.Distance(p1, p2)
       if (wallLength < 0.01) continue // Skip zero-length walls
+
+      // Check if this wall segment is an opening
+      const isOpening = worldOpenings.some(opening => {
+        const p1_2d = new Vector2(p1.x, p1.z)
+        const p2_2d = new Vector2(p2.x, p2.z)
+        
+        // Check if the wall segment matches an opening (considering both directions)
+        const matchesForward = 
+          (Math.abs(p1_2d.x - opening.start.x) < 0.01 && Math.abs(p1_2d.y - opening.start.y) < 0.01 &&
+           Math.abs(p2_2d.x - opening.end.x) < 0.01 && Math.abs(p2_2d.y - opening.end.y) < 0.01)
+        
+        const matchesReverse = 
+          (Math.abs(p1_2d.x - opening.end.x) < 0.01 && Math.abs(p1_2d.y - opening.end.y) < 0.01 &&
+           Math.abs(p2_2d.x - opening.start.x) < 0.01 && Math.abs(p2_2d.y - opening.start.y) < 0.01)
+        
+        return matchesForward || matchesReverse
+      })
+
+      // Skip creating wall if it's an opening
+      if (isOpening) {
+        console.log(`[CustomRoom] Skipping wall ${i} as it's marked as an opening`)
+        continue
+      }
 
       const wall = MeshBuilder.CreateBox(`${newId}-wall-${i}`, {
         width: wallLength,
