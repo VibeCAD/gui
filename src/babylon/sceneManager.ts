@@ -361,6 +361,13 @@ export class SceneManager {
           material.bumpTexture = null;
           material.specularTexture = null;
           material.emissiveTexture = null;
+          
+          // Restore the original diffuse color from the scene object
+          // The color should be passed in the update when textures are removed
+          if (sceneObject.color) {
+            console.log('🎨 Restoring original color:', sceneObject.color);
+            material.diffuseColor = Color3.FromHexString(sceneObject.color);
+          }
         } else {
           // Apply each texture type
           for (const [textureType, textureId] of Object.entries(sceneObject.textureIds)) {
@@ -383,7 +390,8 @@ export class SceneManager {
                 case 'diffuse':
                   console.log('🎨 Applying diffuse texture');
                   this.textureManager.applyDiffuseTexture(material, texture);
-                  // Ensure the texture is visible by resetting diffuse color to white
+                  // Ensure the texture is visible by setting diffuse color to white
+                  // This allows the texture to show properly without color tinting
                   material.diffuseColor = new Color3(1, 1, 1);
                   break;
                 case 'normal':
