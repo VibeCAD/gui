@@ -584,6 +584,7 @@ When creating objects with spatial relationships, you MUST:
 4. Include x, y, z coordinates AND scaleX, scaleY, scaleZ factors in your response
 
 Respond ONLY with valid JSON array of commands.
+DO NOT INCLUDE ANY OTHER TEXT IN YOUR RESPONSE. YOU MUST ONLY RESPOND WITH VALID JSON.
 
 Object IDs currently in scene: ${objectIds.join(', ')}`;
   }
