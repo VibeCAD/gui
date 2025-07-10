@@ -1,7 +1,8 @@
 import { Scene, SceneLoader, AssetContainer, Mesh, StandardMaterial, Color3, Vector3 } from 'babylonjs';
-import type { SceneObject, ImportError, ImportErrorType, PrimitiveType } from '../types/types';
+import type { SceneObject, ImportError, ImportErrorType, PrimitiveType, Boundary } from '../types/types';
 import { integrateImportedMesh } from './objectFactory';
 import { SceneManager } from './sceneManager';
+import { computeMeshBoundary, computeCompositeBoundary } from './boundaryUtils';
 
 /**
  * ModelImporter class handles the import and processing of 3D model files (GLB, STL, OBJ)
@@ -10,6 +11,7 @@ export class ModelImporter {
   private scene: Scene;
   private sceneManager: SceneManager;
   private maxFileSize: number = 5 * 1024 * 1024; // 5 MB in bytes
+  private referenceSize: number = 2.0; // Reference cube size for scaling
 
   constructor(scene: Scene, sceneManager: SceneManager) {
     this.scene = scene;
@@ -17,11 +19,121 @@ export class ModelImporter {
   }
 
   /**
+   * Calculates the bounding box for an imported mesh
+   * Handles both single meshes and meshes with children
+   * @param mesh The mesh to calculate bounds for
+   * @returns The calculated boundary information
+   */
+  private calculateMeshBounds(mesh: Mesh): Boundary {
+    // Force computation of world matrix to ensure accurate bounds
+    mesh.computeWorldMatrix(true);
+    
+    // Check if mesh has children that should be included in bounds
+    const hasChildren = mesh.getChildMeshes(false).length > 0;
+    
+    if (hasChildren) {
+      console.log('📦 Calculating composite boundary for mesh with children');
+      return computeCompositeBoundary(mesh);
+    } else {
+      console.log('📦 Calculating simple boundary for single mesh');
+      return computeMeshBoundary(mesh);
+    }
+  }
+
+  /**
+   * Calculates the appropriate scale factor to fit the mesh within reference cube
+   * @param boundary The boundary information of the mesh
+   * @param targetSize The target size to fit within (default: 2.0)
+   * @returns The uniform scale factor to apply
+   */
+  private calculateScaleFactor(boundary: Boundary, targetSize: number = 2.0): number {
+    const { size } = boundary.aabb;
+    
+    // Find the maximum dimension
+    const maxDimension = Math.max(size.x, size.y, size.z);
+    
+    console.log(`📏 Mesh dimensions: ${size.x.toFixed(3)} x ${size.y.toFixed(3)} x ${size.z.toFixed(3)}`);
+    console.log(`📏 Max dimension: ${maxDimension.toFixed(3)}`);
+    
+    // Avoid division by zero for extremely small objects
+    if (maxDimension < 0.001) {
+      console.warn('⚠️ Object has extremely small dimensions, using default scale');
+      return 1.0;
+    }
+    
+    // Calculate scale factor to fit within target size
+    const scaleFactor = targetSize / maxDimension;
+    
+    // Apply limits to prevent extreme scaling
+    const MIN_SCALE = 0.01;  // Prevent invisible objects
+    const MAX_SCALE = 100.0; // Prevent numerical issues
+    
+    const clampedScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scaleFactor));
+    
+    if (clampedScale !== scaleFactor) {
+      console.warn(`⚠️ Scale factor clamped from ${scaleFactor.toFixed(3)} to ${clampedScale.toFixed(3)}`);
+    }
+    
+    console.log(`🔧 Scale factor: ${clampedScale.toFixed(3)}`);
+    
+    return clampedScale;
+  }
+
+  /**
+   * Applies auto-scaling to fit the mesh within the reference cube size
+   * @param mesh The mesh to scale
+   * @param autoScale Whether to apply auto-scaling (default: true)
+   * @returns The scale factor applied (1.0 if no scaling)
+   */
+  private applyAutoScaling(mesh: Mesh, autoScale: boolean = true): number {
+    if (!autoScale) {
+      console.log('🚫 Auto-scaling disabled');
+      return 1.0;
+    }
+    
+    console.log('🎯 Applying auto-scaling to imported mesh');
+    
+    // Calculate the mesh bounds
+    const boundary = this.calculateMeshBounds(mesh);
+    
+    // Calculate the scale factor
+    const scaleFactor = this.calculateScaleFactor(boundary, this.referenceSize);
+    
+    // Apply the scale uniformly to maintain aspect ratio
+    mesh.scaling = new Vector3(scaleFactor, scaleFactor, scaleFactor);
+    
+    // Log the result
+    const newBounds = this.calculateMeshBounds(mesh);
+    console.log(`✅ Scaled mesh to fit within ${this.referenceSize} x ${this.referenceSize} x ${this.referenceSize} units`);
+    console.log(`📦 New dimensions: ${newBounds.aabb.size.x.toFixed(3)} x ${newBounds.aabb.size.y.toFixed(3)} x ${newBounds.aabb.size.z.toFixed(3)}`);
+    
+    return scaleFactor;
+  }
+
+  /**
+   * Centers the mesh at the origin based on its bounding box
+   * @param mesh The mesh to center
+   */
+  private centerMesh(mesh: Mesh): void {
+    console.log('🎯 Centering mesh at origin');
+    
+    // Calculate current bounds
+    const boundary = this.calculateMeshBounds(mesh);
+    const center = boundary.aabb.center;
+    
+    // Adjust position to center the mesh
+    mesh.position = mesh.position.subtract(center);
+    
+    console.log(`✅ Mesh centered - offset by (${-center.x.toFixed(3)}, ${-center.y.toFixed(3)}, ${-center.z.toFixed(3)})`);
+  }
+
+  /**
    * Imports a 3D model file and converts it to a SceneObject
    * @param file The 3D model file to import (GLB, STL, or OBJ)
+   * @param autoScale Whether to automatically scale the model to fit reference cube (default: true)
    * @returns The imported mesh as a SceneObject
    */
-  async importModel(file: File): Promise<SceneObject> {
+  async importModel(file: File, autoScale: boolean = true): Promise<SceneObject> {
     // Validate file size (5MB limit)
     const maxSize = 5 * 1024 * 1024; // 5MB in bytes
     if (file.size > maxSize) {
@@ -35,6 +147,8 @@ export class ModelImporter {
     }
 
     try {
+      console.log(`📁 Importing ${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB)`);
+      
       // Read file as base64 data URL
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -64,29 +178,56 @@ export class ModelImporter {
         throw new Error('INVALID_FORMAT');
       }
 
+      console.log(`🔨 Found ${meshes.length} mesh(es) to process`);
+
       // Merge all meshes into a single mesh
       const mergedMesh = this.mergeMeshes(meshes);
       
       // Strip materials and apply default gray material
       this.applyDefaultMaterial(mergedMesh);
 
+      // Log pre-scaling dimensions
+      if (autoScale) {
+        const preBounds = this.calculateMeshBounds(mergedMesh);
+        console.log(`📏 Pre-scaling dimensions: ${preBounds.aabb.size.x.toFixed(3)} x ${preBounds.aabb.size.y.toFixed(3)} x ${preBounds.aabb.size.z.toFixed(3)}`);
+      }
+
+      // Apply auto-scaling to fit within reference cube
+      const scaleFactor = this.applyAutoScaling(mergedMesh, autoScale);
+      
+      // Optionally center the mesh at origin (after scaling)
+      // This is commented out for now to maintain backward compatibility
+      // Uncomment if you want imported objects centered at origin
+      // this.centerMesh(mergedMesh);
+
       // Generate a unique ID for the object
       const modelType = fileExtension.substring(1); // Remove the dot
       const objectId = `imported-${modelType}-${Date.now()}`;
+      
+      console.log(`📦 Registering imported mesh as: ${objectId}`);
+      console.log(`📐 Final scale factor: ${scaleFactor.toFixed(3)}`);
       
       // Register the mesh with the scene manager
       this.sceneManager.addPreExistingMesh(mergedMesh, objectId);
       
       // Apply standard integration options
-      integrateImportedMesh(mergedMesh, {
+      // Note: We don't pass scale when auto-scaling is enabled because we've already applied it to the mesh
+      const integrationOptions: any = {
         name: objectId,
         position: new Vector3(0, 0, 0),
-        scale: new Vector3(1, 1, 1),
         rotation: new Vector3(0, 0, 0),
         color: '#808080'
-      });
+      };
+      
+      // Only set scale if auto-scaling is disabled
+      if (!autoScale) {
+        integrationOptions.scale = new Vector3(1, 1, 1);
+      }
+      
+      integrateImportedMesh(mergedMesh, integrationOptions);
 
       // Create and return the SceneObject
+      // The scale reflects the actual mesh scaling that was applied
       const sceneObject: SceneObject = {
         id: objectId,
         type: `imported-${modelType}` as PrimitiveType,
@@ -96,6 +237,8 @@ export class ModelImporter {
         color: '#808080',
         isNurbs: false
       };
+
+      console.log(`✅ Import complete: ${objectId}`);
 
       return sceneObject;
     } catch (error) {

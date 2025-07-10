@@ -42,7 +42,9 @@ graph TD
     
     N -->|Yes| P[Merge All Meshes]
     P --> Q[Apply Default Material]
-    Q --> R[Generate Unique ID]
+    Q --> Q1[Calculate Bounding Box]
+    Q1 --> Q2[Auto-Scale to 2x2x2 Reference]
+    Q2 --> R[Generate Unique ID]
     R --> S[Add to Scene Manager]
     S --> T[Add to Store]
     T --> U[Update UI]
@@ -55,6 +57,8 @@ graph TD
     style H fill:#f44336
     style L fill:#f44336
     style O fill:#f44336
+    style Q1 fill:#2196F3
+    style Q2 fill:#2196F3
 ```
 
 ## Key Files and Their Roles
@@ -88,17 +92,22 @@ graph TD
 - **Classes**:
   - `ModelImporter`: Main class handling the import process
 - **Key Methods**:
-  - `importModel()`: Main entry point for importing
+  - `importModel()`: Main entry point for importing (now with optional autoScale parameter)
   - `getFileExtension()`: Validates and extracts file extension
   - `mergeMeshes()`: Combines multiple meshes into one
   - `applyDefaultMaterial()`: Strips materials and applies gray material
+  - `calculateMeshBounds()`: Calculates bounding box for imported mesh (NEW)
+  - `calculateScaleFactor()`: Determines scale factor to fit in 2x2x2 cube (NEW)
+  - `applyAutoScaling()`: Applies uniform scaling to maintain aspect ratio (NEW)
+  - `centerMesh()`: Centers mesh at origin based on bounding box (NEW)
 - **Process**:
   1. Validates file size (5MB limit)
   2. Reads file as base64 data URL
   3. Uses Babylon.js SceneLoader to parse the file
   4. Merges all meshes into a single mesh
   5. Applies default gray material
-  6. Generates unique ID based on file type
+  6. Auto-scales to fit within 2x2x2 reference cube (NEW)
+  7. Generates unique ID based on file type
 
 ### 3. **3D Scene Integration**
 
@@ -191,20 +200,27 @@ graph TD
    - Apply uniform gray (#808080) StandardMaterial
    - Set material properties for proper rendering
 
-7. **Scene Integration**
+7. **Auto-Scaling** (NEW)
+   - Calculate bounding box using `computeMeshBoundary()` or `computeCompositeBoundary()`
+   - Determine maximum dimension (width, height, or depth)
+   - Calculate scale factor to fit within 2x2x2 reference cube
+   - Apply uniform scaling to maintain aspect ratio
+   - Optional: Center mesh at origin
+
+8. **Scene Integration**
    - Generate unique ID: `imported-{type}-{timestamp}`
    - Register mesh with SceneManager
    - Apply standard object properties
 
-8. **State Update**
+9. **State Update**
    - Create SceneObject with proper type
    - Add to scene store
    - Update UI components
 
-9. **User Feedback**
-   - Show success message in response log
-   - Clear loading state
-   - Object appears in scene graph
+10. **User Feedback**
+    - Show success message in response log
+    - Clear loading state
+    - Object appears in scene graph
 
 ## Error Handling
 
