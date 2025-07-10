@@ -3,7 +3,7 @@ import type { SceneObject } from '../types/types';
 import { Vector3 } from 'babylonjs';
 
 export interface SceneCommand {
-  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate';
+  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align';
   objectId?: string;
   type?: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 
     'house-basic' | 'house-room' | 'house-hallway' | 'house-roof-flat' | 'house-roof-pitched' |
@@ -25,6 +25,9 @@ export interface SceneCommand {
   spatialRelation?: 'on-top-of' | 'beside' | 'in-front-of' | 'behind' | 'above' | 'below' | 'inside';
   matchDimensions?: boolean;
   contactType?: 'direct' | 'gap' | 'overlap';
+  // New align-specific properties
+  edge?: 'north' | 'south' | 'east' | 'west';
+  offset?: number;
 }
 
 export interface AIServiceResult {
@@ -536,6 +539,7 @@ Available actions:
 4. create: Create new objects with intelligent positioning and automatic scaling
 5. delete: Remove an object
 6. rotate: Rotate an object by rotationX, rotationY, rotationZ angles in radians
+7. align: Align an object to a specific edge of another object with perfect perpendicularity and flush contact
 
 OBJECT TYPES:
 Basic: cube, sphere, cylinder, plane, torus, cone
@@ -576,6 +580,14 @@ ROTATION PRECISION:
 - For 45° rotation: π/4 ≈ 0.785 radians
 - For 30° rotation: π/6 ≈ 0.524 radians
 
+ALIGNMENT BEHAVIOR:
+- The align action creates perfect perpendicular alignment (90 degrees)
+- The moving object is positioned flush with the specified edge
+- The object is rotated to face outward from the edge
+- North = positive Z direction, South = negative Z direction
+- East = positive X direction, West = negative X direction
+- Optional offset value moves the object away from the edge by the specified amount
+
 SPATIAL COMMAND EXAMPLES:
 "Put a blue cube on top of the red cube":
 [{"action": "create", "type": "cube", "color": "#4ecdc4", "x": 0, "y": 2.0, "z": 0, "scaleX": 1.0, "scaleY": 1.0, "scaleZ": 1.0}]
@@ -593,6 +605,7 @@ SPATIAL COMMAND EXAMPLES:
 "Move the red sphere on top of the blue cube":
 [{"action": "move", "objectId": "sphere-id", "x": 0, "y": 2.0, "z": 0}]
 
+ROTATION COMMAND EXAMPLES:
 "Rotate the blue cube 45 degrees around the Y-axis":
 [{"action": "rotate", "objectId": "cube-id", "rotationX": 0, "rotationY": 0.785, "rotationZ": 0}]
 
@@ -607,6 +620,24 @@ SPATIAL COMMAND EXAMPLES:
 
 "Rotate the house 180 degrees to face the opposite direction":
 [{"action": "rotate", "objectId": "house-id", "rotationX": 0, "rotationY": 3.14, "rotationZ": 0}]
+
+ALIGNMENT COMMAND EXAMPLES:
+"Align the wall to the north edge of the floor":
+[{"action": "align", "objectId": "wall-id", "relativeToObject": "floor-id", "edge": "north"}]
+
+"Line up the wall with the south side of the room":
+[{"action": "align", "objectId": "wall-id", "relativeToObject": "room-id", "edge": "south"}]
+
+"Move the wall flush with the east edge of the floor":
+[{"action": "align", "objectId": "wall-id", "relativeToObject": "floor-id", "edge": "east"}]
+
+"Snap the wall to the west side of the foundation":
+[{"action": "align", "objectId": "wall-id", "relativeToObject": "foundation-id", "edge": "west"}]
+
+"Align the wall to the north edge of the floor with 0.1 offset":
+[{"action": "align", "objectId": "wall-id", "relativeToObject": "floor-id", "edge": "north", "offset": 0.1}]
+
+
 
 HOUSING OBJECT LOGIC:
 - Roofs automatically match underlying structure dimensions
@@ -895,6 +926,12 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
     const enhancedCommands: SceneCommand[] = [];
     
     commands.forEach(command => {
+      // Handle align commands - pass through without modification as they contain all needed info
+      if (command.action === 'align') {
+        enhancedCommands.push(command);
+        return;
+      }
+      
       // Handle spatial relationships for creation, movement, and rotation
       if ((command.action === 'create' || command.action === 'move' || command.action === 'rotate') && command.relativeToObject && command.spatialRelation) {
         const referenceObject = this.findObjectByDescription(command.relativeToObject, sceneObjects);
