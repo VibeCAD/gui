@@ -261,6 +261,20 @@ function App() {
 
     const newId = `custom-room-${Date.now()}`
 
+    // -------------------------------------------------------------
+    // Determine polygon orientation (CW vs CCW)
+    // Used to ensure outward normals always point outside even for
+    // concave polygons, without relying on a centroid approximation.
+    // -------------------------------------------------------------
+    const signedArea = vertices2D.reduce((acc, curr, idx) => {
+      const next = vertices2D[(idx + 1) % vertices2D.length]
+      return acc + (curr.x * next.y - next.x * curr.y)
+    }, 0)
+    // For a counter-clockwise (positive area) polygon, the vector
+    // Up × direction already points outward. For clockwise polygons
+    // (negative area), invert the sign.
+    const orientationSign = signedArea >= 0 ? 1 : -1
+
     // Create a root mesh to act as the parent for all room components
     const rootMesh = new Mesh(newId, scene)
 
@@ -296,28 +310,33 @@ function App() {
         depth: WALL_THICKNESS
       }, scene)
 
-      // Compute wall direction vector
+      // -------------------------------------------------------------
+      // Compute wall direction vector and outward normal
+      // -------------------------------------------------------------
       const direction = p2.subtract(p1).normalize()
 
-      // Base midpoint
-      let wallPos = Vector3.Lerp(p1, p2, 0.5)
-      // Compute outward normal (cross(direction, Up))
-      const outward = Vector3.Cross(direction, Vector3.Up()).normalize()
-      // Determine correct side (ensure outward points away from center).
-      // For simplicity, always push outward by half thickness.
-      wallPos = wallPos.add(outward.scale(WALL_THICKNESS / 2))
+      // Mid-point of the wall segment
+      const midPoint = Vector3.Lerp(p1, p2, 0.5)
+
+      // Compute outward normal as Up × direction (right-hand side).
+      // This gives the exterior of a CCW polygon; multiply by
+      // orientationSign so CW polygons are handled, too.
+      const outward = Vector3.Cross(Vector3.Up(), direction)
+        .normalize()
+        .scale(orientationSign)
+
+      // Final wall position offset by half thickness
+      const wallPos = midPoint.add(outward.scale(WALL_THICKNESS / 2))
+
       wall.position = wallPos
       wall.position.y += WALL_HEIGHT / 2
-       
-      // Rotate the wall to align with the segment
-      // Use GetAngleBetweenVectors for a more robust rotation calculation
-      const angle = Vector3.GetAngleBetweenVectors(new Vector3(1, 0, 0), direction, Vector3.Up())
-       
-      // Determine the correct sign for the angle
-      const crossProduct = Vector3.Cross(new Vector3(1, 0, 0), direction)
-      // If crossProduct.y is negative, it's a counter-clockwise angle, which requires a positive rotation.
-      wall.rotation.y = crossProduct.y < 0 ? angle : -angle
 
+      // -------------------------------------------------------------
+      // Rotate wall so its local X axis aligns with the edge direction
+      // Use signed angle to handle all quadrants correctly.
+      // -------------------------------------------------------------
+      wall.rotation.y = -Math.atan2(direction.z, direction.x);
+       
       wall.material = wallMaterial
       wall.parent = rootMesh
     }
