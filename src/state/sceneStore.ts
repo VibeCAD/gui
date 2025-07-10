@@ -43,6 +43,10 @@ interface SceneState {
     gridMesh: Mesh | null
     collisionDetectionEnabled: boolean
     
+    // Movement controls
+    movementEnabled: boolean
+    movementSpeed: number
+    
     // Object properties
     objectVisibility: {[key: string]: boolean}
     objectLocked: {[key: string]: boolean}
@@ -120,6 +124,10 @@ interface SceneActions {
     setGridSize: (size: number) => void
     setGridMesh: (mesh: Mesh | null) => void
     setCollisionDetectionEnabled: (enabled: boolean) => void
+    
+    // Movement control actions
+    setMovementEnabled: (enabled: boolean) => void
+    setMovementSpeed: (speed: number) => void
     
     // Object property actions
     setObjectVisibility: (objectId: string, visible: boolean) => void
@@ -232,6 +240,27 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             gridSize: 1,
             gridMesh: null,
             collisionDetectionEnabled: false,
+            
+            // Movement controls initial state (load from localStorage if available)
+            movementEnabled: (() => {
+                try {
+                    const saved = localStorage.getItem('vibecad_movement_enabled')
+                    return saved ? JSON.parse(saved) : false
+                } catch (e) {
+                    console.warn('Failed to load movement enabled setting from localStorage:', e)
+                    return false
+                }
+            })(),
+            movementSpeed: (() => {
+                try {
+                    const saved = localStorage.getItem('vibecad_movement_speed')
+                    const parsed = saved ? JSON.parse(saved) : 0.1
+                    return Math.max(0.05, Math.min(1.0, parsed)) // Ensure valid range
+                } catch (e) {
+                    console.warn('Failed to load movement speed setting from localStorage:', e)
+                    return 0.1
+                }
+            })(),
             
             objectVisibility: {},
             objectLocked: {},
@@ -357,6 +386,27 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             setGridMesh: (mesh) => set({ gridMesh: mesh }),
             
             setCollisionDetectionEnabled: (enabled) => set({ collisionDetectionEnabled: enabled }),
+            
+            // Movement control actions
+            setMovementEnabled: (enabled) => {
+                set({ movementEnabled: enabled })
+                // Persist to localStorage
+                try {
+                    localStorage.setItem('vibecad_movement_enabled', JSON.stringify(enabled))
+                } catch (e) {
+                    console.warn('Failed to save movement enabled setting to localStorage:', e)
+                }
+            },
+            setMovementSpeed: (speed) => {
+                const clampedSpeed = Math.max(0.05, Math.min(1.0, speed))
+                set({ movementSpeed: clampedSpeed })
+                // Persist to localStorage
+                try {
+                    localStorage.setItem('vibecad_movement_speed', JSON.stringify(clampedSpeed))
+                } catch (e) {
+                    console.warn('Failed to save movement speed setting to localStorage:', e)
+                }
+            },
             
             setObjectVisibility: (objectId, visible) => set((state) => ({
                 objectVisibility: { ...state.objectVisibility, [objectId]: visible }

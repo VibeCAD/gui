@@ -80,6 +80,8 @@ function App() {
     collisionDetectionEnabled,
     snapToObjects,
     showConnectionPoints,
+    movementEnabled,
+    movementSpeed,
 
     // Actions
     setSceneObjects,
@@ -114,6 +116,8 @@ function App() {
     setCollisionDetectionEnabled,
     setSnapToObjects,
     setShowConnectionPoints,
+    setMovementEnabled,
+    setMovementSpeed,
     
     // Getters from store (for checking object status)
     hasSelection,
@@ -121,6 +125,18 @@ function App() {
     isObjectVisible,
   } = useSceneStore();
   // --- END: Reading state from the Zustand store ---
+
+  // Sync movement controls with SceneManager when scene is initialized
+  useEffect(() => {
+    if (sceneInitialized && sceneAPI?.getSceneManager()) {
+      const sceneManager = sceneAPI.getSceneManager()
+      if (sceneManager) {
+        sceneManager.setMovementEnabled(movementEnabled)
+        sceneManager.setMovementSpeed(movementSpeed)
+        console.log(`🎮 Movement controls synced: ${movementEnabled ? 'ENABLED' : 'DISABLED'}, speed: ${movementSpeed}`)
+      }
+    }
+  }, [sceneInitialized, movementEnabled, movementSpeed, sceneAPI]);
 
   // ---------------------------------------------------------------------------
   // Helper utils (state write) & placeholders for removed NURBS functionality
@@ -954,6 +970,18 @@ function App() {
               {selectedObjectId ? '1' : selectedObjectIds.length}
             </span>
           </span>
+          <span 
+            className="status-item"
+            title={movementEnabled 
+              ? `WASD Movement is ENABLED. Speed: ${movementSpeed.toFixed(2)} units/frame. Use WASD keys to navigate, Q/E for vertical movement, Shift to sprint.`
+              : 'WASD Movement is DISABLED. Enable in Tools menu to use keyboard navigation.'
+            }
+          >
+            <span className="status-label">Movement:</span>
+            <span className={`status-value ${movementEnabled ? 'on' : 'off'}`}>
+              {movementEnabled ? `WASD (${movementSpeed.toFixed(2)})` : 'OFF'}
+            </span>
+          </span>
           {/* Quick test button */}
           <button 
             className="test-button"
@@ -1554,6 +1582,57 @@ function App() {
               </div>
             </div>
             <div className="dropdown-section">
+              <div className="dropdown-section-title">Movement Controls</div>
+              <div className="dropdown-controls">
+                <div className="control-row">
+                  <label 
+                    className="control-checkbox"
+                    title="Enable keyboard-based camera movement controls similar to FPS games"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={movementEnabled}
+                      onChange={(e) => {
+                        const enabled = e.target.checked
+                        setMovementEnabled(enabled)
+                        if (sceneAPI?.getSceneManager()) {
+                          sceneAPI.getSceneManager()?.setMovementEnabled(enabled)
+                        }
+                      }}
+                    />
+                    <span>Enable WASD Movement</span>
+                  </label>
+                </div>
+                <div className="control-row">
+                  <span className="control-label">Movement Speed:</span>
+                  <input
+                    type="range"
+                    value={movementSpeed}
+                    onChange={(e) => {
+                      const speed = parseFloat(e.target.value)
+                      setMovementSpeed(speed)
+                      if (sceneAPI?.getSceneManager()) {
+                        sceneAPI.getSceneManager()?.setMovementSpeed(speed)
+                      }
+                    }}
+                    min="0.05"
+                    max="1.0"
+                    step="0.05"
+                    className="control-range"
+                    title={`Movement speed: ${movementSpeed.toFixed(2)} units/frame. Hold Shift to sprint at 2x speed.`}
+                  />
+                  <span className="control-value">{movementSpeed.toFixed(2)}</span>
+                </div>
+                <div className="control-row">
+                  <small className="control-help">
+                    📖 <strong>Controls:</strong> W/A/S/D to move • Q/E for up/down • Shift to sprint<br/>
+                    💡 <strong>Tip:</strong> Works like FPS games - movement is relative to camera direction<br/>
+                    ⚠️  <strong>Note:</strong> Automatically disabled when typing or using menus
+                  </small>
+                </div>
+              </div>
+            </div>
+            <div className="dropdown-section">
               <div className="dropdown-section-title">Precision Tools</div>
               <div className="dropdown-actions">
                 <button 
@@ -1827,6 +1906,12 @@ function App() {
       setShowApiKeyInput(false)
     }
   }
+
+  // Callback function to open custom room modal
+  const handleOpenCustomRoomModal = () => {
+    console.log('🎨 Opening custom room modal from AI command')
+    setShowCustomRoomModal(true)
+  }
   /*
   const clearAllObjects = () => {
     // Detach gizmo first
@@ -1912,6 +1997,7 @@ function App() {
           apiKey={apiKey}
           sceneInitialized={sceneInitialized}
           sceneAPI={sceneAPI}
+          onOpenCustomRoomModal={handleOpenCustomRoomModal}
         />
       </div>
       {/* Custom Room Drawing Modal */}
