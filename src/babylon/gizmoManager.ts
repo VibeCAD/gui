@@ -11,6 +11,14 @@ import { useSceneStore } from '../state/sceneStore'
 import { SceneManager } from './sceneManager'
 import type { TransformMode, MultiSelectInitialState } from '../types/types'
 import { snapToRoomGrid } from './gridTextureUtils'
+import { 
+  findContainingRoom, 
+  shouldBeFloorLocked, 
+  constrainRoomMovement,
+  isFloorLocked,
+  setFloorLocked,
+  snapToFloor
+} from './roomPhysicsUtils'
 
 export class GizmoController {
   private gizmoManager: GizmoManager | null = null
@@ -97,7 +105,7 @@ export class GizmoController {
     const { positionGizmo, rotationGizmo, scaleGizmo } = this.gizmoManager.gizmos
     const boundingBoxGizmo = (this.gizmoManager as any).boundingBoxGizmo
 
-    // Position gizmo observer with collision detection
+    // Position gizmo observer with collision detection and room physics
     if (positionGizmo) {
       // Store initial position when drag starts
       const dragStartObservable = positionGizmo.onDragStartObservable
@@ -113,16 +121,66 @@ export class GizmoController {
       })
       this.gizmoObservers.push({ observable: dragStartObservable, observer: dragStartObserver })
 
-      // Check collision during drag
+      // Check collision and room physics during drag
       const dragObservable = positionGizmo.onDragObservable
       const dragObserver = dragObservable.add(() => {
         const attachedMesh = this.gizmoManager?.attachedMesh
-        if (attachedMesh && this.sceneManager && this.originalTransform) {
-          const meshId = attachedMesh.name || attachedMesh.id
-          if (this.sceneManager.checkCollisionAtPosition(meshId, attachedMesh.position)) {
-            // Revert to original position if collision detected
-            attachedMesh.position.copyFrom(this.originalTransform.position)
-            console.log(`🚫 Movement blocked due to collision for ${meshId}`)
+        if (attachedMesh && attachedMesh instanceof Mesh && this.sceneManager && this.originalTransform && this.scene) {
+          const mesh = attachedMesh as Mesh
+          const meshId = mesh.name || mesh.id
+          const desiredPosition = mesh.position.clone()
+          
+          // Check if object is within a custom room
+          const roomInfo = findContainingRoom(desiredPosition, this.scene)
+          
+          if (roomInfo) {
+            // Object is in a room - check if it should be floor-locked
+            const shouldLock = shouldBeFloorLocked(mesh, desiredPosition, roomInfo)
+            
+            // Update floor-locked status
+            if (shouldLock && !isFloorLocked(mesh)) {
+              setFloorLocked(mesh, true)
+              console.log(`🔒 Object ${meshId} is now floor-locked in room`)
+              
+              // Immediately snap to floor when first entering floor-locked state
+              const snappedPos = snapToFloor(mesh, desiredPosition, roomInfo)
+              mesh.position.copyFrom(snappedPos)
+            }
+            
+            // Apply room movement constraints
+            if (isFloorLocked(mesh)) {
+              const result = constrainRoomMovement(
+                mesh,
+                desiredPosition,
+                roomInfo,
+                true,
+                this.originalTransform.position
+              )
+              
+              if (result.blocked) {
+                // Movement blocked by wall - revert to last valid position
+                mesh.position.copyFrom(this.originalTransform.position)
+                console.log(`🚫 Movement blocked by wall for ${meshId}`)
+              } else {
+                // Apply constrained position
+                mesh.position.copyFrom(result.position)
+                // Update original transform for continuous drag
+                this.originalTransform.position.copyFrom(result.position)
+              }
+            }
+          } else {
+            // Object is outside any room - remove floor lock if it had one
+            if (isFloorLocked(mesh)) {
+              setFloorLocked(mesh, false)
+              console.log(`🔓 Object ${meshId} is no longer floor-locked`)
+            }
+            
+            // Standard collision detection
+            if (this.sceneManager.checkCollisionAtPosition(meshId, mesh.position)) {
+              // Revert to original position if collision detected
+              mesh.position.copyFrom(this.originalTransform.position)
+              console.log(`🚫 Movement blocked due to collision for ${meshId}`)
+            }
           }
         }
       })
@@ -308,27 +366,7 @@ export const useGizmoManager = (
       console.log('🎯 [GizmoManager] No selection, targetMesh will be null')
     }
 
-    // Helper function to find which custom room contains a position
-    const findContainingRoom = (position: Vector3): Mesh | null => {
-      if (!scene) return null
-      
-      // Find all custom room meshes
-      const customRooms = scene.meshes.filter(mesh => 
-        mesh.name.includes('custom-room') && 
-        mesh.metadata?.gridInfo &&
-        mesh instanceof Mesh
-      ) as Mesh[]
-      
-      // Check if position is within any room's bounds
-      for (const room of customRooms) {
-        const bounds = room.getBoundingInfo().boundingBox
-        if (bounds.intersectsPoint(position)) {
-          return room
-        }
-      }
-      
-      return null
-    }
+
 
     // Handle gizmo drag end
     const handleGizmoDragEnd = (position: Vector3, rotation: Vector3, scale: Vector3) => {
@@ -344,12 +382,12 @@ export const useGizmoManager = (
           newPosition = Vector3.TransformCoordinates(newPosition, rotationMatrix).add(position)
           
           // Check if object is within a custom room for grid snapping
-          const containingRoom = findContainingRoom(newPosition)
-          if (containingRoom && containingRoom.metadata?.gridInfo) {
+          const roomInfo = findContainingRoom(newPosition, scene)
+          if (roomInfo && roomInfo.gridInfo) {
             // Use room-specific grid snapping
             const snapped = snapToRoomGrid(
               { x: newPosition.x, z: newPosition.z },
-              containingRoom
+              roomInfo.mesh
             )
             newPosition.x = snapped.x
             newPosition.z = snapped.z
@@ -384,23 +422,63 @@ export const useGizmoManager = (
         // Single object transform with collision checking (including snap-to-object)
         let newPosition = position.clone()
         
-        // Check if object is within a custom room for grid snapping
-        const containingRoom = findContainingRoom(newPosition)
-        if (containingRoom && containingRoom.metadata?.gridInfo) {
-          // Use room-specific grid snapping
-          const snapped = snapToRoomGrid(
-            { x: newPosition.x, z: newPosition.z },
-            containingRoom
-          )
-          newPosition.x = snapped.x
-          newPosition.z = snapped.z
-        } else if (snapToGrid) {
+        // Get the mesh being transformed
+        const mesh = getMeshById(selectedObjectId)
+        if (!mesh) return
+        
+        // Check if object is within a custom room
+        const roomInfo = findContainingRoom(newPosition, scene)
+        if (roomInfo) {
+          // Apply room physics constraints
+          if (isFloorLocked(mesh)) {
+            const result = constrainRoomMovement(
+              mesh,
+              newPosition,
+              roomInfo,
+              true,
+              mesh.position
+            )
+            
+            if (result.blocked) {
+              console.log(`🚫 Final position blocked by wall for ${selectedObjectId}`)
+              return // Don't update if blocked
+            }
+            
+            newPosition = result.position
+          } else {
+            // Check if object should become floor-locked
+            const shouldLock = shouldBeFloorLocked(mesh, newPosition, roomInfo)
+            if (shouldLock) {
+              setFloorLocked(mesh, true)
+              newPosition = snapToFloor(mesh, newPosition, roomInfo)
+              console.log(`🔒 Object ${selectedObjectId} floor-locked on drag end`)
+            }
+          }
+          
+          // Use room-specific grid snapping if enabled
+          if (roomInfo.gridInfo && snapToGrid) {
+            const snapped = snapToRoomGrid(
+              { x: newPosition.x, z: newPosition.z },
+              roomInfo.mesh
+            )
+            newPosition.x = snapped.x
+            newPosition.z = snapped.z
+          }
+        } else {
+          // Object is outside any room
+          if (isFloorLocked(mesh)) {
+            setFloorLocked(mesh, false)
+            console.log(`🔓 Object ${selectedObjectId} unlocked - outside room`)
+          }
+          
           // Use global grid snapping
-          newPosition = new Vector3(
-            Math.round(newPosition.x / gridSize) * gridSize,
-            Math.round(newPosition.y / gridSize) * gridSize,
-            Math.round(newPosition.z / gridSize) * gridSize
-          )
+          if (snapToGrid) {
+            newPosition = new Vector3(
+              Math.round(newPosition.x / gridSize) * gridSize,
+              Math.round(newPosition.y / gridSize) * gridSize,
+              Math.round(newPosition.z / gridSize) * gridSize
+            )
+          }
         }
 
         // Snap to nearby objects using connection points
