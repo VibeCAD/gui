@@ -114,6 +114,21 @@ export const AISidebar: React.FC<AISidebarProps> = ({
           }
           break;
 
+        case 'rotate':
+          if (command.objectId) {
+            // Rotation values are in radians
+            const rotationX = command.rotationX || 0;
+            const rotationY = command.rotationY || 0;
+            const rotationZ = command.rotationZ || 0;
+            
+            updateObject(command.objectId, { 
+              rotation: new Vector3(rotationX, rotationY, rotationZ) 
+            });
+            
+            console.log(`🔄 Rotated object ${command.objectId} to (${rotationX.toFixed(3)}, ${rotationY.toFixed(3)}, ${rotationZ.toFixed(3)}) radians`);
+          }
+          break;
+
         case 'create':
           if (command.type) {
             // Generate a robust unique ID (avoids same-millisecond collisions when executing multiple creates at once)

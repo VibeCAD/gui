@@ -316,7 +316,21 @@ export class SceneManager {
         mesh.position.copyFrom(sceneObject.position)
       }
       if (sceneObject.rotation && !mesh.rotation.equals(sceneObject.rotation)) {
-        mesh.rotation.copyFrom(sceneObject.rotation)
+        if (mesh.rotationQuaternion) {
+          // Keep quaternion in sync with requested Euler to satisfy gizmo / bounding-box expectations
+          const newQuat = Quaternion.RotationYawPitchRoll(
+            sceneObject.rotation.y,
+            sceneObject.rotation.x,
+            sceneObject.rotation.z
+          )
+          mesh.rotationQuaternion.copyFrom(newQuat)
+          // Also store Euler (helps when gizmos are detached later)
+          mesh.rotation.copyFrom(sceneObject.rotation)
+          console.log(`🔄 SceneManager: Updated rotationQuaternion for mesh ${id}`)
+        } else {
+          mesh.rotation.copyFrom(sceneObject.rotation)
+        }
+        console.log(`🔄 SceneManager: Applied rotation to mesh ${id}: (${sceneObject.rotation.x.toFixed(3)}, ${sceneObject.rotation.y.toFixed(3)}, ${sceneObject.rotation.z.toFixed(3)})`)
       }
       if (sceneObject.scale && !mesh.scaling.equals(sceneObject.scale)) {
         mesh.scaling.copyFrom(sceneObject.scale)
