@@ -718,8 +718,7 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
           { role: 'system', content: systemPrompt },
           { role: 'user', content: enhancedPrompt }
         ],
-        temperature: 0.1,
-        max_tokens: 500
+        temperature: 0.1
       });
 
       const aiResponse = response.choices[0]?.message?.content;
