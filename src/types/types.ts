@@ -193,6 +193,9 @@ export interface SceneObject {
         u: number
         v: number
     }
+    
+    // Room name for custom rooms
+    roomName?: string
 }
 
 // NURBS control point visualization data
