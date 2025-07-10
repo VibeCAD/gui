@@ -12,10 +12,12 @@ import {
   PointerEventTypes,
   PickingInfo,
   Matrix,
-  Quaternion
+  Quaternion,
+  Texture
 } from 'babylonjs'
-import type { SceneObject, PrimitiveType, TransformMode, ConnectionPoint } from '../types/types'
+import type { SceneObject, PrimitiveType, TransformMode, ConnectionPoint, TextureAsset, TextureType } from '../types/types'
 import { createHousingMesh } from './housingFactory'
+import { TextureManager } from './textureManager'
 
 
 export class SceneManager {
@@ -28,10 +30,12 @@ export class SceneManager {
   private multiSelectPivot: Mesh | null = null
   private pointerDownPosition: { x: number, y: number } | null = null
   private collisionDetectionEnabled: boolean = true
+  private textureManager: TextureManager | null = null
   
   // Event callbacks
   private onObjectClickCallback?: (pickInfo: PickingInfo, isCtrlHeld: boolean) => void
   private onObjectHoverCallback?: (pickInfo: PickingInfo) => void
+  private getTextureAssetCallback?: (textureId: string) => TextureAsset | undefined
 
   constructor() {
     // Initialize empty - call initialize() after construction
@@ -44,6 +48,9 @@ export class SceneManager {
       // Create engine and scene
       this.engine = new Engine(canvas, true)
       this.scene = new Scene(this.engine)
+      
+      // Initialize texture manager
+      this.textureManager = new TextureManager(this.scene)
       
       // Enable collision detection by default
       this.scene.collisionsEnabled = this.collisionDetectionEnabled
@@ -319,6 +326,113 @@ export class SceneManager {
       if (sceneObject.color && mesh.material && mesh.material instanceof StandardMaterial) {
         if (mesh.material.diffuseColor.toHexString() !== sceneObject.color) {
           mesh.material.diffuseColor = Color3.FromHexString(sceneObject.color)
+        }
+      }
+      
+      // Handle texture updates
+      if (sceneObject.textureIds !== undefined && this.textureManager && mesh.material) {
+        console.log('🎨 Texture update detected:', {
+          meshId: id,
+          textureIds: sceneObject.textureIds,
+          hasMaterial: !!mesh.material,
+          materialType: mesh.material.constructor.name
+        });
+        
+        // If textureIds is empty or null, remove all textures
+        if (!sceneObject.textureIds || Object.keys(sceneObject.textureIds).length === 0) {
+          const material = mesh.material as StandardMaterial;
+          console.log('🗑️ Removing all textures from mesh:', id);
+          // Remove all textures
+          material.diffuseTexture = null;
+          material.bumpTexture = null;
+          material.specularTexture = null;
+          material.emissiveTexture = null;
+        } else {
+          // Apply each texture type
+          for (const [textureType, textureId] of Object.entries(sceneObject.textureIds)) {
+            console.log(`🖼️ Applying ${textureType} texture:`, textureId);
+            const textureAsset = this.getTextureAssetCallback?.(textureId);
+            console.log('📦 Texture asset retrieved:', textureAsset);
+            
+            if (textureAsset) {
+              // Create or get cached texture
+              const texture = this.textureManager.createBabylonTexture(textureAsset);
+              console.log('✨ Babylon texture created:', {
+                name: texture.name,
+                url: texture.url,
+                hasTexture: !!texture
+              });
+              
+              // Apply texture based on type
+              const material = mesh.material as StandardMaterial;
+              switch (textureType) {
+                case 'diffuse':
+                  console.log('🎨 Applying diffuse texture');
+                  this.textureManager.applyDiffuseTexture(material, texture);
+                  // Ensure the texture is visible by resetting diffuse color to white
+                  material.diffuseColor = new Color3(1, 1, 1);
+                  break;
+                case 'normal':
+                  console.log('🏔️ Applying normal/bump texture');
+                  this.textureManager.applyNormalTexture(material, texture);
+                  break;
+                case 'specular':
+                  console.log('✨ Applying specular texture');
+                  this.textureManager.applySpecularTexture(material, texture);
+                  break;
+                case 'emissive':
+                  console.log('💡 Applying emissive texture');
+                  this.textureManager.applyEmissiveTexture(material, texture);
+                  break;
+              }
+              
+              // Apply scale and offset if they exist
+              if (sceneObject.textureScale) {
+                this.textureManager.setTextureScale(texture, sceneObject.textureScale);
+              }
+              if (sceneObject.textureOffset) {
+                this.textureManager.setTextureOffset(texture, sceneObject.textureOffset);
+              }
+              
+              console.log('✅ Texture applied successfully');
+            } else {
+              console.error('❌ Failed to retrieve texture asset for:', textureId);
+            }
+          }
+        }
+      }
+      
+      // Handle texture scale for existing textures
+      if (sceneObject.textureScale && mesh.material instanceof StandardMaterial && this.textureManager) {
+        const material = mesh.material;
+        if (material.diffuseTexture) {
+          this.textureManager.setTextureScale(material.diffuseTexture as Texture, sceneObject.textureScale);
+        }
+        if (material.bumpTexture) {
+          this.textureManager.setTextureScale(material.bumpTexture as Texture, sceneObject.textureScale);
+        }
+        if (material.specularTexture) {
+          this.textureManager.setTextureScale(material.specularTexture as Texture, sceneObject.textureScale);
+        }
+        if (material.emissiveTexture) {
+          this.textureManager.setTextureScale(material.emissiveTexture as Texture, sceneObject.textureScale);
+        }
+      }
+      
+      // Handle texture offset for existing textures
+      if (sceneObject.textureOffset && mesh.material instanceof StandardMaterial && this.textureManager) {
+        const material = mesh.material;
+        if (material.diffuseTexture) {
+          this.textureManager.setTextureOffset(material.diffuseTexture as Texture, sceneObject.textureOffset);
+        }
+        if (material.bumpTexture) {
+          this.textureManager.setTextureOffset(material.bumpTexture as Texture, sceneObject.textureOffset);
+        }
+        if (material.specularTexture) {
+          this.textureManager.setTextureOffset(material.specularTexture as Texture, sceneObject.textureOffset);
+        }
+        if (material.emissiveTexture) {
+          this.textureManager.setTextureOffset(material.emissiveTexture as Texture, sceneObject.textureOffset);
         }
       }
       
@@ -705,6 +819,11 @@ export class SceneManager {
   public setObjectHoverCallback(callback: (pickInfo: PickingInfo) => void): void {
     console.log('🔗 SceneManager: Setting object hover callback')
     this.onObjectHoverCallback = callback
+  }
+
+  public setTextureAssetCallback(callback: (textureId: string) => TextureAsset | undefined): void {
+    console.log('🔗 SceneManager: Setting texture asset callback')
+    this.getTextureAssetCallback = callback
   }
 
   public snapToGrid(position: Vector3, gridSize: number): Vector3 {

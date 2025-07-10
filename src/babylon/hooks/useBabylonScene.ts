@@ -7,7 +7,7 @@ import type { SceneObject } from '../../types/types'
 
 // Custom hook to get the previous value of a prop or state
 function usePrevious<T>(value: T): T | undefined {
-  const ref = useRef<T>()
+  const ref = useRef<T | undefined>(undefined)
   useEffect(() => {
     ref.current = value
   }, [value])
@@ -118,6 +118,13 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
           console.log('🔗 Setting up object hover callback')
           sceneManager.setObjectHoverCallback(handleObjectHover)
           
+          // Set up texture asset callback
+          console.log('🔗 Setting up texture asset callback')
+          sceneManager.setTextureAssetCallback((textureId: string) => {
+            const state = useSceneStore.getState()
+            return state.textureAssets.get(textureId)
+          })
+
           // Create initial scene objects - only ground, no cube
           const initialGround: SceneObject = {
             id: 'ground',
@@ -285,6 +292,17 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
         }
         if (currentObj.color !== prevObj.color) {
           diff.color = currentObj.color
+        }
+        
+        // Check for texture changes
+        if (JSON.stringify(currentObj.textureIds) !== JSON.stringify(prevObj.textureIds)) {
+          diff.textureIds = currentObj.textureIds
+        }
+        if (JSON.stringify(currentObj.textureScale) !== JSON.stringify(prevObj.textureScale)) {
+          diff.textureScale = currentObj.textureScale
+        }
+        if (JSON.stringify(currentObj.textureOffset) !== JSON.stringify(prevObj.textureOffset)) {
+          diff.textureOffset = currentObj.textureOffset
         }
         
         if (Object.keys(diff).length > 0) {

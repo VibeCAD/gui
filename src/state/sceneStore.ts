@@ -13,7 +13,9 @@ import type {
     Door,
     Window,
     Wall,
-    ImportError
+    ImportError,
+    TextureAsset,
+    TextureType
 } from '../types/types'
 
 // Store State Interface
@@ -68,6 +70,12 @@ interface SceneState {
     // GLB Import state
     isImporting: boolean
     importError: ImportError | null
+    
+    // Texture state
+    textureAssets: Map<string, TextureAsset>
+    selectedTextureId: string | null
+    isUploadingTexture: boolean
+    textureUploadError: string | null
     
     // Housing-specific state
     housingComponents: {[objectId: string]: ModularHousingObject}
@@ -144,6 +152,20 @@ interface SceneActions {
     importSuccess: () => void
     setImportError: (error: ImportError) => void
     clearImportError: () => void
+    
+    // Texture actions
+    setTextureAssets: (assets: Map<string, TextureAsset>) => void
+    addTextureAsset: (asset: TextureAsset) => void
+    removeTextureAsset: (assetId: string) => void
+    renameTextureAsset: (assetId: string, newName: string) => void
+    setSelectedTextureId: (textureId: string | null) => void
+    setIsUploadingTexture: (uploading: boolean) => void
+    setTextureUploadError: (error: string | null) => void
+    uploadTexture: (file: File) => Promise<string>
+    applyTextureToObject: (objectId: string, textureId: string, textureType: TextureType) => void
+    removeTextureFromObject: (objectId: string, textureType: TextureType) => void
+    setTextureScale: (objectId: string, scale: { u: number; v: number }) => void
+    setTextureOffset: (objectId: string, offset: { u: number; v: number }) => void
     
     // Housing-specific actions
     addHousingComponent: (objectId: string, housingObject: ModularHousingObject) => void
@@ -231,6 +253,12 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             // GLB Import state
             isImporting: false,
             importError: null,
+            
+            // Texture state
+            textureAssets: new Map(),
+            selectedTextureId: null,
+            isUploadingTexture: false,
+            textureUploadError: null,
             
             // Housing-specific initial state
             housingComponents: {},
@@ -385,6 +413,114 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             importSuccess: () => set({ isImporting: false }),
             setImportError: (error) => set({ isImporting: false, importError: error }),
             clearImportError: () => set({ importError: null }),
+            
+            // Texture actions
+            setTextureAssets: (assets) => set({ textureAssets: assets }),
+            addTextureAsset: (asset) => set((state) => ({
+                textureAssets: new Map([...state.textureAssets, [asset.id, asset]])
+            })),
+            removeTextureAsset: (assetId) => set((state) => {
+                const newAssets = new Map(state.textureAssets);
+                newAssets.delete(assetId);
+                return { textureAssets: newAssets };
+            }),
+            renameTextureAsset: (assetId, newName) => set((state) => {
+                const newAssets = new Map(state.textureAssets);
+                const asset = newAssets.get(assetId);
+                if (asset) {
+                    asset.name = newName;
+                }
+                return { textureAssets: newAssets };
+            }),
+            setSelectedTextureId: (textureId) => set({ selectedTextureId: textureId }),
+            setIsUploadingTexture: (uploading) => set({ isUploadingTexture: uploading }),
+            setTextureUploadError: (error) => set({ textureUploadError: error }),
+            
+            uploadTexture: async (file) => {
+                const state = get();
+                
+                // Generate texture ID
+                const textureId = `texture-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                
+                // Create texture asset (actual file processing will be handled by TextureManager)
+                const textureAsset: TextureAsset = {
+                    id: textureId,
+                    name: file.name,
+                    url: '', // Will be set by TextureManager
+                    type: 'diffuse', // Default type
+                    fileSize: file.size,
+                    dimensions: { width: 0, height: 0 }, // Will be updated after loading
+                    uploadedAt: Date.now()
+                };
+                
+                // Add to store
+                set((state) => ({
+                    textureAssets: new Map([...state.textureAssets, [textureId, textureAsset]])
+                }));
+                
+                return textureId;
+            },
+            
+            applyTextureToObject: (objectId, textureId, textureType) => {
+                set((state) => ({
+                    sceneObjects: state.sceneObjects.map(obj => {
+                        if (obj.id === objectId) {
+                            return {
+                                ...obj,
+                                textureIds: {
+                                    ...obj.textureIds,
+                                    [textureType]: textureId
+                                }
+                            };
+                        }
+                        return obj;
+                    })
+                }));
+            },
+            
+            removeTextureFromObject: (objectId, textureType) => {
+                set((state) => ({
+                    sceneObjects: state.sceneObjects.map(obj => {
+                        if (obj.id === objectId && obj.textureIds) {
+                            const newTextureIds = { ...obj.textureIds };
+                            delete newTextureIds[textureType];
+                            return {
+                                ...obj,
+                                textureIds: Object.keys(newTextureIds).length > 0 ? newTextureIds : undefined
+                            };
+                        }
+                        return obj;
+                    })
+                }));
+            },
+            
+            setTextureScale: (objectId, scale) => {
+                set((state) => ({
+                    sceneObjects: state.sceneObjects.map(obj => {
+                        if (obj.id === objectId) {
+                            return {
+                                ...obj,
+                                textureScale: scale
+                            };
+                        }
+                        return obj;
+                    })
+                }));
+            },
+            
+            setTextureOffset: (objectId, offset) => {
+                set((state) => ({
+                    sceneObjects: state.sceneObjects.map(obj => {
+                        if (obj.id === objectId) {
+                            return {
+                                ...obj,
+                                textureOffset: offset
+                            };
+                        }
+                        return obj;
+                    })
+                }));
+            },
             
             // Housing-specific actions
             addHousingComponent: (objectId, housingObject) => set((state) => ({
@@ -767,5 +903,7 @@ export type {
     Door,
     Window,
     Wall,
-    ImportError
+    ImportError,
+    TextureAsset,
+    TextureType
 }

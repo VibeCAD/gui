@@ -2,6 +2,8 @@ import React from 'react';
 import { Vector3 } from 'babylonjs';
 import { useSceneStore } from '../../state/sceneStore';
 import type { SceneObject, ModularHousingObject, Door, Window, Wall } from '../../types/types';
+import { TextureUpload } from './TextureUpload';
+import { TextureLibrary } from './TextureLibrary';
 
 export const PropertiesPanel: React.FC = () => {
   const {
@@ -21,6 +23,11 @@ export const PropertiesPanel: React.FC = () => {
     getSelectedObject,
     getSelectedObjects,
     hasSelection,
+    // Texture-related state
+    textureAssets,
+    setTextureScale,
+    setTextureOffset,
+    removeTextureFromObject,
     // Housing-specific actions
     getHousingComponent,
     getSelectedWall,
@@ -193,6 +200,138 @@ export const PropertiesPanel: React.FC = () => {
       </div>
     </div>
   );
+
+  const renderTextureProperties = (obj: SceneObject) => {
+    // Don't show texture properties for ground or certain types
+    if (obj.type === 'ground' || obj.type.startsWith('line-')) {
+      return null;
+    }
+
+    return (
+      <div className="properties-section">
+        <h4>Texture Properties</h4>
+        
+        {/* Current Textures */}
+        {obj.textureIds && Object.keys(obj.textureIds).length > 0 && (
+          <div className="property-group">
+            <label>Applied Textures:</label>
+            <div className="applied-textures-list">
+              {Object.entries(obj.textureIds).map(([type, textureId]) => {
+                const texture = textureAssets.get(textureId);
+                return (
+                  <div key={type} className="applied-texture-item">
+                    <span className="texture-type-label">{type}:</span>
+                    <span className="texture-name">{texture?.name || 'Unknown'}</span>
+                    <button
+                      className="remove-texture-btn"
+                      onClick={() => removeTextureFromObject(obj.id, type as any)}
+                      title="Remove texture"
+                    >
+                      ❌
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        
+        {/* Texture Scale */}
+        {obj.textureIds && Object.keys(obj.textureIds).length > 0 && (
+          <div className="property-group">
+            <label>Texture Scale:</label>
+            <div className="texture-scale-controls">
+              <div className="scale-input">
+                <label>U:</label>
+                <input
+                  type="number"
+                  value={obj.textureScale?.u || 1}
+                  onChange={(e) => setTextureScale(obj.id, { 
+                    u: parseFloat(e.target.value), 
+                    v: obj.textureScale?.v || 1 
+                  })}
+                  step="0.1"
+                  min="0.1"
+                  className="scale-component"
+                />
+              </div>
+              <div className="scale-input">
+                <label>V:</label>
+                <input
+                  type="number"
+                  value={obj.textureScale?.v || 1}
+                  onChange={(e) => setTextureScale(obj.id, { 
+                    u: obj.textureScale?.u || 1, 
+                    v: parseFloat(e.target.value) 
+                  })}
+                  step="0.1"
+                  min="0.1"
+                  className="scale-component"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Texture Offset */}
+        {obj.textureIds && Object.keys(obj.textureIds).length > 0 && (
+          <div className="property-group">
+            <label>Texture Offset:</label>
+            <div className="texture-offset-controls">
+              <div className="offset-input">
+                <label>U:</label>
+                <input
+                  type="number"
+                  value={obj.textureOffset?.u || 0}
+                  onChange={(e) => setTextureOffset(obj.id, { 
+                    u: parseFloat(e.target.value), 
+                    v: obj.textureOffset?.v || 0 
+                  })}
+                  step="0.1"
+                  className="offset-component"
+                />
+              </div>
+              <div className="offset-input">
+                <label>V:</label>
+                <input
+                  type="number"
+                  value={obj.textureOffset?.v || 0}
+                  onChange={(e) => setTextureOffset(obj.id, { 
+                    u: obj.textureOffset?.u || 0, 
+                    v: parseFloat(e.target.value) 
+                  })}
+                  step="0.1"
+                  className="offset-component"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Texture Upload */}
+        <div className="property-group">
+          <label>Upload New Texture:</label>
+          <TextureUpload 
+            className="properties-texture-upload"
+            onUpload={(textureAsset) => {
+              console.log('Texture uploaded:', textureAsset);
+            }}
+          />
+        </div>
+        
+        {/* Texture Library */}
+        <div className="property-group">
+          <label>Texture Library:</label>
+          <TextureLibrary 
+            className="properties-texture-library"
+            onApply={(textureId, textureType) => {
+              console.log('Applied texture:', textureId, 'as', textureType);
+            }}
+          />
+        </div>
+      </div>
+    );
+  };
 
   const renderNurbsProperties = (obj: SceneObject) => {
     if (!obj.isNurbs || !obj.verbData) return null;
@@ -1547,6 +1686,7 @@ export const PropertiesPanel: React.FC = () => {
         {selectedObject ? (
           <>
             {renderBasicProperties(selectedObject)}
+            {renderTextureProperties(selectedObject)}
             {renderNurbsProperties(selectedObject)}
             {renderHousingProperties(selectedObject)}
           </>
