@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo, useState } from 'react'
-import { Vector3, Vector2, StandardMaterial, Color3, Mesh, PolygonMeshBuilder } from 'babylonjs'
+import { Vector3, Vector2, StandardMaterial, Color3, Mesh, PolygonMeshBuilder, DynamicTexture } from 'babylonjs'
 import { computeCompositeBoundary, generateDefaultConnectionPoints } from './babylon/boundaryUtils'
 import type { ConnectionPoint } from './types/types'
 import './App.css'
@@ -241,7 +241,7 @@ function App() {
    * Converts 2D SVG coordinates to 3D world-space points, extrudes the polygon,
    * registers the mesh with the scene, and stores a SceneObject entry.
    */
-  const handleCreateCustomRoom = (roomData: { points: { x: number; y: number }[]; openings?: { start: { x: number; y: number }; end: { x: number; y: number } }[] }) => {
+  const handleCreateCustomRoom = (roomData: { points: { x: number; y: number }[]; openings?: { start: { x: number; y: number }; end: { x: number; y: number } }[]; name?: string }) => {
     if (!sceneInitialized) return
 
     const sceneManager = sceneAPI.getSceneManager()
@@ -253,7 +253,7 @@ function App() {
     const WALL_HEIGHT = 2.0
     const WALL_THICKNESS = 0.15
 
-    const { points, openings } = roomData
+    const { points, openings, name } = roomData
 
     // Convert SVG (origin top-left, +y down) to Babylon XZ plane (origin center, +z forward)
     const vertices2D = points.map(p => new Vector2(
@@ -404,6 +404,53 @@ function App() {
     const cps = [...defaultCPs, ...wallTopConnectionPoints]
     if (!rootMesh.metadata) rootMesh.metadata = {}
     ;(rootMesh.metadata as any).connectionPoints = cps
+    
+    // Store room name in metadata
+    if (name) {
+      (rootMesh.metadata as any).roomName = name
+      
+      // Create text label for the room
+      const labelPlane = MeshBuilder.CreatePlane(`${newId}-label`, {
+        width: 2,
+        height: 0.5
+      }, scene)
+      
+      // Position label at the center of the room, slightly above floor
+      const centerX = vertices2D.reduce((sum, v) => sum + v.x, 0) / vertices2D.length
+      const centerZ = vertices2D.reduce((sum, v) => sum + v.y, 0) / vertices2D.length
+      labelPlane.position = new Vector3(centerX, 0.1, centerZ)
+      labelPlane.rotation.x = -Math.PI / 2 // Make it horizontal
+      labelPlane.parent = rootMesh
+      
+      // Create dynamic texture for the text
+      const labelTexture = new DynamicTexture(`${newId}-label-texture`, {
+        width: 512,
+        height: 128
+      }, scene)
+      
+      // Configure text
+      labelTexture.hasAlpha = true
+      const ctx = labelTexture.getContext() as any // Cast to avoid TS issues with canvas context
+      ctx.clearRect(0, 0, 512, 128)
+      
+      // Draw text
+      const fontSize = 48
+      ctx.font = `bold ${fontSize}px Arial`
+      ctx.fillStyle = '#2c3e50'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(name, 256, 64)
+      
+      labelTexture.update()
+      
+      // Create material for the label
+      const labelMaterial = new StandardMaterial(`${newId}-label-mat`, scene)
+      labelMaterial.diffuseTexture = labelTexture
+      labelMaterial.specularColor = new Color3(0, 0, 0)
+      labelMaterial.emissiveColor = new Color3(1, 1, 1)
+      labelMaterial.backFaceCulling = false
+      labelPlane.material = labelMaterial
+    }
 
     // Debugging: log connection point info
     console.log(`[CustomRoom] Generated ${cps.length} connection points for ${newId}:`, cps.map(cp => ({ id: cp.id, pos: cp.position.toString(), normal: cp.normal.toString() })))
@@ -419,7 +466,8 @@ function App() {
       scale: rootMesh.scaling.clone(),
       rotation: rootMesh.rotation.clone(),
       color: '#DEB887',
-      isNurbs: false
+      isNurbs: false,
+      roomName: name
     }
 
     addObject(newObj)
@@ -428,6 +476,15 @@ function App() {
     // Close modal
     setShowCustomRoomModal(false)
     setActiveDropdown(null)
+  }
+
+  const handleCreateMultipleCustomRooms = (roomsData: Array<{ points: { x: number; y: number }[]; openings?: { start: { x: number; y: number }; end: { x: number; y: number } }[]; name?: string }>) => {
+    // Create all rooms with slight delays to ensure unique IDs
+    roomsData.forEach((roomData, index) => {
+      setTimeout(() => {
+        handleCreateCustomRoom(roomData)
+      }, index * 100)
+    })
   }
 
   const createHousingComponent = (componentType: string, subType?: string) => {
@@ -1680,6 +1737,7 @@ function App() {
         isOpen={showCustomRoomModal}
         onCancel={() => setShowCustomRoomModal(false)}
         onCreate={handleCreateCustomRoom}
+        onCreateMultiple={handleCreateMultipleCustomRooms}
       />
     </div>
   )

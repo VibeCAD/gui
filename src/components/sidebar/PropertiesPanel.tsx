@@ -79,6 +79,20 @@ export const PropertiesPanel: React.FC = () => {
     <div className="properties-section">
       <h4>Transform Properties</h4>
       
+      {/* Room Name for custom rooms */}
+      {obj.roomName && (
+        <div className="property-group">
+          <label>Room Name:</label>
+          <input
+            type="text"
+            value={obj.roomName}
+            onChange={(e) => updateSelectedObjectProperty('roomName', e.target.value)}
+            className="room-name-input"
+            placeholder="Enter room name"
+          />
+        </div>
+      )}
+      
       {/* Position */}
       <div className="property-group">
         <label>Position:</label>

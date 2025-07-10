@@ -8,6 +8,7 @@ interface Point {
 interface RoomData {
   points: Point[]
   openings?: { start: Point; end: Point }[]  // Line segments that are openings
+  name?: string  // Optional room name/tag
 }
 
 interface GridPoint {
@@ -26,6 +27,7 @@ interface CustomRoomModalProps {
   isOpen: boolean
   onCancel: () => void
   onCreate: (roomData: RoomData) => void
+  onCreateMultiple?: (roomsData: RoomData[]) => void  // For creating multiple named rooms at once
 }
 
 /**
@@ -33,13 +35,15 @@ interface CustomRoomModalProps {
  * to create room shapes. Users can only draw horizontal and vertical lines
  * along the grid intersections.
  */
-export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCancel, onCreate }) => {
+export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCancel, onCreate, onCreateMultiple }) => {
   const [lineSegments, setLineSegments] = useState<LineSegment[]>([])
   const [isDrawing, setIsDrawing] = useState(false)
   const [currentLine, setCurrentLine] = useState<LineSegment | null>(null)
   const [hoveredGridPoint, setHoveredGridPoint] = useState<GridPoint | null>(null)
   const [gridSize, setGridSize] = useState(20)
   const [drawingMode, setDrawingMode] = useState<'wall' | 'opening'>('wall')
+  const [roomNames, setRoomNames] = useState<{ [key: number]: string }>({})
+  const [showNamingStep, setShowNamingStep] = useState(false)
   const svgRef = useRef<SVGSVGElement | null>(null)
 
   // Grid settings
@@ -56,6 +60,8 @@ export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCanc
       setIsDrawing(false)
       setCurrentLine(null)
       setHoveredGridPoint(null)
+      setRoomNames({})
+      setShowNamingStep(false)
     }
   }, [isOpen])
 
@@ -419,6 +425,19 @@ export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCanc
     })
   }
 
+  const handleProceedToNaming = () => {
+    const rooms = findRooms()
+    if (rooms.length === 0) return
+    
+    // Initialize room names with defaults
+    const defaultNames: { [key: number]: string } = {}
+    rooms.forEach((_, index) => {
+      defaultNames[index] = `Room ${index + 1}`
+    })
+    setRoomNames(defaultNames)
+    setShowNamingStep(true)
+  }
+
   const handleCreateRooms = () => {
     const rooms = findRooms()
     if (rooms.length === 0) return
@@ -430,17 +449,27 @@ export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCanc
       end: { x: line.end.x * GRID_SIZE, y: line.end.y * GRID_SIZE }
     }))
 
-    // Create all detected rooms with opening information
-    rooms.forEach((room, index) => {
-      // Add a small delay between room creation to ensure unique IDs
-      setTimeout(() => {
-        const roomData: RoomData = {
-          points: room,
-          openings: openings.length > 0 ? openings : undefined
-        }
-        onCreate(roomData)
-      }, index * 100)
-    })
+    if (onCreateMultiple) {
+      // Create all rooms at once with their names
+      const roomsData: RoomData[] = rooms.map((room, index) => ({
+        points: room,
+        openings: openings.length > 0 ? openings : undefined,
+        name: roomNames[index] || `Room ${index + 1}`
+      }))
+      onCreateMultiple(roomsData)
+    } else {
+      // Fallback to creating rooms one by one
+      rooms.forEach((room, index) => {
+        setTimeout(() => {
+          const roomData: RoomData = {
+            points: room,
+            openings: openings.length > 0 ? openings : undefined,
+            name: roomNames[index] || `Room ${index + 1}`
+          }
+          onCreate(roomData)
+        }, index * 100)
+      })
+    }
   }
 
   // Generate grid points for visualization
@@ -457,6 +486,82 @@ export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCanc
   const gridPoints = generateGridPoints()
   const detectedRooms = findRooms()
 
+  // Render naming step if we're in that phase
+  if (showNamingStep) {
+    const rooms = findRooms()
+    
+    return (
+      <div className="modal-overlay" style={overlayStyle}>
+        <div className="modal-container" style={namingContainerStyle}>
+          <h2 style={{ marginTop: 0 }}>Name Your Rooms</h2>
+          <p style={{ fontSize: '14px', color: '#666', marginBottom: '16px' }}>
+            Assign names to the {rooms.length} detected room{rooms.length !== 1 ? 's' : ''}:
+          </p>
+          
+          <div style={{ maxHeight: '400px', overflowY: 'auto', marginBottom: '16px' }}>
+            {rooms.map((room, index) => (
+              <div key={index} style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ 
+                  width: '60px', 
+                  height: '60px', 
+                  border: '1px solid #ddd',
+                  position: 'relative',
+                  flexShrink: 0
+                }}>
+                  <svg width="60" height="60" style={{ position: 'absolute', top: 0, left: 0 }}>
+                    <polygon
+                      points={room.map(p => {
+                        // Scale room to fit in preview
+                        const minX = Math.min(...room.map(pt => pt.x))
+                        const maxX = Math.max(...room.map(pt => pt.x))
+                        const minY = Math.min(...room.map(pt => pt.y))
+                        const maxY = Math.max(...room.map(pt => pt.y))
+                        const scale = 50 / Math.max(maxX - minX, maxY - minY)
+                        return `${5 + (p.x - minX) * scale},${5 + (p.y - minY) * scale}`
+                      }).join(' ')}
+                      fill="rgba(46, 204, 113, 0.2)"
+                      stroke="#2ecc71"
+                      strokeWidth={1}
+                    />
+                  </svg>
+                </div>
+                <input
+                  type="text"
+                  value={roomNames[index] || ''}
+                  onChange={(e) => setRoomNames(prev => ({ ...prev, [index]: e.target.value }))}
+                  placeholder={`Room ${index + 1}`}
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+          
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => setShowNamingStep(false)}>
+              Back to Drawing
+            </button>
+            <button onClick={onCancel}>
+              Cancel
+            </button>
+            <button
+              onClick={handleCreateRooms}
+              style={{ background: '#3498db', color: '#fff' }}
+            >
+              Create Named Rooms
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Regular drawing interface
   return (
     <div className="modal-overlay" style={overlayStyle}>
       <div className="modal-container" style={containerStyle}>
@@ -623,11 +728,11 @@ export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCanc
             </button>
             <button onClick={onCancel}>Cancel</button>
             <button
-              onClick={handleCreateRooms}
+              onClick={handleProceedToNaming}
               disabled={detectedRooms.length === 0}
               style={{ background: '#3498db', color: '#fff' }}
             >
-              Create Room{detectedRooms.length > 1 ? 's' : ''}
+              Next: Name Rooms
             </button>
           </div>
         </div>
@@ -656,4 +761,9 @@ const containerStyle: React.CSSProperties = {
   borderRadius: 8,
   boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
   maxWidth: '500px',
+}
+
+const namingContainerStyle: React.CSSProperties = {
+  ...containerStyle,
+  maxWidth: '600px',
 } 
