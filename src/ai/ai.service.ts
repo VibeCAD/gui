@@ -3,7 +3,7 @@ import type { SceneObject } from '../types/types';
 import { Vector3 } from 'babylonjs';
 
 export interface SceneCommand {
-  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align';
+  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'undo' | 'redo';
   objectId?: string;
   type?: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 
     'house-basic' | 'house-room' | 'house-hallway' | 'house-roof-flat' | 'house-roof-pitched' |
@@ -540,6 +540,8 @@ Available actions:
 5. delete: Remove an object
 6. rotate: Rotate an object by rotationX, rotationY, rotationZ angles in radians
 7. align: Align an object to a specific edge of another object with perfect perpendicularity and flush contact
+8. undo: Undo the last action performed on the scene
+9. redo: Redo the last undone action
 
 OBJECT TYPES:
 Basic: cube, sphere, cylinder, plane, torus, cone
@@ -636,6 +638,25 @@ ALIGNMENT COMMAND EXAMPLES:
 
 "Align the wall to the north edge of the floor with 0.1 offset":
 [{"action": "align", "objectId": "wall-id", "relativeToObject": "floor-id", "edge": "north", "offset": 0.1}]
+
+UNDO/REDO COMMAND EXAMPLES:
+"Undo the last action":
+[{"action": "undo"}]
+
+"Undo that":
+[{"action": "undo"}]
+
+"Go back":
+[{"action": "undo"}]
+
+"Redo the last action":
+[{"action": "redo"}]
+
+"Redo that":
+[{"action": "redo"}]
+
+"Restore the last undone action":
+[{"action": "redo"}]
 
 
 

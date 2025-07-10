@@ -43,6 +43,8 @@ export const AISidebar: React.FC<AISidebarProps> = ({
     importSuccess,
     setImportError,
     clearImportError,
+    undo,
+    redo,
   } = useSceneStore();
 
   /**
@@ -293,6 +295,18 @@ export const AISidebar: React.FC<AISidebarProps> = ({
               performAlignment(command, sceneManager);
             }
           }
+          break;
+
+        case 'undo':
+          // Call the undo function from the store
+          undo();
+          console.log('🔄 AI Command: Undo action executed');
+          break;
+
+        case 'redo':
+          // Call the redo function from the store
+          redo();
+          console.log('🔄 AI Command: Redo action executed');
           break;
       }
     } catch (error) {
