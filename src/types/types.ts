@@ -16,6 +16,22 @@ export interface ImportError {
     message: string
 }
 
+// Texture types
+export type TextureType = 'diffuse' | 'normal' | 'specular' | 'emissive'
+
+export interface TextureAsset {
+    id: string
+    name: string
+    url: string
+    type: TextureType
+    fileSize: number
+    dimensions: {
+        width: number
+        height: number
+    }
+    uploadedAt: number
+}
+
 // Housing component types
 export type HousingComponentType = 'wall' | 'door' | 'window' | 'ceiling' | 'floor' | 'foundation'
 export type DoorType = 'single' | 'double' | 'sliding' | 'french' | 'garage'
@@ -161,6 +177,22 @@ export interface SceneObject {
 
     /** Optional list of connection points used for snapping/alignment */
     connectionPoints?: ConnectionPoint[]
+    
+    // Texture properties
+    textureIds?: {
+        diffuse?: string
+        normal?: string
+        specular?: string
+        emissive?: string
+    }
+    textureScale?: {
+        u: number
+        v: number
+    }
+    textureOffset?: {
+        u: number
+        v: number
+    }
 }
 
 // NURBS control point visualization data

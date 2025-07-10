@@ -1028,7 +1028,394 @@ body {
   border: 1px solid #e9ecef;
 }
 
-/* API Key Setup Styles */
+/* Texture Upload Styles */
+.texture-upload-container {
+  width: 100%;
+}
+
+.texture-upload-area {
+  width: 100%;
+  min-height: 120px;
+  border: 2px dashed #dee2e6;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: #f8f9fa;
+  text-align: center;
+  user-select: none;
+}
+
+.texture-upload-area:hover {
+  border-color: #3498db;
+  background: #e3f2fd;
+}
+
+.texture-upload-area.dragging {
+  border-color: #2ecc71;
+  background: #e8f8f5;
+  transform: scale(1.02);
+}
+
+.texture-upload-area.uploading {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.upload-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.upload-icon {
+  font-size: 36px;
+  opacity: 0.8;
+}
+
+.upload-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: #495057;
+}
+
+.upload-hint {
+  font-size: 11px;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.upload-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #e3f2fd;
+  border-top-color: #3498db;
+  border-radius: 50%;
+  animation: rotate 1s linear infinite;
+}
+
+.preview-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.texture-preview {
+  max-width: 100px;
+  max-height: 100px;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  object-fit: cover;
+}
+
+.upload-success {
+  font-size: 12px;
+  color: #27ae60;
+  font-weight: 500;
+}
+
+.texture-upload-error {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #fee;
+  border: 1px solid #fcc;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #c00;
+  animation: slideDown 0.3s ease;
+}
+
+.texture-upload-error .error-icon {
+  font-size: 14px;
+}
+
+.texture-upload-error .error-text {
+  flex: 1;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Texture Library Styles */
+.texture-library-container {
+  width: 100%;
+}
+
+.texture-library-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.texture-search-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  font-size: 13px;
+  transition: border-color 0.2s ease;
+}
+
+.texture-search-input:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.1);
+}
+
+.texture-type-selector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.texture-type-selector label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6c757d;
+}
+
+.texture-type-select {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.texture-type-select:focus {
+  outline: none;
+  border-color: #3498db;
+}
+
+.texture-library-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  color: #6c757d;
+}
+
+.empty-icon {
+  font-size: 48px;
+  opacity: 0.5;
+  margin-bottom: 12px;
+}
+
+.empty-text {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.empty-hint {
+  font-size: 12px;
+  font-style: italic;
+  opacity: 0.8;
+}
+
+.texture-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.texture-item {
+  position: relative;
+  background: #f8f9fa;
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.texture-item:hover {
+  border-color: #3498db;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.texture-item.selected {
+  border-color: #3498db;
+  background: #e3f2fd;
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+}
+
+.texture-thumbnail {
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  background: #fff;
+}
+
+.texture-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.texture-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.texture-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: #2c3e50;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.texture-rename-input {
+  width: 100%;
+  padding: 2px 4px;
+  border: 1px solid #3498db;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.texture-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: #6c757d;
+}
+
+.texture-date {
+  font-size: 9px;
+  color: #95a5a6;
+  font-style: italic;
+}
+
+.texture-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.texture-item:hover .texture-actions {
+  opacity: 1;
+}
+
+.texture-action-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.texture-action-btn:hover {
+  transform: scale(1.1);
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.texture-action-btn.rename:hover {
+  background: #3498db;
+}
+
+.texture-action-btn.delete:hover {
+  background: #e74c3c;
+}
+
+.texture-apply-section {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #e9ecef;
+}
+
+.texture-apply-button {
+  width: 100%;
+  padding: 10px 16px;
+  background: #27ae60;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.texture-apply-button:hover {
+  background: #219a52;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(39, 174, 96, 0.3);
+}
+
+.texture-apply-button:active {
+  transform: translateY(0);
+}
+
+/* Texture grid scrollbar styling */
+.texture-grid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.texture-grid::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.texture-grid::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.texture-grid::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* API Key Setup */
 .api-key-setup {
   display: flex;
   align-items: center;
@@ -2152,3 +2539,172 @@ body {
 .property-group input[type="checkbox"]:checked {
   accent-color: #3498db;
 }
+
+/* Texture Properties in Properties Panel */
+.applied-textures-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.applied-texture-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.texture-type-label {
+  font-weight: 600;
+  color: #495057;
+  margin-right: 8px;
+  text-transform: capitalize;
+}
+
+.texture-name {
+  flex: 1;
+  color: #2c3e50;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remove-texture-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px;
+  transition: all 0.2s ease;
+}
+
+.remove-texture-btn:hover {
+  transform: scale(1.2);
+}
+
+.texture-scale-controls,
+.texture-offset-controls {
+  display: flex;
+  gap: 12px;
+}
+
+.scale-input,
+.offset-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scale-input label,
+.offset-input label {
+  font-weight: 600;
+  color: #6c757d;
+  font-size: 11px;
+  min-width: 20px;
+}
+
+.scale-component,
+.offset-component {
+  width: 60px;
+  padding: 4px 8px;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.scale-component:focus,
+.offset-component:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+/* Properties panel texture upload/library styling */
+.properties-texture-upload {
+  margin-top: 8px;
+}
+
+.properties-texture-upload .texture-upload-area {
+  min-height: 80px;
+  padding: 12px;
+}
+
+.properties-texture-upload .upload-icon {
+  font-size: 24px;
+}
+
+.properties-texture-upload .upload-text {
+  font-size: 12px;
+}
+
+.properties-texture-upload .upload-hint {
+  font-size: 10px;
+}
+
+.properties-texture-library {
+  margin-top: 8px;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  padding: 8px;
+  background: #f8f9fa;
+}
+
+.properties-texture-library .texture-grid {
+  max-height: 200px;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 8px;
+}
+
+.properties-texture-library .texture-item {
+  padding: 6px;
+}
+
+.properties-texture-library .texture-thumbnail {
+  margin-bottom: 4px;
+}
+
+.properties-texture-library .texture-name {
+  font-size: 9px;
+}
+
+.properties-texture-library .texture-meta {
+  font-size: 8px;
+}
+
+.properties-texture-library .texture-search-input {
+  padding: 6px 10px;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.properties-texture-library .texture-type-select {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.properties-texture-library .texture-apply-button {
+  padding: 8px 12px;
+  font-size: 11px;
+}
+
+.properties-texture-library .texture-library-empty {
+  padding: 20px 10px;
+}
+
+.properties-texture-library .empty-icon {
+  font-size: 32px;
+}
+
+.properties-texture-library .empty-text {
+  font-size: 12px;
+}
+
+.properties-texture-library .empty-hint {
+  font-size: 10px;
+}
+
+/* Additional styling */
