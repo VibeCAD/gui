@@ -5,11 +5,14 @@ import {
   Mesh, 
   Vector3, 
   Matrix,
-  Quaternion
+  Quaternion,
+  PositionGizmo,
+  UtilityLayerRenderer,
+  MeshBuilder
 } from 'babylonjs'
 import { useSceneStore } from '../state/sceneStore'
 import { SceneManager } from './sceneManager'
-import type { TransformMode, MultiSelectInitialState } from '../types/types'
+import type { TransformMode, MultiSelectInitialState, ParametricWallParams, DoorOpening } from '../types/types'
 
 export class GizmoController {
   private gizmoManager: GizmoManager | null = null
@@ -19,11 +22,14 @@ export class GizmoController {
   private currentTargetMesh: Mesh | null = null
   private onDragEndCallback?: (position: Vector3, rotation: Vector3, scale: Vector3) => void
   private originalTransform: { position: Vector3, rotation: Vector3, scale: Vector3 } | null = null
+  private doorHandles: { handle: Mesh, gizmo: PositionGizmo, openingId: string }[] = []
+  private utilityLayer: UtilityLayerRenderer | null = null
 
   constructor(scene: Scene, sceneManager: SceneManager) {
     this.scene = scene
     this.sceneManager = sceneManager
     this.initializeGizmoManager()
+    this.utilityLayer = new UtilityLayerRenderer(scene)
   }
 
   private initializeGizmoManager(): void {
@@ -50,6 +56,7 @@ export class GizmoController {
     
     // Clean up existing observers
     this.cleanupGizmoObservers()
+    this.cleanupDoorHandles()
     
     // Update callback
     this.onDragEndCallback = onDragEnd
@@ -83,6 +90,10 @@ export class GizmoController {
       
       // Set up observers for the active gizmo, including bounding-box gizmo when in "select" mode
       this.setupGizmoObservers()
+
+      if (targetMesh && targetMesh.metadata?.componentType === 'parametric-wall' && transformMode === 'move') {
+        this.setupDoorHandles(targetMesh)
+      }
     } else {
       this.gizmoManager.attachToMesh(null)
       this.currentTargetMesh = null
@@ -165,7 +176,7 @@ export class GizmoController {
       })
       this.gizmoObservers.push({ observable: dragStartObservable, observer: dragStartObserver })
 
-      // Check collision during scale
+      // Standard collision check during scale
       const dragObservable = scaleGizmo.onDragObservable
       const dragObserver = dragObservable.add(() => {
         const attachedMesh = this.gizmoManager?.attachedMesh
@@ -183,8 +194,28 @@ export class GizmoController {
       const observable = scaleGizmo.onDragEndObservable
       const observer = observable.add(() => {
         const attachedMesh = this.gizmoManager?.attachedMesh
-        if (attachedMesh) {
-          onDragEnd(attachedMesh.position, attachedMesh.rotation, attachedMesh.scaling)
+        if (attachedMesh && attachedMesh.metadata?.isComposite && this.sceneManager) {
+          const finalScale = attachedMesh.scaling.clone();
+          const originalParams = attachedMesh.metadata.parameters;
+          
+          const newParams = {
+            ...originalParams,
+            wallWidth: originalParams.wallWidth * finalScale.x,
+            wallHeight: originalParams.wallHeight * finalScale.y,
+            wallDepth: originalParams.wallDepth * finalScale.z,
+          };
+          
+          const newMesh = this.sceneManager.regenerateCompositeMesh(attachedMesh.id, newParams);
+          
+          if (newMesh) {
+            onDragEnd(newMesh.position, newMesh.rotation, newMesh.scaling);
+          } else {
+            // Fallback to original transform if regeneration fails
+            onDragEnd(this.originalTransform!.position, this.originalTransform!.rotation, this.originalTransform!.scale);
+          }
+        } else if (attachedMesh) {
+          // Default behavior for non-composite objects
+          onDragEnd(attachedMesh.position, attachedMesh.rotation, attachedMesh.scaling);
         }
       })
       this.gizmoObservers.push({ observable, observer })
@@ -219,6 +250,66 @@ export class GizmoController {
     }
   }
 
+  private setupDoorHandles(wallMesh: Mesh): void {
+    const params = wallMesh.metadata.parameters as ParametricWallParams
+    params.openings.forEach((opening: DoorOpening) => {
+      if (opening.type !== 'door') return
+
+      // Create handle mesh
+      const handle = MeshBuilder.CreateSphere(`door-handle-${opening.id}`, { diameter: 0.2 }, this.scene!)
+      const localPos = new Vector3(
+        -params.width / 2 + opening.offset + opening.width / 2,
+        opening.height / 2,
+        params.depth / 2 + 0.1 // Slightly outside
+      )
+      handle.position = wallMesh.getAbsolutePosition().add(localPos.rotateByQuaternionToRef(wallMesh.rotationQuaternion || Quaternion.Identity(), new Vector3()))
+
+      // Create position gizmo constrained to x-axis
+      const gizmo = new PositionGizmo(this.utilityLayer!)
+      gizmo.attachedMesh = handle
+      gizmo.yGizmo.dispose()
+      gizmo.zGizmo.dispose()
+
+      // Setup drag observers
+      gizmo.xGizmo.dragBehavior.onDragStartObservable.add(() => {
+        this.originalTransform = { position: handle.position.clone(), rotation: new Vector3(), scale: new Vector3() }
+      })
+      gizmo.xGizmo.dragBehavior.onDragEndObservable.add(() => {
+        this.updateDoorPosition(wallMesh, opening.id, handle.position)
+        handle.dispose()
+      })
+
+      this.doorHandles.push({ handle, gizmo, openingId: opening.id })
+    })
+  }
+
+  private updateDoorPosition(wallMesh: Mesh, openingId: string, newPosition: Vector3): void {
+    const params = { ...wallMesh.metadata.parameters } as ParametricWallParams
+    const opening = params.openings.find((o: DoorOpening) => o.id === openingId)
+    if (!opening) return
+
+    // Calculate new offset from local x position
+    const localNewPos = newPosition.subtract(wallMesh.getAbsolutePosition()).rotateByQuaternionToRef(Quaternion.Inverse(wallMesh.rotationQuaternion || Quaternion.Identity()), new Vector3())
+    opening.offset = localNewPos.x + params.width / 2 - opening.width / 2
+
+    // Clamp offset to valid range
+    opening.offset = Math.max(0, Math.min(opening.offset, params.width - opening.width))
+
+    // Regenerate wall
+    const newMesh = this.sceneManager!.regenerateCompositeMesh(wallMesh.id, params)
+    if (newMesh) {
+      this.onDragEndCallback?.(newMesh.position, newMesh.rotation, newMesh.scaling)
+    }
+  }
+
+  private cleanupDoorHandles(): void {
+    this.doorHandles.forEach(({ handle, gizmo }) => {
+      handle.dispose()
+      gizmo.dispose()
+    })
+    this.doorHandles = []
+  }
+
   private cleanupGizmoObservers(): void {
     this.gizmoObservers.forEach(({ observable, observer }) => {
       try {
@@ -232,6 +323,7 @@ export class GizmoController {
 
   public dispose(): void {
     this.cleanupGizmoObservers()
+    this.cleanupDoorHandles()
     if (this.gizmoManager) {
       this.gizmoManager.dispose()
       this.gizmoManager = null

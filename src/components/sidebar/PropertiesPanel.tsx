@@ -1,7 +1,7 @@
 import React from 'react';
 import { Vector3 } from 'babylonjs';
 import { useSceneStore } from '../../state/sceneStore';
-import type { SceneObject, ModularHousingObject, Door, Window, Wall } from '../../types/types';
+import type { SceneObject, ModularHousingObject, Door, Window, Wall, ParametricWallParams, DoorOpening } from '../../types/types';
 
 export const PropertiesPanel: React.FC = () => {
   const {
@@ -39,6 +39,14 @@ export const PropertiesPanel: React.FC = () => {
     setHousingEditMode,
     addHousingComponent,
     updateHousingComponent,
+    // Parametric wall actions
+    getParametricWall,
+    addDoorToWall,
+    updateDoorPosition,
+    updateDoorDimensions,
+    removeDoorFromWall,
+    selectedDoorOpeningId,
+    setSelectedDoorOpeningId,
   } = useSceneStore();
 
   const selectedObject = getSelectedObject();
@@ -1540,6 +1548,66 @@ export const PropertiesPanel: React.FC = () => {
     );
   }
 
+  const renderParametricWallProperties = (obj: SceneObject) => {
+    const params = getParametricWall(obj.id)
+    if (!params) return null
+
+    const handleAddDoor = () => {
+      addDoorToWall(obj.id, {
+        type: 'door',
+        offset: params.width / 2,
+        width: 0.9,
+        height: 2.1
+      })
+    }
+
+    return (
+      <div className="properties-section">
+        <h4>Parametric Wall Properties</h4>
+        {/* Add if there are actions for height, depth */}
+        <h5>Door Openings</h5>
+        {params.openings.filter(o => o.type === 'door').map((door: DoorOpening) => (
+          <div key={door.id} className="door-properties">
+            <label>Door {door.id.slice(0,4)}:</label>
+            <div>
+              <label>Offset:</label>
+              <input
+                type="number"
+                value={door.offset}
+                onChange={(e) => updateDoorPosition(obj.id, door.id, parseFloat(e.target.value))}
+                step="0.1"
+                min="0"
+                max={params.width - door.width}
+              />
+            </div>
+            <div>
+              <label>Width:</label>
+              <input
+                type="number"
+                value={door.width}
+                onChange={(e) => updateDoorDimensions(obj.id, door.id, parseFloat(e.target.value), door.height)}
+                step="0.1"
+                min="0.1"
+              />
+            </div>
+            <div>
+              <label>Height:</label>
+              <input
+                type="number"
+                value={door.height}
+                onChange={(e) => updateDoorDimensions(obj.id, door.id, door.width, parseFloat(e.target.value))}
+                step="0.1"
+                min="0.1"
+              />
+            </div>
+            <button onClick={() => removeDoorFromWall(obj.id, door.id)}>Remove Door</button>
+          </div>
+        ))}
+        <button onClick={handleAddDoor}>Add Door</button>
+      </div>
+    )
+  }
+
   return (
     <div className="ai-control-group">
       <label>Properties:</label>
@@ -1549,6 +1617,7 @@ export const PropertiesPanel: React.FC = () => {
             {renderBasicProperties(selectedObject)}
             {renderNurbsProperties(selectedObject)}
             {renderHousingProperties(selectedObject)}
+            {renderParametricWallProperties(selectedObject)}
           </>
         ) : (
           renderMultiSelectProperties()

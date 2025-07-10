@@ -6,7 +6,7 @@ export type PrimitiveType = 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' |
     'house-room-modular' | 'house-wall' | 'house-ceiling' | 'house-floor' |
     'house-door-single' | 'house-door-double' | 'house-door-sliding' | 'house-door-french' | 'house-door-garage' |
     'house-window-single' | 'house-window-double' | 'house-window-bay' | 'house-window-casement' | 'house-window-sliding' | 'house-window-skylight' |
-    'house-stairs' | 'house-foundation' | 'house-wall-with-doorcutout' | 'imported-glb' | 'imported-stl' | 'imported-obj';
+    'house-stairs' | 'house-foundation' | 'house-wall-with-doorcutout' | 'parametric-wall' | 'imported-glb' | 'imported-stl' | 'imported-obj';
 
 // Import error types
 export type ImportErrorType = 'FILE_TOO_LARGE' | 'INVALID_FORMAT' | 'LOADING_FAILED'
@@ -14,6 +14,35 @@ export type ImportErrorType = 'FILE_TOO_LARGE' | 'INVALID_FORMAT' | 'LOADING_FAI
 export interface ImportError {
     type: ImportErrorType
     message: string
+}
+
+// Params for creating a wall with a door cutout
+export interface WallWithDoorParams {
+  wallWidth: number;
+  wallHeight: number;
+  wallDepth: number;
+  doorWidth: number;
+  doorHeight: number;
+}
+
+// Parametric wall and opening interfaces
+export interface DoorOpening {
+  id: string;
+  type: 'door'; // Currently focused on doors; can extend to 'window' later per PRD
+  width: number;
+  height: number;
+  offset: number; // Distance from wall start along length
+}
+
+export interface ParametricWallParams {
+  id: string;
+  width: number;
+  height: number;
+  depth: number;
+  position: Vector3;
+  rotation: Vector3;
+  openings: DoorOpening[]; // Array for multiple doors per PRD
+  color: string; // Consistent with existing housing patterns
 }
 
 // Housing component types
@@ -138,6 +167,16 @@ export interface BuildingConnection {
     isActive: boolean
 }
 
+// Scene object metadata interface
+export interface SceneObjectMetadata {
+    isComposite?: boolean;
+    componentType?: string;
+    parameters?: WallWithDoorParams | ParametricWallParams | any;
+    connectionPoints?: ConnectionPoint[];
+    parametricWallParams?: ParametricWallParams; // New field for parametric walls
+    [key: string]: any; // Allow additional properties
+}
+
 // Scene Object (preserving info after scene change)
 export interface SceneObject {
     id: string
@@ -161,6 +200,9 @@ export interface SceneObject {
 
     /** Optional list of connection points used for snapping/alignment */
     connectionPoints?: ConnectionPoint[]
+    
+    /** Flag to indicate mesh needs regeneration */
+    needsRegeneration?: boolean
 }
 
 // NURBS control point visualization data

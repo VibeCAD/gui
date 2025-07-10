@@ -1,104 +1,148 @@
-# Product Requirements Document (PRD): CSG2 Operations Workflow in BabylonJS
+# Product Requirements Document (PRD): Parametric Door Openings in Walls
 
 ## Overview
 
-This document outlines the requirements and workflow for converting BabylonJS meshes into CSG2 objects, performing constructive solid geometry (CSG) operations, and converting the results back to meshes (when necessary). The goal is to enable flexible manipulation of 3D geometry, such as cutting holes or combining shapes, within a text-to-CAD tool.
+This document outlines the requirements for implementing parametric door openings within walls in the VibeCAD application. It leverages the existing architecture patterns, including the housing factory system, CSG operations, and metadata-driven regeneration.
 
 ## Objectives
 
-- **Enable conversion of BabylonJS meshes to CSG2 objects**
-- **Support CSG2 operations (union, subtract, intersect) between objects**
-- **Allow conversion of CSG2 results back to standard BabylonJS meshes**
-- **Clarify when conversion back to meshes is required in the workflow**
+- Enable users to add door openings to walls using a parametric, non-destructive workflow.
+- Allow users to move door openings within a wall without altering the wall's overall dimensions.
+- Integrate seamlessly with existing housing components and transformation systems.
+- Ensure all geometry is generated from editable parameters for flexibility and scalability.
 
 ## Functional Requirements
 
-### 1. Mesh to CSG2 Conversion
+### 1. Wall and Opening Parameterization
 
-- The system must allow any BabylonJS mesh (primitive or custom) to be converted into a CSG2 object.
-- The conversion should preserve the mesh's geometry and spatial properties.
+- Extend existing `housingFactory.ts` patterns for parametric walls
+- Walls must be defined by parameters: width, height, depth, position, and an array of openings
+- Each opening (door) must have parameters: type, width, height, offset (from wall edge), and unique id
+- All parameters stored in mesh metadata following existing patterns
 
-**Acceptance Criteria:**
-- Given a BabylonJS mesh, the system can produce a corresponding CSG2 object.
+### 2. Geometry Generation
 
-### 2. CSG2 Operations
+- Leverage existing CSG implementation in `housingFactory.ts`
+- Wall meshes generated from parameters using Babylon.js and CSG2
+- When an opening is added or moved, the wall mesh is regenerated
+- Use existing mesh disposal patterns from `sceneManager.ts`
 
-- The system must support the following CSG2 operations:
-  - **Union:** Combine two or more CSG2 objects into one.
-  - **Subtract:** Subtract one CSG2 object from another (e.g., cut a hole).
-  - **Intersect:** Create a new CSG2 object from the overlapping volume of two objects.
+### 3. UI and Interaction
 
-**Acceptance Criteria:**
-- Users can perform CSG2 operations programmatically between any compatible CSG2 objects.
-- The resulting CSG2 object accurately reflects the intended geometric operation.
+- Extend `PropertiesPanel.tsx` with wall-specific controls
+- Users must be able to:
+  - Add a door opening to a wall via properties panel
+  - Select and move existing door openings
+  - See immediate visual feedback during changes
+- Integrate with existing scene graph and selection system
 
-### 3. CSG2 to Mesh Conversion
+### 4. State Management
 
-- The system must allow conversion of a CSG2 object back to a BabylonJS mesh.
-- The resulting mesh should be usable in the BabylonJS scene graph and support standard mesh operations (rendering, picking, etc.).
+- Extend `sceneStore.ts` with wall parameter management
+- Follow existing patterns for state updates and mesh regeneration
+- Ensure compatibility with multi-select and transform operations
 
-**Acceptance Criteria:**
-- After performing CSG2 operations, the result can be converted back to a mesh and added to the scene.
+## Technical Integration
 
-### 4. When Conversion Back to Meshes is Necessary
+### Leveraging Existing Architecture
 
-- **Conversion back to meshes is necessary** when the resulting geometry needs to be displayed, manipulated, or exported in the BabylonJS scene.
-- CSG2 objects themselves are not directly renderable; only meshes can be rendered and interacted with in the BabylonJS engine.
-
-## Technical Workflow
-
-### Step 1: Create BabylonJS Meshes
-
-- Create primitive or custom meshes (e.g., wall, door).
-
-### Step 2: Convert Meshes to CSG2
-
-```js
-const wallCSG = BABYLON.CSG2.FromMesh(wallMesh);
-const doorCSG = BABYLON.CSG2.FromMesh(doorMesh);
+```
+/src
+  /babylon
+    housingFactory.ts    # Extend with parametric wall functions
+    sceneManager.ts      # Use existing mesh management
+    gizmoManager.ts      # Integrate with transform system
+  /components
+    /sidebar
+      PropertiesPanel.tsx  # Add wall/door UI controls
+      SceneGraph.tsx       # Display wall structure
+  /state
+    sceneStore.ts        # Add wall state management
+  /types
+    types.ts             # Define wall/opening interfaces
 ```
 
-### Step 3: Perform CSG2 Operations
+### Key Integration Points
 
-```js
-const wallWithDoorCSG = wallCSG.subtract(doorCSG);
-```
+1. **Housing Factory Extension**
+   - Build on existing `ModularHousingBuilder` patterns
+   - Use established CSG workflow from `createWallWithDoorCutout`
+   - Follow metadata storage patterns
 
-### Step 4: Convert CSG2 Back to Mesh
+2. **Properties Panel Integration**
+   - Extend existing property editing UI
+   - Use preview functionality for door placement
+   - Follow housing component UI patterns
 
-```js
-const wallWithDoorMesh = wallWithDoorCSG.toMesh("wallWithDoor", null, scene);
-```
+3. **Gizmo System Integration**
+   - Support door movement via custom handles
+   - Integrate with collision detection
+   - Use existing composite object regeneration
 
-### Step 5: Add Resulting Mesh to Scene
+4. **State Store Extension**
+   - Add wall methods following existing patterns
+   - Ensure proper mesh lifecycle management
+   - Maintain compatibility with undo/redo considerations
 
-- The new mesh can now be manipulated, rendered, or exported as needed.
+## User Flows
 
-## Non-Functional Requirements
+### 1. Adding a Door to a Wall
 
-- **Performance:** Operations should be efficient for real-time editing of moderate complexity geometry.
-- **Reliability:** The conversion and CSG2 operations must not corrupt geometry data.
-- **Extensibility:** The workflow should support additional CSG2 operations or mesh types in the future.
+**Using Properties Panel (Primary Flow):**
 
-## References
+1. **User selects a wall** in the 3D scene or scene graph
+2. **Properties panel shows wall controls** with existing parameters
+3. **User clicks "Add Door"** button in properties panel
+4. **Door parameters appear** with width, height, offset inputs
+5. **User adjusts parameters** with real-time preview
+6. **On confirmation:** State updates, mesh regenerates with CSG
+7. **Scene updates** showing wall with door opening
 
-- [BabylonJS CSG2 Documentation]
-- [Forum: Introducing CSG2]
+### 2. Moving a Door Within a Wall
 
-## Summary Table
+**Using Direct Manipulation:**
 
-| Stage                | Input                | Output                | Notes                                |
-|----------------------|----------------------|-----------------------|--------------------------------------|
-| Mesh to CSG2         | BabylonJS Mesh       | CSG2 Object           | Required for CSG operations          |
-| CSG2 Operations      | CSG2 Objects         | CSG2 Object           | Union, subtract, intersect supported |
-| CSG2 to Mesh         | CSG2 Object          | BabylonJS Mesh        | Required for rendering/interaction   |
+1. **User selects wall** containing doors
+2. **Door handles appear** at door positions
+3. **User drags door handle** along wall
+4. **Preview shows new position** with constraints
+5. **On release:** Parameters update, mesh regenerates
+6. **Scene updates** with door at new position
 
-## Key Takeaways
+**Using Properties Panel:**
 
-- **Conversion back to meshes is always necessary** for rendering and scene interaction in BabylonJS.
-- The workflow is modular, supporting flexible geometric editing for CAD-like applications.
+1. **User selects wall** in scene
+2. **Properties panel lists doors** with offset values
+3. **User adjusts offset slider/input**
+4. **Real-time preview** shows door movement
+5. **Mesh regenerates** on value change
 
-: https://doc.babylonjs.com/typedoc/classes/BABYLON.CSG2
-: https://forum.babylonjs.com/t/introducing-csg2/54274
+## Implementation Approach
 
-Sources
+### Phase 1: Foundation
+- Define types in `types.ts`
+- Extend `housingFactory.ts` with parametric wall creation
+- Add wall state to `sceneStore.ts`
+
+### Phase 2: Core Functionality
+- Implement CSG operations for multiple openings
+- Create regeneration system using existing patterns
+- Integrate with gizmo system for transformations
+
+### Phase 3: UI Integration
+- Extend PropertiesPanel with wall controls
+- Add door management UI
+- Implement preview functionality
+
+### Phase 4: AI Integration
+- Extend AIService with door commands
+- Map natural language to parameter updates
+- Follow existing command patterns
+
+## Success Criteria
+
+- Seamless integration with existing architecture
+- No breaking changes to current functionality
+- Walls with doors behave like other composite objects
+- Performance comparable to existing CSG operations
+- Natural extension of current UI patterns

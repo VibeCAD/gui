@@ -15,8 +15,11 @@ import {
   Quaternion,
   CSG
 } from 'babylonjs'
-import type { SceneObject, PrimitiveType, TransformMode, ConnectionPoint } from '../types/types'
+import type { SceneObject, PrimitiveType, TransformMode, ConnectionPoint, WallWithDoorParams, ParametricWallParams } from '../types/types'
 import { createHousingMesh } from './housingFactory'
+import { regenerateWallFromParams } from './housingFactory'
+import { useSceneStore } from '../state/sceneStore'
+import { createParametricWall } from './housingFactory'
 
 
 export class SceneManager {
@@ -167,6 +170,17 @@ export class SceneManager {
           name: sceneObject.id,
           color: sceneObject.color
         })
+      } else if (sceneObject.type === 'parametric-wall') {
+        const params = useSceneStore.getState().parametricWalls[sceneObject.id]
+        if (!params) {
+          console.error(`No parameters found for parametric wall ${sceneObject.id}`)
+          return false
+        }
+        mesh = createParametricWall(this.scene, params, { name: sceneObject.id })
+        // Apply sceneObject properties that may not be in params
+        mesh.position = sceneObject.position.clone()
+        mesh.rotation = sceneObject.rotation.clone()
+        mesh.scaling = sceneObject.scale.clone()
       } else {
         switch (sceneObject.type) {
           case 'cube':
@@ -825,6 +839,33 @@ export class SceneManager {
   // (OPTIONAL) keep old method for backward compatibility
   public computeSnapPosition(meshId: string, pos: Vector3, rot: Vector3): Vector3 {
     return this.computeSnapTransform(meshId, pos, rot).position
+  }
+
+  public regenerateCompositeMesh(meshId: string, newParams: WallWithDoorParams | ParametricWallParams): Mesh | null {
+    const oldMesh = this.getMeshById(meshId)
+    if (!oldMesh || !this.scene) return null
+
+    let newMesh: Mesh
+    if (oldMesh.metadata?.componentType === 'parametric-wall') {
+      newMesh = regenerateWallFromParams(this.scene, oldMesh, newParams as ParametricWallParams)
+    } else {
+      newMesh = createHousingMesh(oldMesh.metadata?.type || 'house-wall', this.scene, {
+        name: meshId,
+        position: oldMesh.position.clone(),
+      }, newParams as WallWithDoorParams)
+      // Copy rotation and scaling
+      newMesh.rotation = oldMesh.rotation.clone()
+      newMesh.scaling = oldMesh.scaling.clone()
+      // Update metadata if exists
+      if (oldMesh.metadata) {
+        newMesh.metadata = { ...oldMesh.metadata, parameters: newParams }
+      }
+    }
+
+    // Replace in mesh map
+    this.meshMap.set(meshId, newMesh)
+    // No need to dispose old mesh as regenerateWallFromParams already does it
+    return newMesh
   }
 
   public getScene(): Scene | null {

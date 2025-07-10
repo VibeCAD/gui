@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import { Vector3, Mesh } from 'babylonjs'
+import { Mesh } from 'babylonjs'
 import type { 
     TransformMode, 
     PrimitiveType, 
@@ -13,7 +13,9 @@ import type {
     Door,
     Window,
     Wall,
-    ImportError
+    ImportError,
+    ParametricWallParams,
+    DoorOpening
 } from '../types/types'
 
 // Store State Interface
@@ -76,6 +78,10 @@ interface SceneState {
     selectedDoorId: string | null
     selectedWindowId: string | null
     housingEditMode: 'none' | 'wall' | 'door' | 'window' | 'ceiling'
+    
+    // Parametric wall state
+    parametricWalls: {[objectId: string]: ParametricWallParams}
+    selectedDoorOpeningId: string | null
 }
 
 // Store Actions Interface
@@ -174,6 +180,18 @@ interface SceneActions {
     getSelectedWindow: (objectId: string) => Window | undefined
     getBuildingConnections: (objectId: string) => BuildingConnection[]
     
+    // Parametric wall actions
+    addParametricWall: (wall: ParametricWallParams) => void
+    updateParametricWall: (objectId: string, updates: Partial<ParametricWallParams>) => void
+    removeParametricWall: (objectId: string) => void
+    addDoorToWall: (wallId: string, door: Omit<DoorOpening, 'id'>) => string
+    updateDoorPosition: (wallId: string, doorId: string, offset: number) => void
+    updateDoorDimensions: (wallId: string, doorId: string, width: number, height: number) => void
+    removeDoorFromWall: (wallId: string, doorId: string) => void
+    setSelectedDoorOpeningId: (doorId: string | null) => void
+    getParametricWall: (objectId: string) => ParametricWallParams | undefined
+    regenerateWallMesh: (wallId: string) => void
+    
     // Computed getters
     getSelectedObject: () => SceneObject | undefined
     getSelectedObjects: () => SceneObject[]
@@ -239,6 +257,10 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             selectedDoorId: null,
             selectedWindowId: null,
             housingEditMode: 'none',
+            
+            // Parametric wall initial state
+            parametricWalls: {},
+            selectedDoorOpeningId: null,
             
             // Actions
             addObject: (object) => set((state) => ({
@@ -693,6 +715,139 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 return state.buildingConnections.filter(conn => 
                     conn.fromObjectId === objectId || conn.toObjectId === objectId
                 );
+            },
+            
+            // Parametric wall actions
+            addParametricWall: (wall) => set((state) => ({
+                parametricWalls: { ...state.parametricWalls, [wall.id]: wall }
+            })),
+            
+            updateParametricWall: (objectId, updates) => set((state) => ({
+                parametricWalls: {
+                    ...state.parametricWalls,
+                    [objectId]: { ...state.parametricWalls[objectId], ...updates }
+                }
+            })),
+            
+            removeParametricWall: (objectId) => set((state) => {
+                const newWalls = { ...state.parametricWalls };
+                delete newWalls[objectId];
+                return { parametricWalls: newWalls };
+            }),
+            
+            addDoorToWall: (wallId, door) => {
+                const state = get();
+                const wall = state.parametricWalls[wallId];
+                if (!wall) return '';
+                
+                const doorId = `door-opening-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const newDoor: DoorOpening = { ...door, id: doorId };
+                
+                set((state) => ({
+                    parametricWalls: {
+                        ...state.parametricWalls,
+                        [wallId]: {
+                            ...wall,
+                            openings: [...wall.openings, newDoor]
+                        }
+                    }
+                }));
+                
+                // Trigger mesh regeneration
+                get().regenerateWallMesh(wallId);
+                
+                return doorId;
+            },
+            
+            updateDoorPosition: (wallId, doorId, offset) => {
+                set((state) => {
+                    const wall = state.parametricWalls[wallId];
+                    if (!wall) return state;
+                    
+                    return {
+                        parametricWalls: {
+                            ...state.parametricWalls,
+                            [wallId]: {
+                                ...wall,
+                                openings: wall.openings.map(opening =>
+                                    opening.id === doorId ? { ...opening, offset } : opening
+                                )
+                            }
+                        }
+                    };
+                });
+                
+                // Trigger mesh regeneration
+                get().regenerateWallMesh(wallId);
+            },
+            
+            updateDoorDimensions: (wallId, doorId, width, height) => {
+                set((state) => {
+                    const wall = state.parametricWalls[wallId];
+                    if (!wall) return state;
+                    
+                    return {
+                        parametricWalls: {
+                            ...state.parametricWalls,
+                            [wallId]: {
+                                ...wall,
+                                openings: wall.openings.map(opening =>
+                                    opening.id === doorId ? { ...opening, width, height } : opening
+                                )
+                            }
+                        }
+                    };
+                });
+                
+                // Trigger mesh regeneration
+                get().regenerateWallMesh(wallId);
+            },
+            
+            removeDoorFromWall: (wallId, doorId) => {
+                set((state) => {
+                    const wall = state.parametricWalls[wallId];
+                    if (!wall) return state;
+                    
+                    return {
+                        parametricWalls: {
+                            ...state.parametricWalls,
+                            [wallId]: {
+                                ...wall,
+                                openings: wall.openings.filter(opening => opening.id !== doorId)
+                            }
+                        }
+                    };
+                });
+                
+                // Trigger mesh regeneration
+                get().regenerateWallMesh(wallId);
+            },
+            
+            setSelectedDoorOpeningId: (doorId) => set({ selectedDoorOpeningId: doorId }),
+            
+            getParametricWall: (objectId) => {
+                const state = get();
+                return state.parametricWalls[objectId];
+            },
+            
+            regenerateWallMesh: (wallId) => {
+                const state = get();
+                const wallParams = state.parametricWalls[wallId];
+                if (!wallParams) return;
+                
+                const sceneObject = state.sceneObjects.find(obj => obj.id === wallId);
+                if (!sceneObject || !sceneObject.mesh) return;
+                
+                // Mark that regeneration is needed
+                // The actual regeneration will be handled by the scene manager
+                // when it detects the parameter change
+                set((state) => ({
+                    sceneObjects: state.sceneObjects.map(obj =>
+                        obj.id === wallId
+                            ? { ...obj, needsRegeneration: true }
+                            : obj
+                    )
+                }));
             },
             
             // Computed getters

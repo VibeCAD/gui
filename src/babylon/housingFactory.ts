@@ -1,18 +1,27 @@
 import { Scene, MeshBuilder, StandardMaterial, Color3, Mesh, Vector3, CSG } from 'babylonjs';
 import type { MeshCreationOptions } from './objectFactory';
-import type { Wall, Door, Window, HousingComponent, ModularHousingObject, DoorType, WindowType, WallType } from '../types/types';
+import type { Wall, Door, Window, HousingComponent, ModularHousingObject, DoorType, WindowType, WallType, WallWithDoorParams, ParametricWallParams, DoorOpening } from '../types/types';
 
 /**
  * Creates a wall with a pre-cut door opening.
  */
-export const createWallWithDoorCutout = (scene: Scene, options: MeshCreationOptions = {}): Mesh => {
+export const createWallWithDoorCutout = (scene: Scene, params: WallWithDoorParams, options: MeshCreationOptions = {}): Mesh => {
   // 1. Create a "wall" mesh
-  const wall = MeshBuilder.CreateBox(options.name || 'wall-with-door', { width: 5, height: 3, depth: 0.1 }, scene);
-  wall.position = new Vector3(0, 1.5, 0);
+  const wall = MeshBuilder.CreateBox(options.name || 'wall-with-door', { 
+    width: params.wallWidth, 
+    height: params.wallHeight, 
+    depth: params.wallDepth 
+  }, scene);
+  wall.position = new Vector3(0, params.wallHeight / 2, 0);
 
   // 2. Create a "door" mesh to be the cutter
-  const doorCutter = MeshBuilder.CreateBox('door-cutter', { width: 1, height: 2, depth: 0.2 }, scene);
-  doorCutter.position = new Vector3(0, 1, 0);
+  const doorCutter = MeshBuilder.CreateBox('door-cutter', { 
+    width: params.doorWidth, 
+    height: params.doorHeight, 
+    depth: params.wallDepth * 2 // Ensure it cuts all the way through
+  }, scene);
+  // Position door cutter at the bottom-center of the wall area
+  doorCutter.position = new Vector3(0, params.doorHeight / 2, 0);
 
   // 3. Perform CSG subtraction
   const wallCSG = CSG.FromMesh(wall);
@@ -33,8 +42,161 @@ export const createWallWithDoorCutout = (scene: Scene, options: MeshCreationOpti
   } else if (finalMesh.material instanceof StandardMaterial) {
     finalMesh.material.diffuseColor = new Color3(0.7, 0.7, 0.7);
   }
+  
+  // Store parameters in metadata for dynamic resizing
+  finalMesh.metadata = {
+    ...finalMesh.metadata,
+    isComposite: true,
+    componentType: 'wall-with-door',
+    parameters: params
+  };
 
   return finalMesh;
+};
+
+/**
+ * Creates a parametric wall with multiple door/window openings
+ */
+export const createParametricWall = (scene: Scene, params: ParametricWallParams, options: MeshCreationOptions = {}): Mesh => {
+  // 1. Create the base wall mesh
+  const wall = MeshBuilder.CreateBox(options.name || `parametric-wall-${params.id}`, {
+    width: params.width,
+    height: params.height,
+    depth: params.depth
+  }, scene);
+  wall.position = new Vector3(0, params.height / 2, 0);
+
+  // If no openings, just return the wall with material
+  if (params.openings.length === 0) {
+    const material = new StandardMaterial(`wall-${params.id}-material`, scene);
+    material.diffuseColor = Color3.FromHexString(params.color);
+    wall.material = material;
+    
+    // Apply position and rotation
+    if (params.position) wall.position = params.position;
+    if (params.rotation) wall.rotation = params.rotation;
+    
+    // Store parameters in metadata
+    wall.metadata = {
+      isComposite: true,
+      componentType: 'parametric-wall',
+      parameters: params
+    };
+    
+    return wall;
+  }
+
+  // 2. Create CSG from the wall
+  let wallCSG = CSG.FromMesh(wall);
+
+  // 3. Create and subtract each opening
+  for (const opening of params.openings) {
+    const cutterHeight = opening.type === 'window' && opening.elevation 
+      ? opening.height 
+      : params.height; // Doors cut from floor to top, windows cut their height
+    
+    const cutter = MeshBuilder.CreateBox(`${opening.type}-cutter-${opening.id}`, {
+      width: opening.width,
+      height: cutterHeight,
+      depth: params.depth * 2 // Ensure it cuts all the way through
+    }, scene);
+    
+    // Position the cutter
+    // X position is based on offset from wall start
+    const xPosition = -params.width / 2 + opening.offset + opening.width / 2;
+    
+    // Y position depends on type
+    let yPosition: number;
+    if (opening.type === 'door') {
+      yPosition = cutterHeight / 2;
+    } else if (opening.type === 'window') {
+      yPosition = (opening.elevation || 0) + opening.height / 2;
+    } else {
+      yPosition = params.height / 2; // Generic opening
+    }
+    
+    cutter.position = new Vector3(xPosition, yPosition, 0);
+    
+    // Perform CSG subtraction
+    const cutterCSG = CSG.FromMesh(cutter);
+    wallCSG = wallCSG.subtract(cutterCSG);
+    
+    // Clean up cutter mesh
+    cutter.dispose();
+  }
+
+  // 4. Convert back to mesh
+  const finalMesh = wallCSG.toMesh(
+    options.name || `parametric-wall-${params.id}`, 
+    new StandardMaterial(`wall-${params.id}-material`, scene), 
+    scene
+  );
+
+  // 5. Clean up original wall mesh
+  wall.dispose();
+
+  // 6. Apply material and color
+  if (finalMesh.material instanceof StandardMaterial) {
+    finalMesh.material.diffuseColor = Color3.FromHexString(params.color);
+  }
+
+  // 7. Apply position and rotation
+  if (params.position) finalMesh.position = params.position;
+  if (params.rotation) finalMesh.rotation = params.rotation;
+
+  // 8. Store parameters in metadata for regeneration
+  finalMesh.metadata = {
+    isComposite: true,
+    componentType: 'parametric-wall',
+    parameters: params
+  };
+
+  return finalMesh;
+};
+
+/**
+ * Regenerates a parametric wall mesh from updated parameters
+ * Handles mesh disposal and maintains selection state
+ */
+export const regenerateWallFromParams = (
+  scene: Scene, 
+  oldMesh: Mesh, 
+  params: ParametricWallParams,
+  maintainSelection: boolean = true
+): Mesh => {
+  // Store current state
+  const wasEnabled = oldMesh.isPickable;
+  const wasVisible = oldMesh.isVisible;
+  const parent = oldMesh.parent;
+  
+  // Get the scene manager to update the mesh reference
+  const sceneManager = (scene as any).sceneManager;
+  
+  // Create new mesh with updated parameters
+  const newMesh = createParametricWall(scene, params, {
+    name: oldMesh.name,
+    position: params.position,
+    color: params.color
+  });
+  
+  // Copy state from old mesh
+  newMesh.isPickable = wasEnabled;
+  newMesh.isVisible = wasVisible;
+  newMesh.parent = parent;
+  
+  // Update the scene manager's mesh reference if available
+  if (sceneManager) {
+    const objectId = params.id;
+    const sceneObject = sceneManager.getObject(objectId);
+    if (sceneObject) {
+      sceneObject.mesh = newMesh;
+    }
+  }
+  
+  // Dispose of the old mesh
+  oldMesh.dispose();
+  
+  return newMesh;
 };
 
 /**
@@ -1644,7 +1806,8 @@ export const createStandaloneFoundation = (scene: Scene, options: MeshCreationOp
 export const createHousingMesh = (
   type: string, 
   scene: Scene, 
-  options: MeshCreationOptions = {}
+  options: MeshCreationOptions = {},
+  params?: WallWithDoorParams // Allow optional params for regeneration
 ): Mesh => {
   switch (type) {
     case 'house-basic':
@@ -1708,7 +1871,15 @@ export const createHousingMesh = (
       return createStandaloneFoundation(scene, options);
     
     case 'house-wall-with-doorcutout':
-      return createWallWithDoorCutout(scene, options);
+      // Use provided params for regeneration, or defaults for new creation
+      const wallParams = params || {
+        wallWidth: 5,
+        wallHeight: 3,
+        wallDepth: 0.1,
+        doorWidth: 1,
+        doorHeight: 2
+      };
+      return createWallWithDoorCutout(scene, wallParams, options);
 
     default:
       throw new Error(`Unknown housing type: ${type}`);

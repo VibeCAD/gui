@@ -126,6 +126,9 @@ export const createPrimitiveMesh = (
     case 'nurbs':
       // NURBS is handled separately, not through this factory
       throw new Error('NURBS meshes are not supported in this factory');
+    case 'parametric-wall':
+      // Parametric walls need parameters, should be created through createParametricWall
+      throw new Error('Parametric walls should be created through createParametricWall function');
     case 'imported-glb':
     case 'imported-stl':
     case 'imported-obj':

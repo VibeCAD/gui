@@ -2097,3 +2097,83 @@ body {
 .property-group input[type="checkbox"]:checked {
   accent-color: #3498db;
 }
+
+/* Parametric Wall Properties Styles */
+.door-item {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.door-item.selected {
+  border-color: #007bff;
+  background-color: #f0f8ff;
+}
+
+.door-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.remove-door-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #dc3545;
+}
+
+.door-properties {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+}
+
+.door-property {
+  display: flex;
+  align-items: center;
+  margin: 5px 0;
+}
+
+.door-property label {
+  width: 60px;
+}
+
+.add-door-btn {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 5px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.add-door-btn:hover {
+  background-color: #0056b3;
+}
+
+.dimension-inputs {
+  display: flex;
+  gap: 10px;
+}
+
+.dimension-input {
+  width: 60px;
+}
+
+.door-dimension-input {
+  width: 80px;
+}
+
+.door-position-slider {
+  flex: 1;
+  margin: 0 10px;
+}
+
+.position-value {
+  min-width: 50px;
+  text-align: right;
+}
