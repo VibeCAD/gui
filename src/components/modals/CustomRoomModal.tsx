@@ -32,10 +32,11 @@ export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCanc
   const [isDrawing, setIsDrawing] = useState(false)
   const [currentLine, setCurrentLine] = useState<LineSegment | null>(null)
   const [hoveredGridPoint, setHoveredGridPoint] = useState<GridPoint | null>(null)
+  const [gridSize, setGridSize] = useState(20)
   const svgRef = useRef<SVGSVGElement | null>(null)
 
   // Grid settings
-  const GRID_SIZE = 20
+  const GRID_SIZE = gridSize
   const SVG_WIDTH = 400
   const SVG_HEIGHT = 400
   const GRID_COLS = Math.floor(SVG_WIDTH / GRID_SIZE)
@@ -137,132 +138,272 @@ export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCanc
     setLineSegments(prev => prev.slice(0, -1))
   }
 
-  // Find enclosed areas (rooms) from the line segments
+  // Find enclosed areas (rooms) from the line segments using grid-based region detection
   const findRooms = (): Point[][] => {
     if (lineSegments.length < 3) return []
 
-    // Build a graph of connected line segments
-    const graph = new Map<string, GridPoint[]>()
+    // Create a 2D grid to track walls and regions
+    const gridWidth = GRID_COLS + 1
+    const gridHeight = GRID_ROWS + 1
     
-    // Add all line segments to the graph
+    // Create wall maps for horizontal and vertical walls
+    const horizontalWalls = Array(gridHeight).fill(null).map(() => Array(gridWidth).fill(false))
+    const verticalWalls = Array(gridHeight).fill(null).map(() => Array(gridWidth).fill(false))
+    
+    // Mark walls based on line segments
     lineSegments.forEach(line => {
-      const startKey = `${line.start.x},${line.start.y}`
-      const endKey = `${line.end.x},${line.end.y}`
-      
-      if (!graph.has(startKey)) graph.set(startKey, [])
-      if (!graph.has(endKey)) graph.set(endKey, [])
-      
-      graph.get(startKey)!.push(line.end)
-      graph.get(endKey)!.push(line.start)
+      if (line.start.y === line.end.y) {
+        // Horizontal wall
+        const y = line.start.y
+        const minX = Math.min(line.start.x, line.end.x)
+        const maxX = Math.max(line.start.x, line.end.x)
+        for (let x = minX; x < maxX; x++) {
+          if (y > 0) horizontalWalls[y][x] = true
+        }
+      } else if (line.start.x === line.end.x) {
+        // Vertical wall
+        const x = line.start.x
+        const minY = Math.min(line.start.y, line.end.y)
+        const maxY = Math.max(line.start.y, line.end.y)
+        for (let y = minY; y < maxY; y++) {
+          if (x > 0) verticalWalls[y][x] = true
+        }
+      }
     })
     
-    // Find all closed polygons using cycle detection
-    const rooms: Point[][] = []
-    const visited = new Set<string>()
+    // Find enclosed regions using flood fill from edges
+    const cellGrid = Array(gridHeight - 1).fill(null).map(() => Array(gridWidth - 1).fill(-1))
+    let regionId = 0
     
-    const findCycle = (start: GridPoint, current: GridPoint, path: GridPoint[], pathSet: Set<string>): boolean => {
-      const currentKey = `${current.x},${current.y}`
+    // Flood fill to find connected regions
+    const floodFill = (startX: number, startY: number, id: number) => {
+      const stack: [number, number][] = [[startX, startY]]
+      const region: [number, number][] = []
       
-      if (path.length > 2 && current.x === start.x && current.y === start.y) {
-        // Found a cycle! Convert to room polygon
-        const roomPoints = path.map(p => ({
-          x: p.x * GRID_SIZE,
-          y: p.y * GRID_SIZE
-        }))
+      while (stack.length > 0) {
+        const [x, y] = stack.pop()!
         
-        // Check if this room is already found (avoid duplicates)
-        const isDuplicate = rooms.some(room => {
-          if (room.length !== roomPoints.length) return false
-          
-          // Check if rooms have the same points (allowing for different starting points)
-          for (let offset = 0; offset < room.length; offset++) {
-            let matches = true
-            for (let i = 0; i < room.length; i++) {
-              const roomIdx = (i + offset) % room.length
-              if (room[roomIdx].x !== roomPoints[i].x || room[roomIdx].y !== roomPoints[i].y) {
-                matches = false
-                break
-              }
-            }
-            if (matches) return true
-          }
-          return false
-        })
+        if (x < 0 || x >= gridWidth - 1 || y < 0 || y >= gridHeight - 1) continue
+        if (cellGrid[y][x] !== -1) continue
         
-        if (!isDuplicate && roomPoints.length >= 3) {
-          // Ensure the polygon is properly ordered (counter-clockwise)
-          const orderedPoints = orderPointsCounterClockwise(roomPoints)
-          rooms.push(orderedPoints)
-        }
-        return true
+        cellGrid[y][x] = id
+        region.push([x, y])
+        
+        // Check all four neighbors
+        if (x > 0 && !verticalWalls[y][x]) stack.push([x - 1, y])
+        if (x < gridWidth - 2 && !verticalWalls[y][x + 1]) stack.push([x + 1, y])
+        if (y > 0 && !horizontalWalls[y][x]) stack.push([x, y - 1])
+        if (y < gridHeight - 2 && !horizontalWalls[y + 1][x]) stack.push([x, y + 1])
       }
       
-      if (pathSet.has(currentKey)) return false
-      
-      const neighbors = graph.get(currentKey) || []
-      let foundCycle = false
-      
-      for (const neighbor of neighbors) {
-        const neighborKey = `${neighbor.x},${neighbor.y}`
-        
-        // Don't go back to the previous point (unless it's the start and we have a valid path)
-        if (path.length > 1 && neighbor.x === path[path.length - 2].x && neighbor.y === path[path.length - 2].y) {
-          continue
-        }
-        
-        if (neighbor.x === start.x && neighbor.y === start.y && path.length > 2) {
-          // Found cycle back to start
-          foundCycle = findCycle(start, neighbor, [...path, current], new Set([...pathSet, currentKey])) || foundCycle
-        } else if (!pathSet.has(neighborKey)) {
-          // Continue exploring
-          foundCycle = findCycle(start, neighbor, [...path, current], new Set([...pathSet, currentKey])) || foundCycle
-        }
-      }
-      
-      return foundCycle
+      return region
     }
     
-    // Try to find cycles starting from each point
-    for (const [pointKey, neighbors] of graph) {
-      if (visited.has(pointKey)) continue
-      
-      const [x, y] = pointKey.split(',').map(Number)
-      const startPoint = { x, y }
-      
-      findCycle(startPoint, startPoint, [], new Set())
-      visited.add(pointKey)
+    // Start flood fill from edges to mark exterior region
+    for (let x = 0; x < gridWidth - 1; x++) {
+      if (cellGrid[0][x] === -1 && !horizontalWalls[0][x]) {
+        floodFill(x, 0, 0) // Mark as exterior (id = 0)
+      }
+      if (cellGrid[gridHeight - 2][x] === -1 && !horizontalWalls[gridHeight - 1][x]) {
+        floodFill(x, gridHeight - 2, 0)
+      }
+    }
+    
+    for (let y = 0; y < gridHeight - 1; y++) {
+      if (cellGrid[y][0] === -1 && !verticalWalls[y][0]) {
+        floodFill(0, y, 0)
+      }
+      if (cellGrid[y][gridWidth - 2] === -1 && !verticalWalls[y][gridWidth - 1]) {
+        floodFill(gridWidth - 2, y, 0)
+      }
+    }
+    
+    // Find all interior regions (rooms)
+    const rooms: Point[][] = []
+    const processedRegions = new Set<number>()
+    
+    for (let y = 0; y < gridHeight - 1; y++) {
+      for (let x = 0; x < gridWidth - 1; x++) {
+        if (cellGrid[y][x] === -1) {
+          // Found an unprocessed interior cell
+          regionId++
+          const region = floodFill(x, y, regionId)
+          
+          if (region.length > 0) {
+            // Extract boundary points of this region
+            const boundaryPoints = extractRegionBoundary(region, horizontalWalls, verticalWalls)
+            if (boundaryPoints.length >= 4) {
+              rooms.push(boundaryPoints)
+            }
+          }
+        }
+      }
     }
     
     return rooms
   }
   
-  // Helper function to order points counter-clockwise
-  const orderPointsCounterClockwise = (points: Point[]): Point[] => {
-    // Find the centroid
-    const centroid = points.reduce(
-      (acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }),
+  // Extract the boundary points of a region by tracing the perimeter
+  const extractRegionBoundary = (
+    region: [number, number][],
+    horizontalWalls: boolean[][],
+    verticalWalls: boolean[][]
+  ): Point[] => {
+    if (region.length === 0) return []
+    
+    const cellSet = new Set(region.map(([x, y]) => `${x},${y}`))
+    
+    // Find all boundary edges of the region
+    const boundaryEdges: { from: GridPoint; to: GridPoint }[] = []
+    
+    for (const [cellX, cellY] of region) {
+      // Check all four edges of this cell
+      // Top edge
+      if (cellY === 0 || !cellSet.has(`${cellX},${cellY - 1}`) || horizontalWalls[cellY][cellX]) {
+        boundaryEdges.push({
+          from: { x: cellX, y: cellY },
+          to: { x: cellX + 1, y: cellY }
+        })
+      }
+      // Bottom edge
+      if (cellY === GRID_ROWS - 2 || !cellSet.has(`${cellX},${cellY + 1}`) || horizontalWalls[cellY + 1][cellX]) {
+        boundaryEdges.push({
+          from: { x: cellX + 1, y: cellY + 1 },
+          to: { x: cellX, y: cellY + 1 }
+        })
+      }
+      // Left edge
+      if (cellX === 0 || !cellSet.has(`${cellX - 1},${cellY}`) || verticalWalls[cellY][cellX]) {
+        boundaryEdges.push({
+          from: { x: cellX, y: cellY + 1 },
+          to: { x: cellX, y: cellY }
+        })
+      }
+      // Right edge
+      if (cellX === GRID_COLS - 2 || !cellSet.has(`${cellX + 1},${cellY}`) || verticalWalls[cellY][cellX + 1]) {
+        boundaryEdges.push({
+          from: { x: cellX + 1, y: cellY },
+          to: { x: cellX + 1, y: cellY + 1 }
+        })
+      }
+    }
+    
+    if (boundaryEdges.length === 0) return []
+    
+    // Connect edges to form a continuous polygon
+    const polygon: GridPoint[] = []
+    const edgeMap = new Map<string, { from: GridPoint; to: GridPoint }>()
+    
+    // Build edge lookup map
+    boundaryEdges.forEach(edge => {
+      const key = `${edge.from.x},${edge.from.y}`
+      edgeMap.set(key, edge)
+    })
+    
+    // Start with the first edge
+    let currentEdge = boundaryEdges[0]
+    const startPoint = currentEdge.from
+    polygon.push(startPoint)
+    
+    const visitedEdges = new Set<string>()
+    let iterations = 0
+    const maxIterations = boundaryEdges.length * 2
+    
+    // Trace the boundary
+    while (iterations < maxIterations) {
+      iterations++
+      
+      const edgeKey = `${currentEdge.from.x},${currentEdge.from.y}-${currentEdge.to.x},${currentEdge.to.y}`
+      if (visitedEdges.has(edgeKey)) break
+      visitedEdges.add(edgeKey)
+      
+      const nextPoint = currentEdge.to
+      
+      // Check if we've completed the loop
+      if (nextPoint.x === startPoint.x && nextPoint.y === startPoint.y) {
+        break
+      }
+      
+      polygon.push(nextPoint)
+      
+      // Find the next edge that starts where this one ends
+      const nextEdgeKey = `${nextPoint.x},${nextPoint.y}`
+      const nextEdge = edgeMap.get(nextEdgeKey)
+      
+      if (!nextEdge) {
+        // Try to find any edge that connects
+        let found = false
+        for (const edge of boundaryEdges) {
+          if (edge.from.x === nextPoint.x && edge.from.y === nextPoint.y) {
+            currentEdge = edge
+            found = true
+            break
+          }
+        }
+        if (!found) break
+      } else {
+        currentEdge = nextEdge
+      }
+    }
+    
+    // Convert to pixel coordinates and simplify
+    const pixelPoints = polygon.map(p => ({ x: p.x * GRID_SIZE, y: p.y * GRID_SIZE }))
+    
+    // Remove collinear points to simplify the polygon
+    const simplified: Point[] = []
+    for (let i = 0; i < pixelPoints.length; i++) {
+      const prev = pixelPoints[(i - 1 + pixelPoints.length) % pixelPoints.length]
+      const curr = pixelPoints[i]
+      const next = pixelPoints[(i + 1) % pixelPoints.length]
+      
+      // Check if current point is collinear with prev and next
+      const dx1 = curr.x - prev.x
+      const dy1 = curr.y - prev.y
+      const dx2 = next.x - curr.x
+      const dy2 = next.y - curr.y
+      
+      // Cross product to check collinearity
+      const cross = dx1 * dy2 - dy1 * dx2
+      
+      if (Math.abs(cross) > 0.01) {
+        simplified.push(curr)
+      }
+    }
+    
+    return simplified.length >= 3 ? simplified : pixelPoints
+  }
+  
+  // Order corners counter-clockwise
+  const orderCornersCCW = (corners: GridPoint[]): GridPoint[] => {
+    if (corners.length === 0) return []
+    
+    // Find centroid
+    const centroid = corners.reduce(
+      (acc, c) => ({ x: acc.x + c.x, y: acc.y + c.y }),
       { x: 0, y: 0 }
     )
-    centroid.x /= points.length
-    centroid.y /= points.length
+    centroid.x /= corners.length
+    centroid.y /= corners.length
     
-    // Sort points by angle from centroid
-    const sortedPoints = points.slice().sort((a, b) => {
+    // Sort by angle from centroid
+    return corners.slice().sort((a, b) => {
       const angleA = Math.atan2(a.y - centroid.y, a.x - centroid.x)
       const angleB = Math.atan2(b.y - centroid.y, b.x - centroid.x)
       return angleA - angleB
     })
-    
-    return sortedPoints
   }
 
   const handleCreateRooms = () => {
     const rooms = findRooms()
     if (rooms.length === 0) return
 
-    // For now, create the first detected room
-    // In the future, you might want to let users select which room to create
-    onCreate(rooms[0])
+    // Create all detected rooms
+    rooms.forEach((room, index) => {
+      // Add a small delay between room creation to ensure unique IDs
+      setTimeout(() => {
+        onCreate(room)
+      }, index * 100)
+    })
   }
 
   // Generate grid points for visualization
@@ -283,9 +424,29 @@ export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCanc
     <div className="modal-overlay" style={overlayStyle}>
       <div className="modal-container" style={containerStyle}>
         <h2 style={{ marginTop: 0 }}>Draw Room Layout</h2>
-        <p style={{ fontSize: '14px', color: '#666', marginBottom: '16px' }}>
+        <p style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>
           Draw lines along the grid to create room shapes. Lines can only be horizontal or vertical.
         </p>
+        
+        <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <label style={{ fontSize: '14px', color: '#666' }}>Grid Size:</label>
+          <input
+            type="range"
+            min="10"
+            max="40"
+            value={gridSize}
+            onChange={(e) => {
+              const newSize = parseInt(e.target.value)
+              setGridSize(newSize)
+              // Clear drawing when changing grid size to avoid confusion
+              setLineSegments([])
+              setCurrentLine(null)
+              setIsDrawing(false)
+            }}
+            style={{ flex: 1 }}
+          />
+          <span style={{ fontSize: '14px', color: '#666', minWidth: '30px' }}>{gridSize}px</span>
+        </div>
         
         <svg
           ref={svgRef}
