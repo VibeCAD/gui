@@ -1,0 +1,101 @@
+.undo-redo-indicator {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  font-size: 12px;
+  min-width: 180px;
+}
+
+.undo-redo-buttons {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.undo-btn,
+.redo-btn {
+  flex: 1;
+  padding: 6px 12px;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.undo-btn.enabled:hover,
+.redo-btn.enabled:hover {
+  background: #f8f9fa;
+  border-color: #3498db;
+  color: #3498db;
+}
+
+.undo-btn.disabled,
+.redo-btn.disabled {
+  background: #f8f9fa;
+  color: #adb5bd;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.undo-redo-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.history-count {
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.last-action {
+  color: #495057;
+  font-size: 11px;
+}
+
+.keyboard-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hint {
+  color: #6c757d;
+  font-size: 10px;
+  font-family: monospace;
+}
+
+/* Hide indicator when not needed */
+.undo-redo-indicator.hidden {
+  display: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .undo-redo-indicator {
+    bottom: 80px;
+    right: 10px;
+    min-width: 160px;
+  }
+  
+  .keyboard-hints {
+    display: none;
+  }
+} 

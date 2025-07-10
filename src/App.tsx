@@ -28,6 +28,7 @@ import type { SceneObject, PrimitiveType, TransformMode, ControlPointVisualizati
 import { CustomRoomModal } from './components/modals/CustomRoomModal'
 import { SelectionModeIndicator } from './components/ui/SelectionModeIndicator'
 import { SelectionInfoDisplay } from './components/ui/SelectionInfoDisplay'
+import { UndoRedoIndicator } from './components/ui/UndoRedoIndicator'
 import { MeshBuilder } from 'babylonjs'
 
 function App() {
@@ -1971,6 +1972,8 @@ function App() {
           <MeasurementOverlay scene={sceneAPI.getSceneManager()?.getScene() || null} />
           {/* Selection mode indicator for multi-select feedback */}
           <SelectionModeIndicator isVisible={sceneInitialized} />
+          {/* Undo/Redo indicator and controls */}
+          <UndoRedoIndicator />
         </div>
         <AISidebar 
           apiKey={apiKey}
