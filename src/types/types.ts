@@ -196,6 +196,16 @@ export interface SceneObject {
     
     // Room name for custom rooms
     roomName?: string
+    
+    // Grid information for custom rooms
+    gridInfo?: {
+        gridSize: number  // Size of each grid cell in drawing units
+        worldScale: number  // Scale factor from drawing units to world units
+        drawingBounds?: { width: number; height: number }  // Original drawing canvas dimensions
+        visible?: boolean  // Whether the grid is visible
+        lineColor?: string  // Color of grid lines
+        showSubGrid?: boolean  // Whether to show sub-grid divisions
+    }
 }
 
 // NURBS control point visualization data
@@ -279,3 +289,13 @@ export type HousingOperation =
   | { type: 'toggle-floor', hasFloor: boolean }
   | { type: 'connect-buildings', fromObjectId: string, toObjectId: string, connection: Omit<BuildingConnection, 'id'> }
   | { type: 'disconnect-buildings', connectionId: string }
+
+// Add this near the RoomData interface definition
+export interface RoomData {
+  points: { x: number; y: number }[]
+  openings?: { start: { x: number; y: number }; end: { x: number; y: number } }[]
+  name?: string
+  allSegments?: { start: { x: number; y: number }; end: { x: number; y: number }; isOpening?: boolean }[]
+  gridSize?: number  // Grid size used during drawing (in pixels)
+  drawingBounds?: { width: number; height: number }  // SVG canvas dimensions
+}

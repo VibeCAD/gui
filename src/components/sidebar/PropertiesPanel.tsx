@@ -96,61 +96,67 @@ export const PropertiesPanel: React.FC = () => {
       {/* Position */}
       <div className="property-group">
         <label>Position:</label>
-        <div className="vector-input">
+        <div className="position-inputs">
           <input
             type="number"
             value={obj.position.x.toFixed(2)}
-            onChange={(e) => updateSelectedObjectProperty('position', 
-              new Vector3(parseFloat(e.target.value), obj.position.y, obj.position.z))}
+            onChange={(e) => updateSelectedObjectProperty('position', new Vector3(parseFloat(e.target.value), obj.position.y, obj.position.z))}
             step="0.1"
-            className="vector-component"
+            placeholder="X"
           />
           <input
             type="number"
             value={obj.position.y.toFixed(2)}
-            onChange={(e) => updateSelectedObjectProperty('position', 
-              new Vector3(obj.position.x, parseFloat(e.target.value), obj.position.z))}
+            onChange={(e) => updateSelectedObjectProperty('position', new Vector3(obj.position.x, parseFloat(e.target.value), obj.position.z))}
             step="0.1"
-            className="vector-component"
+            placeholder="Y"
           />
           <input
             type="number"
             value={obj.position.z.toFixed(2)}
-            onChange={(e) => updateSelectedObjectProperty('position', 
-              new Vector3(obj.position.x, obj.position.y, parseFloat(e.target.value)))}
+            onChange={(e) => updateSelectedObjectProperty('position', new Vector3(obj.position.x, obj.position.y, parseFloat(e.target.value)))}
             step="0.1"
-            className="vector-component"
+            placeholder="Z"
           />
         </div>
       </div>
 
       {/* Rotation */}
       <div className="property-group">
-        <label>Rotation (radians):</label>
-        <div className="vector-input">
+        <label>Rotation (degrees):</label>
+        <div className="rotation-inputs">
           <input
             type="number"
-            value={obj.rotation.x.toFixed(2)}
-            onChange={(e) => updateSelectedObjectProperty('rotation', 
-              new Vector3(parseFloat(e.target.value), obj.rotation.y, obj.rotation.z))}
-            step="0.1"
-            className="vector-component"
+            value={(obj.rotation.x * 180 / Math.PI).toFixed(1)}
+            onChange={(e) => {
+              const degrees = parseFloat(e.target.value);
+              const radians = degrees * Math.PI / 180;
+              updateSelectedObjectProperty('rotation', new Vector3(radians, obj.rotation.y, obj.rotation.z));
+            }}
+            step="1"
+            placeholder="X"
           />
           <input
             type="number"
-            value={obj.rotation.y.toFixed(2)}
-            onChange={(e) => updateSelectedObjectProperty('rotation', 
-              new Vector3(obj.rotation.x, parseFloat(e.target.value), obj.rotation.z))}
-            step="0.1"
-            className="vector-component"
+            value={(obj.rotation.y * 180 / Math.PI).toFixed(1)}
+            onChange={(e) => {
+              const degrees = parseFloat(e.target.value);
+              const radians = degrees * Math.PI / 180;
+              updateSelectedObjectProperty('rotation', new Vector3(obj.rotation.x, radians, obj.rotation.z));
+            }}
+            step="1"
+            placeholder="Y"
           />
           <input
             type="number"
-            value={obj.rotation.z.toFixed(2)}
-            onChange={(e) => updateSelectedObjectProperty('rotation', 
-              new Vector3(obj.rotation.x, obj.rotation.y, parseFloat(e.target.value)))}
-            step="0.1"
-            className="vector-component"
+            value={(obj.rotation.z * 180 / Math.PI).toFixed(1)}
+            onChange={(e) => {
+              const degrees = parseFloat(e.target.value);
+              const radians = degrees * Math.PI / 180;
+              updateSelectedObjectProperty('rotation', new Vector3(obj.rotation.x, obj.rotation.y, radians));
+            }}
+            step="1"
+            placeholder="Z"
           />
         </div>
       </div>
@@ -158,33 +164,30 @@ export const PropertiesPanel: React.FC = () => {
       {/* Scale */}
       <div className="property-group">
         <label>Scale:</label>
-        <div className="vector-input">
+        <div className="scale-inputs">
           <input
             type="number"
             value={obj.scale.x.toFixed(2)}
-            onChange={(e) => updateSelectedObjectProperty('scale', 
-              new Vector3(parseFloat(e.target.value), obj.scale.y, obj.scale.z))}
+            onChange={(e) => updateSelectedObjectProperty('scale', new Vector3(parseFloat(e.target.value), obj.scale.y, obj.scale.z))}
             step="0.1"
             min="0.1"
-            className="vector-component"
+            placeholder="X"
           />
           <input
             type="number"
             value={obj.scale.y.toFixed(2)}
-            onChange={(e) => updateSelectedObjectProperty('scale', 
-              new Vector3(obj.scale.x, parseFloat(e.target.value), obj.scale.z))}
+            onChange={(e) => updateSelectedObjectProperty('scale', new Vector3(obj.scale.x, parseFloat(e.target.value), obj.scale.z))}
             step="0.1"
             min="0.1"
-            className="vector-component"
+            placeholder="Y"
           />
           <input
             type="number"
             value={obj.scale.z.toFixed(2)}
-            onChange={(e) => updateSelectedObjectProperty('scale', 
-              new Vector3(obj.scale.x, obj.scale.y, parseFloat(e.target.value)))}
+            onChange={(e) => updateSelectedObjectProperty('scale', new Vector3(obj.scale.x, obj.scale.y, parseFloat(e.target.value)))}
             step="0.1"
             min="0.1"
-            className="vector-component"
+            placeholder="Z"
           />
         </div>
       </div>
@@ -202,18 +205,159 @@ export const PropertiesPanel: React.FC = () => {
           <input
             type="text"
             value={obj.color}
-            onChange={(e) => {
-              if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
-                updateSelectedObjectProperty('color', e.target.value);
-              }
-            }}
-            className="color-hex-input"
+            onChange={(e) => updateSelectedObjectProperty('color', e.target.value)}
+            className="color-text"
             placeholder="#FFFFFF"
           />
         </div>
       </div>
     </div>
   );
+
+  const renderGridProperties = (obj: SceneObject) => {
+    // Only show grid properties for custom rooms
+    if (obj.type !== 'custom-room' || !obj.gridInfo) {
+      return null;
+    }
+
+    const currentGridSize = obj.gridInfo.gridSize;
+    const worldScale = obj.gridInfo.worldScale;
+    const gridWorldSize = currentGridSize * worldScale;
+
+    return (
+      <div className="properties-section">
+        <h4>Floor Grid Properties</h4>
+        
+        {/* Grid Size Control */}
+        <div className="property-group">
+          <label>Grid Size:</label>
+          <div className="grid-size-control">
+            <input
+              type="range"
+              min="10"
+              max="40"
+              step="5"
+              value={currentGridSize}
+              onChange={(e) => {
+                const newGridSize = parseInt(e.target.value);
+                updateSelectedObjectProperty('gridInfo', {
+                  ...obj.gridInfo,
+                  gridSize: newGridSize
+                });
+                
+                // Also update the floor texture
+                // This will trigger a scene update that will regenerate the texture
+                updateSelectedObjectProperty('color', obj.color); // Force update
+              }}
+              className="grid-size-slider"
+            />
+            <span className="grid-size-value">{currentGridSize}px</span>
+            <span className="grid-world-size">({gridWorldSize.toFixed(2)}m)</span>
+          </div>
+        </div>
+
+        {/* Grid Visibility Toggle */}
+        <div className="property-group">
+          <label>
+            <input
+              type="checkbox"
+              checked={obj.gridInfo.visible !== false}
+              onChange={(e) => {
+                updateSelectedObjectProperty('gridInfo', {
+                  ...obj.gridInfo,
+                  visible: e.target.checked
+                });
+              }}
+            />
+            Show Grid
+          </label>
+        </div>
+
+        {/* Grid Color */}
+        <div className="property-group">
+          <label>Grid Line Color:</label>
+          <div className="color-input-group">
+            <input
+              type="color"
+              value={obj.gridInfo.lineColor || '#e0e0e0'}
+              onChange={(e) => {
+                updateSelectedObjectProperty('gridInfo', {
+                  ...obj.gridInfo,
+                  lineColor: e.target.value
+                });
+              }}
+              className="color-picker"
+            />
+            <input
+              type="text"
+              value={obj.gridInfo.lineColor || '#e0e0e0'}
+              onChange={(e) => {
+                updateSelectedObjectProperty('gridInfo', {
+                  ...obj.gridInfo,
+                  lineColor: e.target.value
+                });
+              }}
+              className="color-text"
+              placeholder="#e0e0e0"
+            />
+          </div>
+        </div>
+
+        {/* Sub-grid Toggle */}
+        <div className="property-group">
+          <label>
+            <input
+              type="checkbox"
+              checked={obj.gridInfo.showSubGrid !== false}
+              onChange={(e) => {
+                updateSelectedObjectProperty('gridInfo', {
+                  ...obj.gridInfo,
+                  showSubGrid: e.target.checked
+                });
+              }}
+            />
+            Show Sub-grid
+          </label>
+        </div>
+
+        {/* Grid Info */}
+        <div className="property-group">
+          <label>Grid Information:</label>
+          <div className="grid-info">
+            <div>Drawing Size: {obj.gridInfo.drawingBounds?.width || 400} × {obj.gridInfo.drawingBounds?.height || 400}px</div>
+            <div>World Scale: 1px = {worldScale}m</div>
+            <div>Grid Cell Size: {gridWorldSize.toFixed(2)}m</div>
+          </div>
+        </div>
+
+        {/* Apply to Other Rooms Button */}
+        <div className="property-group">
+          <button
+            className="apply-grid-btn"
+            onClick={() => {
+              // Apply current grid settings to all custom rooms
+              const customRooms = sceneObjects.filter(o => o.type === 'custom-room' && o.id !== obj.id);
+              customRooms.forEach(room => {
+                if (room.gridInfo) {
+                  updateObject(room.id, {
+                    gridInfo: {
+                      ...room.gridInfo,
+                      gridSize: currentGridSize,
+                      lineColor: obj.gridInfo?.lineColor,
+                      showSubGrid: obj.gridInfo?.showSubGrid
+                    }
+                  });
+                }
+              });
+              console.log(`Applied grid settings to ${customRooms.length} other room(s)`);
+            }}
+          >
+            Apply to All Rooms
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   const renderTextureProperties = (obj: SceneObject) => {
     // Don't show texture properties for ground or certain types
@@ -1700,6 +1844,7 @@ export const PropertiesPanel: React.FC = () => {
         {selectedObject ? (
           <>
             {renderBasicProperties(selectedObject)}
+            {renderGridProperties(selectedObject)}
             {renderTextureProperties(selectedObject)}
             {renderNurbsProperties(selectedObject)}
             {renderHousingProperties(selectedObject)}

@@ -10,6 +10,7 @@ import {
 import { useSceneStore } from '../state/sceneStore'
 import { SceneManager } from './sceneManager'
 import type { TransformMode, MultiSelectInitialState } from '../types/types'
+import { snapToRoomGrid } from './gridTextureUtils'
 
 export class GizmoController {
   private gizmoManager: GizmoManager | null = null
@@ -307,6 +308,28 @@ export const useGizmoManager = (
       console.log('🎯 [GizmoManager] No selection, targetMesh will be null')
     }
 
+    // Helper function to find which custom room contains a position
+    const findContainingRoom = (position: Vector3): Mesh | null => {
+      if (!scene) return null
+      
+      // Find all custom room meshes
+      const customRooms = scene.meshes.filter(mesh => 
+        mesh.name.includes('custom-room') && 
+        mesh.metadata?.gridInfo &&
+        mesh instanceof Mesh
+      ) as Mesh[]
+      
+      // Check if position is within any room's bounds
+      for (const room of customRooms) {
+        const bounds = room.getBoundingInfo().boundingBox
+        if (bounds.intersectsPoint(position)) {
+          return room
+        }
+      }
+      
+      return null
+    }
+
     // Handle gizmo drag end
     const handleGizmoDragEnd = (position: Vector3, rotation: Vector3, scale: Vector3) => {
       if (isMultiSelect && multiSelectPivot) {
@@ -320,7 +343,18 @@ export const useGizmoManager = (
           Matrix.RotationYawPitchRollToRef(rotation.y, rotation.x, rotation.z, rotationMatrix)
           newPosition = Vector3.TransformCoordinates(newPosition, rotationMatrix).add(position)
           
-          if (snapToGrid) {
+          // Check if object is within a custom room for grid snapping
+          const containingRoom = findContainingRoom(newPosition)
+          if (containingRoom && containingRoom.metadata?.gridInfo) {
+            // Use room-specific grid snapping
+            const snapped = snapToRoomGrid(
+              { x: newPosition.x, z: newPosition.z },
+              containingRoom
+            )
+            newPosition.x = snapped.x
+            newPosition.z = snapped.z
+          } else if (snapToGrid) {
+            // Use global grid snapping
             newPosition = new Vector3(
               Math.round(newPosition.x / gridSize) * gridSize,
               Math.round(newPosition.y / gridSize) * gridSize,
@@ -349,7 +383,19 @@ export const useGizmoManager = (
       } else if (selectedObjectId) {
         // Single object transform with collision checking (including snap-to-object)
         let newPosition = position.clone()
-        if (snapToGrid) {
+        
+        // Check if object is within a custom room for grid snapping
+        const containingRoom = findContainingRoom(newPosition)
+        if (containingRoom && containingRoom.metadata?.gridInfo) {
+          // Use room-specific grid snapping
+          const snapped = snapToRoomGrid(
+            { x: newPosition.x, z: newPosition.z },
+            containingRoom
+          )
+          newPosition.x = snapped.x
+          newPosition.z = snapped.z
+        } else if (snapToGrid) {
+          // Use global grid snapping
           newPosition = new Vector3(
             Math.round(newPosition.x / gridSize) * gridSize,
             Math.round(newPosition.y / gridSize) * gridSize,
