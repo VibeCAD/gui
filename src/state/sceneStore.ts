@@ -253,7 +253,13 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             
             updateObject: (objectId, updates) => set((state) => ({
                 sceneObjects: state.sceneObjects.map(obj => 
-                    obj.id === objectId ? { ...obj, ...updates } : obj
+                    obj.id === objectId ? (() => { 
+                        const updated = { ...obj, ...updates };
+                        if (updates.rotation) {
+                          console.log(`📝 sceneStore: Updated rotation for ${objectId} to (${updates.rotation.x.toFixed(3)}, ${updates.rotation.y.toFixed(3)}, ${updates.rotation.z.toFixed(3)})`);
+                        }
+                        return updated;
+                    })() : obj
                 )
             })),
             

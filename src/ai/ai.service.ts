@@ -3,7 +3,7 @@ import type { SceneObject } from '../types/types';
 import { Vector3 } from 'babylonjs';
 
 export interface SceneCommand {
-  action: 'move' | 'color' | 'scale' | 'create' | 'delete';
+  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate';
   objectId?: string;
   type?: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 
     'house-basic' | 'house-room' | 'house-hallway' | 'house-roof-flat' | 'house-roof-pitched' |
@@ -18,6 +18,9 @@ export interface SceneCommand {
   scaleX?: number;
   scaleY?: number;
   scaleZ?: number;
+  rotationX?: number;
+  rotationY?: number;
+  rotationZ?: number;
   relativeToObject?: string;
   spatialRelation?: 'on-top-of' | 'beside' | 'in-front-of' | 'behind' | 'above' | 'below' | 'inside';
   matchDimensions?: boolean;
@@ -147,6 +150,20 @@ export class AIService {
     );
 
     return idMatch || undefined;
+  }
+
+  /**
+   * Convert degrees to radians for rotation calculations
+   */
+  private degreesToRadians(degrees: number): number {
+    return degrees * (Math.PI / 180);
+  }
+
+  /**
+   * Convert radians to degrees for human-readable output
+   */
+  private radiansToDegrees(radians: number): number {
+    return radians * (180 / Math.PI);
   }
 
   /**
@@ -467,7 +484,12 @@ export class AIService {
             ? `${dimensions.width.toFixed(1)}×${dimensions.height.toFixed(1)}×${dimensions.depth.toFixed(1)}` 
             : `${dimensions.width.toFixed(1)} units`;
           
-          return `${colorName} ${obj.type} "${obj.id}" (${sizeDesc}) at (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)})`;
+          // Include rotation information if object is rotated
+          const rotationDesc = (obj.rotation.x !== 0 || obj.rotation.y !== 0 || obj.rotation.z !== 0) 
+            ? ` rotated (${obj.rotation.x.toFixed(2)}, ${obj.rotation.y.toFixed(2)}, ${obj.rotation.z.toFixed(2)}) rad`
+            : '';
+          
+          return `${colorName} ${obj.type} "${obj.id}" (${sizeDesc}) at (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)})${rotationDesc}`;
         })
         .join(', ');
       description += `Objects: ${primitiveDescription}`;
@@ -480,7 +502,12 @@ export class AIService {
           const dimensions = this.getObjectDimensions(obj);
           const colorName = this.getColorName(obj.color);
           
-          return `${colorName} ${friendlyType} "${obj.id}" (${dimensions.width.toFixed(1)}×${dimensions.height.toFixed(1)}×${dimensions.depth.toFixed(1)}) at (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)})`;
+          // Include rotation information if object is rotated
+          const rotationDesc = (obj.rotation.x !== 0 || obj.rotation.y !== 0 || obj.rotation.z !== 0) 
+            ? ` rotated (${obj.rotation.x.toFixed(2)}, ${obj.rotation.y.toFixed(2)}, ${obj.rotation.z.toFixed(2)}) rad`
+            : '';
+          
+          return `${colorName} ${friendlyType} "${obj.id}" (${dimensions.width.toFixed(1)}×${dimensions.height.toFixed(1)}×${dimensions.depth.toFixed(1)}) at (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)})${rotationDesc}`;
         })
         .join(', ');
       description += (description ? '. ' : '') + `Housing structures: ${housingDescription}`;
@@ -508,6 +535,7 @@ Available actions:
 3. scale: Scale an object by scaleX, scaleY, scaleZ factors
 4. create: Create new objects with intelligent positioning and automatic scaling
 5. delete: Remove an object
+6. rotate: Rotate an object by rotationX, rotationY, rotationZ angles in radians
 
 OBJECT TYPES:
 Basic: cube, sphere, cylinder, plane, torus, cone
@@ -539,6 +567,15 @@ QUANTITY HANDLING:
 - Do NOT introduce a 'count' or 'quantity' property. Instead, output that many individual 'create' commands inside the JSON array.
 - When the user does not specify how the objects should be arranged, position them sensibly (e.g. in a straight line) **with at least one unit of empty space between their bounding boxes**.  For standard 2×2×2 cubes this means keeping their centres ≥ 2.2 units apart (e.g. –1.5 and 1.5 on the X axis).  Always provide explicit 'x', 'y', and 'z' that do not overlap with other objects.
 
+ROTATION PRECISION:
+- Rotation values are in radians (not degrees)
+- rotationX: Rotation around X-axis (pitch)
+- rotationY: Rotation around Y-axis (yaw)
+- rotationZ: Rotation around Z-axis (roll)
+- Common values: 0 = no rotation, π/2 ≈ 1.57 = 90°, π ≈ 3.14 = 180°, 3π/2 ≈ 4.71 = 270°
+- For 45° rotation: π/4 ≈ 0.785 radians
+- For 30° rotation: π/6 ≈ 0.524 radians
+
 SPATIAL COMMAND EXAMPLES:
 "Put a blue cube on top of the red cube":
 [{"action": "create", "type": "cube", "color": "#4ecdc4", "x": 0, "y": 2.0, "z": 0, "scaleX": 1.0, "scaleY": 1.0, "scaleZ": 1.0}]
@@ -556,6 +593,21 @@ SPATIAL COMMAND EXAMPLES:
 "Move the red sphere on top of the blue cube":
 [{"action": "move", "objectId": "sphere-id", "x": 0, "y": 2.0, "z": 0}]
 
+"Rotate the blue cube 45 degrees around the Y-axis":
+[{"action": "rotate", "objectId": "cube-id", "rotationX": 0, "rotationY": 0.785, "rotationZ": 0}]
+
+"Tilt the red sphere 30 degrees forward":
+[{"action": "rotate", "objectId": "sphere-id", "rotationX": 0.524, "rotationY": 0, "rotationZ": 0}]
+
+"Spin the green cylinder 90 degrees around its vertical axis":
+[{"action": "rotate", "objectId": "cylinder-id", "rotationX": 0, "rotationY": 1.57, "rotationZ": 0}]
+
+"Flip the cube upside down":
+[{"action": "rotate", "objectId": "cube-id", "rotationX": 3.14, "rotationY": 0, "rotationZ": 0}]
+
+"Rotate the house 180 degrees to face the opposite direction":
+[{"action": "rotate", "objectId": "house-id", "rotationX": 0, "rotationY": 3.14, "rotationZ": 0}]
+
 HOUSING OBJECT LOGIC:
 - Roofs automatically match underlying structure dimensions
 - Rooms and hallways connect at ground level
@@ -570,6 +622,8 @@ CRITICAL REQUIREMENTS:
 5. For dimension matching: automatically calculate scaleX, scaleY, scaleZ factors
 6. Use exact object dimensions from the scene description for all calculations
 7. Ensure perfect contact - no gaps, no overlaps, just touching surfaces
+8. For rotation: ALWAYS provide rotation values in radians, not degrees
+9. When rotating objects, consider their current rotation state from the scene description
 
 DIMENSION MATCHING RULES:
 - Objects placed "on top of" automatically match the footprint (width × depth) of the reference object
@@ -841,8 +895,8 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
     const enhancedCommands: SceneCommand[] = [];
     
     commands.forEach(command => {
-      // Handle spatial relationships for creation and movement
-      if ((command.action === 'create' || command.action === 'move') && command.relativeToObject && command.spatialRelation) {
+      // Handle spatial relationships for creation, movement, and rotation
+      if ((command.action === 'create' || command.action === 'move' || command.action === 'rotate') && command.relativeToObject && command.spatialRelation) {
         const referenceObject = this.findObjectByDescription(command.relativeToObject, sceneObjects);
         
         if (referenceObject) {

@@ -110,6 +110,13 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
         if (sceneManager.initialize(canvas)) {
           sceneManagerRef.current = sceneManager
           
+          // Expose for DevTools debugging
+          if (typeof window !== 'undefined') {
+            // @ts-ignore
+            window.VibeCadSceneManager = sceneManager
+            console.log('🐞 VibeCadSceneManager is available on window for debugging')
+          }
+          
           console.log('✅ SceneManager initialized, setting up callbacks...')
           
           // Set up event callbacks
