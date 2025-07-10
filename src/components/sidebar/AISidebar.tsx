@@ -19,6 +19,20 @@ interface AISidebarProps {
   onOpenCustomRoomModal?: () => void;
 }
 
+const SceneDescriptionPanel = ({ description, onClose }: { description: string, onClose: () => void }) => {
+  if (!description) return null;
+
+  return (
+    <div className="scene-description-panel">
+      <div className="scene-description-header">
+        <h3>Scene Description</h3>
+        <button onClick={onClose} className="close-button">×</button>
+      </div>
+      <p className="scene-description-text">{description}</p>
+    </div>
+  );
+};
+
 export const AISidebar: React.FC<AISidebarProps> = ({ 
   apiKey, 
   sceneInitialized,
@@ -46,6 +60,9 @@ export const AISidebar: React.FC<AISidebarProps> = ({
     undo,
     redo,
   } = useSceneStore();
+
+  const [showDescriptionPanel, setShowDescriptionPanel] = React.useState(false);
+  const [sceneDescription, setSceneDescription] = React.useState('');
 
   /**
    * Synchronize object positions from the actual 3D meshes to the store
@@ -297,6 +314,13 @@ export const AISidebar: React.FC<AISidebarProps> = ({
           }
           break;
 
+        case 'describe':
+          if (command.description) {
+            setSceneDescription(command.description);
+            setShowDescriptionPanel(true);
+          }
+          break;
+
         case 'undo':
           // Call the undo function from the store
           undo();
@@ -492,6 +516,8 @@ export const AISidebar: React.FC<AISidebarProps> = ({
       
       {!sidebarCollapsed && (
         <div className="ai-sidebar-content">
+          {showDescriptionPanel && <SceneDescriptionPanel description={sceneDescription} onClose={() => setShowDescriptionPanel(false)} />}
+          
           {!sceneInitialized && (
             <div className="loading-indicator">
               <p>Initializing 3D scene...</p>
