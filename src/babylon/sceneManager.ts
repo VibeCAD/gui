@@ -344,7 +344,7 @@ export class SceneManager {
       }
       
       // Handle texture updates
-      if (sceneObject.textureIds !== undefined && this.textureManager && mesh.material) {
+      if ('textureIds' in sceneObject && this.textureManager && mesh.material) {
         console.log('🎨 Texture update detected:', {
           meshId: id,
           textureIds: sceneObject.textureIds,
@@ -352,7 +352,7 @@ export class SceneManager {
           materialType: mesh.material.constructor.name
         });
         
-        // If textureIds is empty or null, remove all textures
+        // If textureIds is empty, null, or undefined, remove all textures
         if (!sceneObject.textureIds || Object.keys(sceneObject.textureIds).length === 0) {
           const material = mesh.material as StandardMaterial;
           console.log('🗑️ Removing all textures from mesh:', id);
