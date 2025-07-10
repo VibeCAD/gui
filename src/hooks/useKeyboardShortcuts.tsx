@@ -8,6 +8,8 @@ export const useKeyboardShortcuts = () => {
     selectedObjectId,
     selectedObjectIds,
     activeDropdown,
+    sceneObjects,
+    objectLocked,
     
     // Actions
     setSnapToGrid,
@@ -15,7 +17,9 @@ export const useKeyboardShortcuts = () => {
     clearSelection,
     removeObject,
     setActiveDropdown,
-    hasSelection
+    hasSelection,
+    setSelectedObjectIds,
+    getSelectableObjects
   } = useSceneStore()
 
   useEffect(() => {
@@ -72,6 +76,28 @@ export const useKeyboardShortcuts = () => {
           }
           break
 
+        case 'a':
+          if (isCtrlOrCmd) {
+            event.preventDefault()
+            if (event.shiftKey) {
+              // Ctrl+Shift+A: Invert selection
+              const currentlySelected = new Set(selectedObjectIds)
+              const allSelectableObjects = getSelectableObjects()
+              const invertedSelection = allSelectableObjects
+                .filter(obj => !currentlySelected.has(obj.id))
+                .map(obj => obj.id)
+              setSelectedObjectIds(invertedSelection)
+              console.log('⚡ Keyboard: Inverted selection', invertedSelection.length, 'objects')
+            } else {
+              // Ctrl+A: Select all selectable objects
+              const allSelectableObjects = getSelectableObjects()
+              const allIds = allSelectableObjects.map(obj => obj.id)
+              setSelectedObjectIds(allIds)
+              console.log('⚡ Keyboard: Selected all objects', allIds.length, 'objects')
+            }
+          }
+          break
+
         case 'escape':
           event.preventDefault()
           clearSelection()
@@ -102,7 +128,9 @@ export const useKeyboardShortcuts = () => {
     clearSelection,
     removeObject,
     setActiveDropdown,
-    hasSelection
+    hasSelection,
+    setSelectedObjectIds,
+    getSelectableObjects
   ])
 
   // This hook doesn't return anything, it just sets up the event listeners
