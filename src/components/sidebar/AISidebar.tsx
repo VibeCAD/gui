@@ -16,12 +16,14 @@ interface AISidebarProps {
   sceneAPI?: {
     getSceneManager: () => any;
   };
+  onOpenCustomRoomModal?: () => void;
 }
 
 export const AISidebar: React.FC<AISidebarProps> = ({ 
   apiKey, 
   sceneInitialized,
-  sceneAPI 
+  sceneAPI,
+  onOpenCustomRoomModal
 }) => {
   const {
     sidebarCollapsed,
@@ -387,6 +389,24 @@ export const AISidebar: React.FC<AISidebarProps> = ({
 
   const handleSubmitPrompt = async () => {
     if (!apiKey || !textInput.trim()) return;
+
+    // Check for special keywords
+    const lowerInput = textInput.trim().toLowerCase();
+    if (lowerInput.includes('draw room panel')) {
+      console.log('🎨 Detected "draw room panel" command');
+      
+      // Open the custom room modal
+      if (onOpenCustomRoomModal) {
+        onOpenCustomRoomModal();
+        setTextInput(''); // Clear the input
+        addToResponseLog('User: draw room panel');
+        addToResponseLog('AI: Opening custom room drawing panel...');
+      } else {
+        console.warn('⚠️ onOpenCustomRoomModal callback not provided');
+        addToResponseLog('Error: Custom room panel feature not available');
+      }
+      return;
+    }
 
     setIsLoading(true);
     
