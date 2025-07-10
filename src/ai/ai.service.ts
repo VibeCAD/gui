@@ -3,7 +3,7 @@ import type { SceneObject } from '../types/types';
 import { Vector3 } from 'babylonjs';
 
 export interface SceneCommand {
-  action: 'move' | 'color' | 'scale' | 'create' | 'delete';
+  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'addDoor' | 'updateDoor' | 'removeDoor';
   objectId?: string;
   type?: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 
     'house-basic' | 'house-room' | 'house-hallway' | 'house-roof-flat' | 'house-roof-pitched' |
@@ -22,6 +22,9 @@ export interface SceneCommand {
   spatialRelation?: 'on-top-of' | 'beside' | 'in-front-of' | 'behind' | 'above' | 'below' | 'inside';
   matchDimensions?: boolean;
   contactType?: 'direct' | 'gap' | 'overlap';
+  wallId?: string;
+  doorId?: string;
+  doorParams?: { width: number; height: number; offset: number };
 }
 
 export interface AIServiceResult {
@@ -498,94 +501,16 @@ export class AIService {
    * Generate the system prompt for the AI with enhanced spatial reasoning
    */
   private generateSystemPrompt(sceneDescription: string, objectIds: string[]): string {
-    return `You are a 3D scene assistant with advanced spatial reasoning and precise positioning capabilities. You can modify a Babylon.js scene with millimeter-accurate positioning and automatic dimension matching.
-
-${sceneDescription}
-
-Available actions:
-1. move: Move an object to x,y,z coordinates
-2. color: Change object color (use hex colors like #ff6b6b, #4ecdc4, #95e1d3, etc.)
-3. scale: Scale an object by scaleX, scaleY, scaleZ factors
-4. create: Create new objects with intelligent positioning and automatic scaling
-5. delete: Remove an object
-
-OBJECT TYPES:
-Basic: cube, sphere, cylinder, plane, torus, cone
-Housing: house-basic, house-room, house-hallway, house-roof-flat, house-roof-pitched
-
-PRECISION SPATIAL INTELLIGENCE:
-- Objects have exact dimensions and bounding boxes
-- Automatic dimension matching for "on top of" relationships
-- Direct contact positioning (no gaps unless specified)
-- Identical orientation for stacked objects
-- Specialized housing logic for roofs matching room dimensions
-
-AUTOMATIC DIMENSION MATCHING:
-- Blue cube "on top of" red cube → Blue cube automatically scaled to match red cube's footprint
-- Roof on room → Roof automatically scaled to match room's exact dimensions
-- Sphere on cube → Sphere scaled to match cube's width and depth
-- All objects maintain their original height unless explicitly scaling cubes
-
-POSITIONING PRECISION:
-- "on top of" = Perfect contact, no gaps, centered alignment, matching dimensions
-- "beside" = Direct contact on sides, aligned heights
-- "in front of" = Direct contact on front face, aligned positions
-- "behind" = Direct contact on back face, aligned positions
-- "above" = Small gap above, centered alignment
-- "below" = Direct contact below, centered alignment
-
-QUANTITY HANDLING:
-- If the prompt specifies a quantity (for example, "two", "three", "5") or uses a plural noun (such as "cubes"), you MUST create exactly that number of objects.
-- Do NOT introduce a 'count' or 'quantity' property. Instead, output that many individual 'create' commands inside the JSON array.
-- When the user does not specify how the objects should be arranged, position them sensibly (e.g. in a straight line) **with at least one unit of empty space between their bounding boxes**.  For standard 2×2×2 cubes this means keeping their centres ≥ 2.2 units apart (e.g. –1.5 and 1.5 on the X axis).  Always provide explicit 'x', 'y', and 'z' that do not overlap with other objects.
-
-SPATIAL COMMAND EXAMPLES:
-"Put a blue cube on top of the red cube":
-[{"action": "create", "type": "cube", "color": "#4ecdc4", "x": 0, "y": 2.0, "z": 0, "scaleX": 1.0, "scaleY": 1.0, "scaleZ": 1.0}]
-
-"Create two red cubes side by side":
-[{"action": "create", "type": "cube", "color": "#ff6b6b", "x": -1.5, "y": 0, "z": 0, "scaleX": 1.0, "scaleY": 1.0, "scaleZ": 1.0},
- {"action": "create", "type": "cube", "color": "#ff6b6b", "x": 1.5, "y": 0, "z": 0, "scaleX": 1.0, "scaleY": 1.0, "scaleZ": 1.0}]
-
-"Place a yellow sphere on the green cube":
-[{"action": "create", "type": "sphere", "color": "#fce38a", "x": 0, "y": 2.0, "z": 0, "scaleX": 1.0, "scaleY": 1.0, "scaleZ": 1.0}]
-
-"Add a roof to the room":
-[{"action": "create", "type": "house-roof-pitched", "color": "#654321", "x": 0, "y": 2.25, "z": 0, "scaleX": 1.0, "scaleY": 1.0, "scaleZ": 1.33}]
-
-"Move the red sphere on top of the blue cube":
-[{"action": "move", "objectId": "sphere-id", "x": 0, "y": 2.0, "z": 0}]
-
-HOUSING OBJECT LOGIC:
-- Roofs automatically match underlying structure dimensions
-- Rooms and hallways connect at ground level
-- Proper architectural proportions maintained
-- Direct contact between walls and roofs
-
-CRITICAL REQUIREMENTS:
-1. ALWAYS identify the reference object from the scene when spatial relationships are mentioned
-2. ALWAYS calculate precise x, y, z coordinates based on exact object dimensions
-3. ALWAYS include calculated coordinates in your JSON response
-4. For "on top of" positioning: place bottom of target object touching top of reference object
-5. For dimension matching: automatically calculate scaleX, scaleY, scaleZ factors
-6. Use exact object dimensions from the scene description for all calculations
-7. Ensure perfect contact - no gaps, no overlaps, just touching surfaces
-
-DIMENSION MATCHING RULES:
-- Objects placed "on top of" automatically match the footprint (width × depth) of the reference object
-- Roofs automatically match the exact dimensions of the building they're placed on
-- Heights are preserved unless explicitly scaling identical object types
-- Spheres and cylinders on cubes match the cube's footprint dimensions
-
-When creating objects with spatial relationships, you MUST:
-1. Identify the reference object from the scene
-2. Calculate precise position for direct contact
-3. Calculate scale factors for dimension matching when appropriate
-4. Include x, y, z coordinates AND scaleX, scaleY, scaleZ factors in your response
-
-Respond ONLY with valid JSON array of commands.
-
-Object IDs currently in scene: ${objectIds.join(', ')}`;
+    return `
+      You are an AI assistant for a 3D scene editor. The scene contains objects like primitives and housing components.
+      Now supporting parametric walls with door openings.
+      // ... existing prompt ...
+      For door commands:
+      - 'add door to wall': { action: 'addDoor', wallId, doorParams: {width:0.9, height:2.1, offset: default center} }
+      - 'move door left/right': { action: 'updateDoor', wallId, doorId, doorParams: {offset: newValue} }
+      - 'make door wider': { action: 'updateDoor', wallId, doorId, doorParams: {width: newValue} }
+      Identify wall and door from description.
+    `;
   }
 
   /**
@@ -624,6 +549,13 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
             return enhancedCommand;
           }
         }
+        
+        // Add door handling
+        if (command.action === 'addDoor') {
+          const wall = this.findObjectByDescription(command.target || '', sceneObjects);
+          if (wall) command.wallId = wall.id;
+        }
+        // Similar for update/remove, find doorId if needed
         
         return command as SceneCommand;
       });

@@ -15,11 +15,9 @@ import {
   Quaternion,
   CSG
 } from 'babylonjs'
-import type { SceneObject, PrimitiveType, TransformMode, ConnectionPoint, WallWithDoorParams, ParametricWallParams } from '../types/types'
-import { createHousingMesh } from './housingFactory'
-import { regenerateWallFromParams } from './housingFactory'
+import type { SceneObject, PrimitiveType, TransformMode, ConnectionPoint, WallWithDoorParams, ParametricWallObject } from '../types/types'
+import { HousingFactory } from './housingFactory'
 import { useSceneStore } from '../state/sceneStore'
-import { createParametricWall } from './housingFactory'
 
 
 export class SceneManager {
@@ -156,32 +154,18 @@ export class SceneManager {
     });
   }
 
-  public addMesh(sceneObject: SceneObject): boolean {
-    if (!this.scene) return false
+  public addObject(sceneObject: SceneObject): Mesh | null {
+    if (!this.scene) return null
     
-    console.log(`🔧 SceneManager.addMesh called for: ${sceneObject.id} (${sceneObject.type})`)
+    console.log(`🔧 SceneManager.addObject called for: ${sceneObject.id} (${sceneObject.type})`)
+    
+    let mesh: Mesh | null = null;
     
     try {
-      let mesh: Mesh
-      
-      // Check if it's a housing type
-      if (sceneObject.type.startsWith('house-')) {
-        mesh = createHousingMesh(sceneObject.type, this.scene, {
-          name: sceneObject.id,
-          color: sceneObject.color
-        })
-      } else if (sceneObject.type === 'parametric-wall') {
-        const params = useSceneStore.getState().parametricWalls[sceneObject.id]
-        if (!params) {
-          console.error(`No parameters found for parametric wall ${sceneObject.id}`)
-          return false
-        }
-        mesh = createParametricWall(this.scene, params, { name: sceneObject.id })
-        // Apply sceneObject properties that may not be in params
-        mesh.position = sceneObject.position.clone()
-        mesh.rotation = sceneObject.rotation.clone()
-        mesh.scaling = sceneObject.scale.clone()
+      if (sceneObject.type === 'parametric-wall') {
+        mesh = HousingFactory.create(this.scene, sceneObject as ParametricWallObject);
       } else {
+        // Handle other primitive types and legacy objects
         switch (sceneObject.type) {
           case 'cube':
             mesh = MeshBuilder.CreateBox(sceneObject.id, { size: 2 }, this.scene)
@@ -202,36 +186,51 @@ export class SceneManager {
             mesh = MeshBuilder.CreateCylinder(sceneObject.id, { diameterTop: 0, diameterBottom: 2, height: 2 }, this.scene)
             break
           case 'ground':
-            // Ground already exists, just update properties and ensure it's stored with the correct ID
             const existingGround = this.meshMap.get('ground')
             if (existingGround) {
-              // Update the ground mesh's name to match the scene object ID
               existingGround.name = sceneObject.id
-              // If the ID is different, also store it with the new key
               if (sceneObject.id !== 'ground') {
                 this.meshMap.set(sceneObject.id, existingGround)
               }
               this.updateMeshProperties(sceneObject.id, sceneObject)
             }
-            return true
+            return existingGround || null;
           case 'imported-glb':
           case 'imported-stl':
           case 'imported-obj':
-            // For imported models, we need to retrieve the mesh from scene by ID
-            // The mesh should already be in the scene from the import process
-            const importedMesh = this.scene.getMeshById(sceneObject.id)
-            if (!importedMesh || !(importedMesh instanceof Mesh)) {
+            mesh = this.scene.getMeshById(sceneObject.id) as Mesh;
+            if (!mesh) {
               console.error(`❌ Imported mesh ${sceneObject.id} not found in scene`)
-              return false
+              return null
             }
-            mesh = importedMesh
             break
           default:
-            console.warn(`Unknown primitive type: ${sceneObject.type}`)
-            return false
+            // Fallback for deprecated housing types or unknown types
+            console.warn(`Object type ${sceneObject.type} is not directly supported or is deprecated. No mesh created.`)
+            return null
         }
       }
       
+      if (!mesh) {
+        console.error(`Mesh creation failed for object ${sceneObject.id}`);
+        return null;
+      }
+
+      // Common properties assignment
+      mesh.name = sceneObject.id;
+      mesh.position = sceneObject.position.clone();
+      mesh.rotation = sceneObject.rotation.clone();
+      mesh.scaling = sceneObject.scale.clone();
+      
+      const material = new StandardMaterial(`${sceneObject.id}_mat`, this.scene);
+      material.diffuseColor = Color3.FromHexString(sceneObject.color);
+      mesh.material = material;
+
+      mesh.isPickable = true;
+      mesh.checkCollisions = this.collisionDetectionEnabled;
+      
+      this.meshMap.set(sceneObject.id, mesh);
+
       // Generate default connection points (face centers) for box-like meshes
       const bounding = mesh.getBoundingInfo()
       if (bounding) {
@@ -248,43 +247,15 @@ export class SceneManager {
           { id: 'pz', position: new Vector3(0, 0, halfZ), normal: new Vector3(0, 0, 1) },
           { id: 'nz', position: new Vector3(0, 0, -halfZ), normal: new Vector3(0, 0, -1) },
         ]
-        if (!mesh.metadata) mesh.metadata = {}
-        ;(mesh.metadata as any).connectionPoints = cps
+        // TODO: Store these connection points in the SceneObject in the store
       }
+      
+      console.log(`✅ Mesh ${mesh.name} added to scene`)
+      return mesh
 
-      // Set initial properties
-      mesh.position = sceneObject.position.clone()
-      mesh.rotation = sceneObject.rotation.clone()
-      mesh.scaling = sceneObject.scale.clone()
-      
-      // Ensure the mesh ID and name are set to our object ID for reliable picking
-      mesh.id = sceneObject.id
-      mesh.name = sceneObject.id
-      
-      // Create material (for non-housing types or if housing mesh doesn't have material)
-      if (!sceneObject.type.startsWith('house-') && !sceneObject.type.startsWith('imported-') || !mesh.material) {
-        const material = new StandardMaterial(`${sceneObject.id}-material`, this.scene)
-        material.diffuseColor = Color3.FromHexString(sceneObject.color)
-        mesh.material = material
-      }
-      
-      mesh.isPickable = true
-      mesh.checkCollisions = this.collisionDetectionEnabled
-      
-      // Store mesh reference
-      this.meshMap.set(sceneObject.id, mesh)
-      
-      console.log(`✅ Added mesh: ${sceneObject.id}`, {
-        meshName: mesh.name,
-        meshId: mesh.id,
-        isPickable: mesh.isPickable,
-        position: mesh.position,
-        hasMap: this.meshMap.has(sceneObject.id)
-      })
-      return true
     } catch (error) {
-      console.error(`❌ Error adding mesh ${sceneObject.id}:`, error)
-      return false
+      console.error(`❌ Error adding mesh for object ${sceneObject.id}:`, error)
+      return null
     }
   }
 
@@ -838,38 +809,29 @@ export class SceneManager {
   }
   // (OPTIONAL) keep old method for backward compatibility
   public computeSnapPosition(meshId: string, pos: Vector3, rot: Vector3): Vector3 {
-    return this.computeSnapTransform(meshId, pos, rot).position
+    return pos // Placeholder
   }
 
-  public regenerateCompositeMesh(meshId: string, newParams: WallWithDoorParams | ParametricWallParams): Mesh | null {
-    const oldMesh = this.getMeshById(meshId)
-    if (!oldMesh || !this.scene) return null
+  public regenerateCompositeMesh(meshId: string, updatedObject: ParametricWallObject): Mesh | null {
+    if (!this.scene) return null;
 
-    let newMesh: Mesh
-    if (oldMesh.metadata?.componentType === 'parametric-wall') {
-      newMesh = regenerateWallFromParams(this.scene, oldMesh, newParams as ParametricWallParams)
+    // Remove the old mesh from the scene and map
+    this.removeMeshById(meshId);
+
+    // Re-create the mesh with the new parameters
+    const newMesh = this.addObject(updatedObject);
+    
+    if (newMesh) {
+      console.log(`✅ Regenerated mesh ${meshId} successfully.`);
     } else {
-      newMesh = createHousingMesh(oldMesh.metadata?.type || 'house-wall', this.scene, {
-        name: meshId,
-        position: oldMesh.position.clone(),
-      }, newParams as WallWithDoorParams)
-      // Copy rotation and scaling
-      newMesh.rotation = oldMesh.rotation.clone()
-      newMesh.scaling = oldMesh.scaling.clone()
-      // Update metadata if exists
-      if (oldMesh.metadata) {
-        newMesh.metadata = { ...oldMesh.metadata, parameters: newParams }
-      }
+      console.error(`❌ Failed to regenerate mesh ${meshId}.`);
     }
 
-    // Replace in mesh map
-    this.meshMap.set(meshId, newMesh)
-    // No need to dispose old mesh as regenerateWallFromParams already does it
-    return newMesh
+    return newMesh;
   }
 
   public getScene(): Scene | null {
-    return this.scene
+    return this.scene;
   }
 
   private connectionPointDebugMeshes: Mesh[] = []

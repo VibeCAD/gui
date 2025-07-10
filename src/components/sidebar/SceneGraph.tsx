@@ -1,5 +1,6 @@
 import React from 'react';
 import { useSceneStore } from '../../state/sceneStore';
+import type { ParametricWallObject } from '../../types/types';
 
 export const SceneGraph: React.FC = () => {
   const {
@@ -16,13 +17,25 @@ export const SceneGraph: React.FC = () => {
     clearAllObjects,
     isObjectVisible,
     isObjectLocked,
+    setSelectedOpeningId,
+    selectedOpeningId,
   } = useSceneStore();
 
-  const selectObjectById = (objectId: string) => {
-    const object = sceneObjects.find(obj => obj.id === objectId);
-    if (object) {
+  const selectObjectById = (objectId: string, isOpening: boolean = false) => {
+    if (isOpening) {
+      setSelectedOpeningId(objectId);
+      // Also select the parent wall
+      const parentWall = sceneObjects.find(obj => 
+        obj.type === 'parametric-wall' && (obj as ParametricWallObject).params.openings.some(o => o.id === objectId)
+      );
+      if (parentWall) {
+        // In multi-select, we don't want to clear other selections.
+        // The store's `setSelectedObjectId` handles the logic based on the `multiSelectMode` flag.
+        setSelectedObjectId(parentWall.id);
+      }
+    } else {
       setSelectedObjectId(objectId);
-      console.log('📋 Selected from sidebar:', objectId);
+      setSelectedOpeningId(null); // Clear opening selection
     }
   };
 
@@ -57,38 +70,64 @@ export const SceneGraph: React.FC = () => {
           const isVisible = objectVisibility[obj.id] !== false;
           const isLocked = objectLocked[obj.id] || false;
           
-          return (
-            <div 
-              key={obj.id} 
-              className={`scene-object ${isSelected ? 'selected' : ''} ${isLocked ? 'locked' : ''} ${!isVisible ? 'hidden' : ''}`}
-              onClick={() => selectObjectById(obj.id)}
-              title={`${isLocked ? '[LOCKED] ' : ''}${!isVisible ? '[HIDDEN] ' : ''}Click to select this object`}
-            >
-              <span className="object-type">{obj.type}</span>
-              <span className="object-id">{obj.id}</span>
-              <div className="object-controls">
-                <button
-                  className={`object-control-btn ${isVisible ? 'visible' : 'hidden'}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleObjectVisibility(obj.id);
-                  }}
-                  title={isVisible ? 'Hide object' : 'Show object'}
-                >
-                  {isVisible ? '👁️' : '🚫'}
-                </button>
-                <button
-                  className={`object-control-btn ${isLocked ? 'locked' : 'unlocked'}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleObjectLock(obj.id);
-                  }}
-                  title={isLocked ? 'Unlock object' : 'Lock object'}
-                >
-                  {isLocked ? '🔒' : '🔓'}
-                </button>
+          const renderWallOpenings = (wall: ParametricWallObject) => {
+            return (
+              <div className="opening-list">
+                {(wall.params.openings || []).map(opening => {
+                  const isOpeningSelected = selectedOpeningId === opening.id;
+                  return (
+                    <div
+                      key={opening.id}
+                      className={`scene-object opening ${isOpeningSelected ? 'selected' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        selectObjectById(opening.id, true);
+                      }}
+                      title={`Click to select this ${opening.type}`}
+                    >
+                      <span className="object-type"> L {opening.type}</span>
+                      <span className="object-id">{opening.id.slice(0, 8)}...</span>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="object-color" style={{ backgroundColor: obj.color }}></div>
+            );
+          };
+
+          return (
+            <div key={obj.id}>
+              <div 
+                className={`scene-object ${isSelected ? 'selected' : ''} ${isLocked ? 'locked' : ''} ${!isVisible ? 'hidden' : ''}`}
+                onClick={() => selectObjectById(obj.id)}
+                title={`${isLocked ? '[LOCKED] ' : ''}${!isVisible ? '[HIDDEN] ' : ''}Click to select this object`}
+              >
+                <span className="object-type">{obj.type}</span>
+                <span className="object-id">{obj.id}</span>
+                <div className="object-controls">
+                  <button
+                    className={`object-control-btn ${isVisible ? 'visible' : 'hidden'}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleObjectVisibility(obj.id);
+                    }}
+                    title={isVisible ? 'Hide object' : 'Show object'}
+                  >
+                    {isVisible ? '👁️' : '🚫'}
+                  </button>
+                  <button
+                    className={`object-control-btn ${isLocked ? 'locked' : 'unlocked'}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleObjectLock(obj.id);
+                    }}
+                    title={isLocked ? 'Unlock object' : 'Lock object'}
+                  >
+                    {isLocked ? '🔒' : '🔓'}
+                  </button>
+                </div>
+                <div className="object-color" style={{ backgroundColor: obj.color }}></div>
+              </div>
+              {obj.type === 'parametric-wall' && renderWallOpenings(obj as ParametricWallObject)}
             </div>
           );
         })}

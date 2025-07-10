@@ -28,144 +28,44 @@ export interface WallWithDoorParams {
 // Parametric wall and opening interfaces
 export interface DoorOpening {
   id: string;
-  type: 'door'; // Currently focused on doors; can extend to 'window' later per PRD
+  type: 'door';
   width: number;
   height: number;
-  offset: number; // Distance from wall start along length
+  position: Vector3; // Position relative to the wall's origin
 }
+
+export interface WindowOpening {
+  id: string;
+  type: 'window';
+  width: number;
+  height: number;
+  position: Vector3; // Position relative to the wall's origin
+}
+
+export interface RoundWindowOpening {
+  id: string;
+  type: 'roundWindow';
+  radius: number;
+  position: Vector3; // Position relative to the wall's origin
+}
+
+export type Opening = DoorOpening | WindowOpening | RoundWindowOpening;
 
 export interface ParametricWallParams {
-  id: string;
   width: number;
   height: number;
-  depth: number;
-  position: Vector3;
-  rotation: Vector3;
-  openings: DoorOpening[]; // Array for multiple doors per PRD
-  color: string; // Consistent with existing housing patterns
+  thickness: number;
+  openings: Opening[];
 }
 
-// Housing component types
-export type HousingComponentType = WallType | DoorType | WindowType;
-export type DoorType = 'single' | 'double' | 'sliding' | 'french' | 'garage'
-export type WindowType = 'single' | 'double' | 'bay' | 'casement' | 'sliding' | 'skylight'
-export type WallType = 'interior' | 'exterior' | 'load-bearing' | 'partition'
-
-// Door component interface
-export interface Door {
-    id: string
-    type: DoorType
-    width: number
-    height: number
-    thickness: number
-    position: Vector3  // Position relative to the wall
-    wallId: string     // ID of the wall this door belongs to
-    isOpen: boolean
-    openDirection: 'inward' | 'outward'
-    hingeDirection: 'left' | 'right'
-    color: string
-    material?: string
+export interface ParametricWallObject extends SceneObject {
+  type: 'parametric-wall';
+  params: ParametricWallParams;
 }
 
-// Window component interface
-export interface Window {
-    id: string
-    type: WindowType
-    width: number
-    height: number
-    position: Vector3  // Position relative to the wall
-    wallId: string     // ID of the wall this window belongs to
-    sillHeight: number // Height from floor to window sill
-    hasFrame: boolean
-    frameThickness: number
-    color: string
-    material?: string
-    isOpen?: boolean   // For openable windows
-}
 
-// Wall component interface
-export interface Wall {
-    id: string
-    type: WallType
-    startPoint: Vector3
-    endPoint: Vector3
-    height: number
-    thickness: number
-    color: string
-    material?: string
-    doors: Door[]
-    windows: Window[]
-    isLoadBearing: boolean
-    connectedWalls: string[]  // IDs of walls this wall connects to
-}
-
-// Housing component base interface
-export interface HousingComponent {
-    id: string
-    type: HousingComponentType
-    parentId: string  // ID of the parent housing object
-    position: Vector3
-    rotation: Vector3
-    scale: Vector3
-    color: string
-    material?: string
-    isVisible: boolean
-    isLocked: boolean
-}
-
-// Ceiling features interface
-export interface CeilingFeatures {
-    hasLights?: boolean
-    hasFan?: boolean
-    hasSkylight?: boolean
-    hasBeams?: boolean
-}
-
-// Floor features interface
-export interface FloorFeatures {
-    hasBaseboards?: boolean
-    hasHeating?: boolean
-    hasTransition?: boolean
-}
-
-// Modular housing object interface
-export interface ModularHousingObject extends SceneObject {
-    housingType: 'modular-room' | 'modular-house' | 'modular-building'
-    wallThickness: number
-    hasCeiling: boolean
-    hasFloor: boolean
-    hasFoundation: boolean
-    walls: Wall[]
-    doors: Door[]
-    windows: Window[]
-    ceilingHeight: number
-    floorThickness: number
-    foundationHeight: number
-    buildingConnections: string[]  // IDs of other housing objects this connects to
-    roomType?: 'bedroom' | 'kitchen' | 'bathroom' | 'living-room' | 'dining-room' | 'office' | 'hallway' | 'garage'
-    
-    // Enhanced ceiling properties
-    ceilingType?: 'flat' | 'vaulted' | 'coffered' | 'tray' | 'cathedral' | 'beam'
-    ceilingMaterial?: string
-    ceilingThickness?: number
-    ceilingFeatures?: CeilingFeatures
-    
-    // Enhanced floor properties
-    floorMaterial?: string
-    floorFeatures?: FloorFeatures
-}
-
-// Building connection interface
-export interface BuildingConnection {
-    id: string
-    fromObjectId: string
-    toObjectId: string
-    fromWallId: string
-    toWallId: string
-    connectionType: 'door' | 'opening' | 'seamless'
-    doorId?: string  // If connectionType is 'door'
-    isActive: boolean
-}
+// Redundant housing component types are being removed.
+// The new `Opening` type and `ParametricWallParams` will be used instead.
 
 // Scene object metadata interface
 export interface SceneObjectMetadata {
@@ -173,7 +73,7 @@ export interface SceneObjectMetadata {
     componentType?: string;
     parameters?: WallWithDoorParams | ParametricWallParams | any;
     connectionPoints?: ConnectionPoint[];
-    parametricWallParams?: ParametricWallParams; // New field for parametric walls
+    // parametricWallParams?: ParametricWallParams; // This is now part of ParametricWallObject, so it's redundant here
     [key: string]: any; // Allow additional properties
 }
 
@@ -195,8 +95,8 @@ export interface SceneObject {
       degreeV: number
       weights?: number[][]
     }
-    // Housing-specific properties (for backward compatibility)
-    housingData?: ModularHousingObject
+    // Housing-specific properties (for backward compatibility) - REMOVED
+    // housingData?: ModularHousingObject
 
     /** Optional list of connection points used for snapping/alignment */
     connectionPoints?: ConnectionPoint[]
@@ -250,7 +150,8 @@ export interface ConnectionPoint {
     allowedTypes?: string[]
 }
 
-// Utility types for housing operations
+// The HousingOperation type is part of the deprecated Modular Housing system and is being removed.
+/*
 export type HousingOperation = 
   | { type: 'add-door', wallId: string, door: Omit<Door, 'id'> }
   | { type: 'remove-door', doorId: string }
@@ -261,3 +162,4 @@ export type HousingOperation =
   | { type: 'toggle-floor', hasFloor: boolean }
   | { type: 'connect-buildings', fromObjectId: string, toObjectId: string, connection: Omit<BuildingConnection, 'id'> }
   | { type: 'disconnect-buildings', connectionId: string }
+*/

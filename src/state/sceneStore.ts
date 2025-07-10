@@ -7,16 +7,13 @@ import type {
     SceneObject, 
     ControlPointVisualization, 
     MultiSelectInitialState,
-    ModularHousingObject,
-    BuildingConnection,
-    HousingOperation,
-    Door,
-    Window,
-    Wall,
     ImportError,
     ParametricWallParams,
-    DoorOpening
+    Opening,
+    DoorOpeningParams,
+    WindowOpeningParams
 } from '../types/types'
+import { Scene } from 'babylonjs'
 
 // Store State Interface
 interface SceneState {
@@ -71,17 +68,15 @@ interface SceneState {
     isImporting: boolean
     importError: ImportError | null
     
-    // Housing-specific state
-    housingComponents: {[objectId: string]: ModularHousingObject}
-    buildingConnections: BuildingConnection[]
-    selectedWallId: string | null
-    selectedDoorId: string | null
-    selectedWindowId: string | null
-    housingEditMode: 'none' | 'wall' | 'door' | 'window' | 'ceiling'
-    
     // Parametric wall state
     parametricWalls: {[objectId: string]: ParametricWallParams}
-    selectedDoorOpeningId: string | null
+    selectedOpeningId: string | null
+
+    // Preview meshes
+    previewMeshes: Mesh[]
+    addPreviewMesh: (mesh: Mesh) => void
+    removeAllPreviews: () => void
+    scene: Scene | null;
 }
 
 // Store Actions Interface
@@ -151,44 +146,14 @@ interface SceneActions {
     setImportError: (error: ImportError) => void
     clearImportError: () => void
     
-    // Housing-specific actions
-    addHousingComponent: (objectId: string, housingObject: ModularHousingObject) => void
-    removeHousingComponent: (objectId: string) => void
-    updateHousingComponent: (objectId: string, updates: Partial<ModularHousingObject>) => void
-    addDoor: (objectId: string, wallId: string, door: Omit<Door, 'id' | 'wallId'>) => string
-    removeDoor: (objectId: string, doorId: string) => void
-    updateDoor: (objectId: string, doorId: string, updates: Partial<Door>) => void
-    addWindow: (objectId: string, wallId: string, window: Omit<Window, 'id' | 'wallId'>) => string
-    removeWindow: (objectId: string, windowId: string) => void
-    updateWindow: (objectId: string, windowId: string, updates: Partial<Window>) => void
-    changeWallThickness: (objectId: string, thickness: number, wallId?: string) => void
-    toggleCeiling: (objectId: string, hasCeiling: boolean) => void
-    toggleFloor: (objectId: string, hasFloor: boolean) => void
-    addBuildingConnection: (connection: Omit<BuildingConnection, 'id'>) => string
-    removeBuildingConnection: (connectionId: string) => void
-    updateBuildingConnection: (connectionId: string, updates: Partial<BuildingConnection>) => void
-    executeHousingOperation: (objectId: string, operation: HousingOperation) => void
-    setSelectedWallId: (wallId: string | null) => void
-    setSelectedDoorId: (doorId: string | null) => void
-    setSelectedWindowId: (windowId: string | null) => void
-    setHousingEditMode: (mode: 'none' | 'wall' | 'door' | 'window' | 'ceiling') => void
-    
-    // Housing-specific getters
-    getHousingComponent: (objectId: string) => ModularHousingObject | undefined
-    getSelectedWall: (objectId: string) => Wall | undefined
-    getSelectedDoor: (objectId: string) => Door | undefined
-    getSelectedWindow: (objectId: string) => Window | undefined
-    getBuildingConnections: (objectId: string) => BuildingConnection[]
-    
     // Parametric wall actions
     addParametricWall: (wall: ParametricWallParams) => void
     updateParametricWall: (objectId: string, updates: Partial<ParametricWallParams>) => void
     removeParametricWall: (objectId: string) => void
-    addDoorToWall: (wallId: string, door: Omit<DoorOpening, 'id'>) => string
-    updateDoorPosition: (wallId: string, doorId: string, offset: number) => void
-    updateDoorDimensions: (wallId: string, doorId: string, width: number, height: number) => void
-    removeDoorFromWall: (wallId: string, doorId: string) => void
-    setSelectedDoorOpeningId: (doorId: string | null) => void
+    addOpeningToWall: (wallId: string, opening: Omit<Opening, 'id'>) => string
+    updateOpeningInWall: (wallId: string, opening: Opening) => void
+    removeOpeningFromWall: (wallId: string, openingId: string) => void
+    setSelectedOpeningId: (openingId: string | null) => void
     getParametricWall: (objectId: string) => ParametricWallParams | undefined
     regenerateWallMesh: (wallId: string) => void
     
@@ -200,6 +165,11 @@ interface SceneActions {
     isObjectSelected: (objectId: string) => boolean
     isObjectVisible: (objectId: string) => boolean
     isObjectLocked: (objectId: string) => boolean
+
+    // Preview actions
+    addPreviewMesh: (mesh: Mesh) => void
+    removeAllPreviews: () => void
+    setScene: (scene: Scene) => void
 }
 
 // Create the store
@@ -250,17 +220,19 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             isImporting: false,
             importError: null,
             
-            // Housing-specific initial state
-            housingComponents: {},
-            buildingConnections: [],
-            selectedWallId: null,
-            selectedDoorId: null,
-            selectedWindowId: null,
-            housingEditMode: 'none',
-            
             // Parametric wall initial state
             parametricWalls: {},
-            selectedDoorOpeningId: null,
+            selectedOpeningId: null,
+
+            // Preview meshes
+            previewMeshes: [],
+            addPreviewMesh: (mesh) => set(state => ({ previewMeshes: [...state.previewMeshes, mesh] })),
+            removeAllPreviews: () => {
+                const { previewMeshes } = get()
+                previewMeshes.forEach(m => m.dispose())
+                set({ previewMeshes: [] })
+            },
+            scene: null,
             
             // Actions
             addObject: (object) => set((state) => ({
@@ -408,315 +380,6 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             setImportError: (error) => set({ isImporting: false, importError: error }),
             clearImportError: () => set({ importError: null }),
             
-            // Housing-specific actions
-            addHousingComponent: (objectId, housingObject) => set((state) => ({
-                housingComponents: { ...state.housingComponents, [objectId]: housingObject }
-            })),
-            
-            removeHousingComponent: (objectId) => set((state) => {
-                const newComponents = { ...state.housingComponents };
-                delete newComponents[objectId];
-                return { housingComponents: newComponents };
-            }),
-            
-            updateHousingComponent: (objectId, updates) => set((state) => ({
-                housingComponents: {
-                    ...state.housingComponents,
-                    [objectId]: { ...state.housingComponents[objectId], ...updates }
-                }
-            })),
-            
-            addDoor: (objectId, wallId, door) => {
-                const state = get();
-                const housing = state.housingComponents[objectId];
-                if (!housing) return '';
-                
-                const wall = housing.walls.find(w => w.id === wallId);
-                if (!wall) return '';
-                
-                const doorId = `door-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                const newDoor: Door = { ...door, id: doorId, wallId };
-                
-                wall.doors.push(newDoor);
-                housing.doors.push(newDoor);
-                
-                set((state) => ({
-                    housingComponents: {
-                        ...state.housingComponents,
-                        [objectId]: housing
-                    }
-                }));
-                
-                return doorId;
-            },
-            
-            removeDoor: (objectId, doorId) => set((state) => {
-                const housing = state.housingComponents[objectId];
-                if (!housing) return state;
-                
-                const door = housing.doors.find(d => d.id === doorId);
-                if (!door) return state;
-                
-                const wall = housing.walls.find(w => w.id === door.wallId);
-                if (wall) {
-                    wall.doors = wall.doors.filter(d => d.id !== doorId);
-                }
-                
-                housing.doors = housing.doors.filter(d => d.id !== doorId);
-                
-                return {
-                    housingComponents: {
-                        ...state.housingComponents,
-                        [objectId]: housing
-                    }
-                };
-            }),
-            
-            updateDoor: (objectId, doorId, updates) => set((state) => {
-                const housing = state.housingComponents[objectId];
-                if (!housing) return state;
-                
-                const door = housing.doors.find(d => d.id === doorId);
-                if (!door) return state;
-                
-                const wall = housing.walls.find(w => w.id === door.wallId);
-                if (wall) {
-                    const wallDoor = wall.doors.find(d => d.id === doorId);
-                    if (wallDoor) {
-                        Object.assign(wallDoor, updates);
-                    }
-                }
-                
-                Object.assign(door, updates);
-                
-                return {
-                    housingComponents: {
-                        ...state.housingComponents,
-                        [objectId]: housing
-                    }
-                };
-            }),
-            
-            addWindow: (objectId, wallId, window) => {
-                const state = get();
-                const housing = state.housingComponents[objectId];
-                if (!housing) return '';
-                
-                const wall = housing.walls.find(w => w.id === wallId);
-                if (!wall) return '';
-                
-                const windowId = `window-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                const newWindow: Window = { ...window, id: windowId, wallId };
-                
-                wall.windows.push(newWindow);
-                housing.windows.push(newWindow);
-                
-                set((state) => ({
-                    housingComponents: {
-                        ...state.housingComponents,
-                        [objectId]: housing
-                    }
-                }));
-                
-                return windowId;
-            },
-            
-            removeWindow: (objectId, windowId) => set((state) => {
-                const housing = state.housingComponents[objectId];
-                if (!housing) return state;
-                
-                const window = housing.windows.find(w => w.id === windowId);
-                if (!window) return state;
-                
-                const wall = housing.walls.find(w => w.id === window.wallId);
-                if (wall) {
-                    wall.windows = wall.windows.filter(w => w.id !== windowId);
-                }
-                
-                housing.windows = housing.windows.filter(w => w.id !== windowId);
-                
-                return {
-                    housingComponents: {
-                        ...state.housingComponents,
-                        [objectId]: housing
-                    }
-                };
-            }),
-            
-            updateWindow: (objectId, windowId, updates) => set((state) => {
-                const housing = state.housingComponents[objectId];
-                if (!housing) return state;
-                
-                const window = housing.windows.find(w => w.id === windowId);
-                if (!window) return state;
-                
-                const wall = housing.walls.find(w => w.id === window.wallId);
-                if (wall) {
-                    const wallWindow = wall.windows.find(w => w.id === windowId);
-                    if (wallWindow) {
-                        Object.assign(wallWindow, updates);
-                    }
-                }
-                
-                Object.assign(window, updates);
-                
-                return {
-                    housingComponents: {
-                        ...state.housingComponents,
-                        [objectId]: housing
-                    }
-                };
-            }),
-            
-            changeWallThickness: (objectId, thickness, wallId) => set((state) => {
-                const housing = state.housingComponents[objectId];
-                if (!housing) return state;
-                
-                if (wallId) {
-                    const wall = housing.walls.find(w => w.id === wallId);
-                    if (wall) {
-                        wall.thickness = thickness;
-                    }
-                } else {
-                    housing.walls.forEach(wall => {
-                        wall.thickness = thickness;
-                    });
-                    housing.wallThickness = thickness;
-                }
-                
-                return {
-                    housingComponents: {
-                        ...state.housingComponents,
-                        [objectId]: housing
-                    }
-                };
-            }),
-            
-            toggleCeiling: (objectId, hasCeiling) => set((state) => {
-                const housing = state.housingComponents[objectId];
-                if (!housing) return state;
-                
-                housing.hasCeiling = hasCeiling;
-                
-                return {
-                    housingComponents: {
-                        ...state.housingComponents,
-                        [objectId]: housing
-                    }
-                };
-            }),
-            
-            toggleFloor: (objectId, hasFloor) => set((state) => {
-                const housing = state.housingComponents[objectId];
-                if (!housing) return state;
-                
-                housing.hasFloor = hasFloor;
-                
-                return {
-                    housingComponents: {
-                        ...state.housingComponents,
-                        [objectId]: housing
-                    }
-                };
-            }),
-            
-            addBuildingConnection: (connection) => {
-                const connectionId = `connection-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                const newConnection: BuildingConnection = { ...connection, id: connectionId };
-                
-                set((state) => ({
-                    buildingConnections: [...state.buildingConnections, newConnection]
-                }));
-                
-                return connectionId;
-            },
-            
-            removeBuildingConnection: (connectionId) => set((state) => ({
-                buildingConnections: state.buildingConnections.filter(conn => conn.id !== connectionId)
-            })),
-            
-            updateBuildingConnection: (connectionId, updates) => set((state) => ({
-                buildingConnections: state.buildingConnections.map(conn =>
-                    conn.id === connectionId ? { ...conn, ...updates } : conn
-                )
-            })),
-            
-            executeHousingOperation: (objectId, operation) => {
-                const actions = get();
-                
-                switch (operation.type) {
-                    case 'add-door':
-                        actions.addDoor(objectId, operation.wallId, operation.door);
-                        break;
-                    case 'remove-door':
-                        actions.removeDoor(objectId, operation.doorId);
-                        break;
-                    case 'add-window':
-                        actions.addWindow(objectId, operation.wallId, operation.window);
-                        break;
-                    case 'remove-window':
-                        actions.removeWindow(objectId, operation.windowId);
-                        break;
-                    case 'change-wall-thickness':
-                        actions.changeWallThickness(objectId, operation.thickness, operation.wallId);
-                        break;
-                    case 'toggle-ceiling':
-                        actions.toggleCeiling(objectId, operation.hasCeiling);
-                        break;
-                    case 'toggle-floor':
-                        actions.toggleFloor(objectId, operation.hasFloor);
-                        break;
-                    case 'connect-buildings':
-                        actions.addBuildingConnection(operation.connection);
-                        break;
-                    case 'disconnect-buildings':
-                        actions.removeBuildingConnection(operation.connectionId);
-                        break;
-                }
-            },
-            
-            setSelectedWallId: (wallId) => set({ selectedWallId: wallId }),
-            
-            setSelectedDoorId: (doorId) => set({ selectedDoorId: doorId }),
-            
-            setSelectedWindowId: (windowId) => set({ selectedWindowId: windowId }),
-            
-            setHousingEditMode: (mode) => set({ housingEditMode: mode }),
-            
-            // Housing-specific getters
-            getHousingComponent: (objectId) => {
-                const state = get();
-                return state.housingComponents[objectId];
-            },
-            
-            getSelectedWall: (objectId) => {
-                const state = get();
-                const housing = state.housingComponents[objectId];
-                if (!housing || !state.selectedWallId) return undefined;
-                return housing.walls.find(w => w.id === state.selectedWallId);
-            },
-            
-            getSelectedDoor: (objectId) => {
-                const state = get();
-                const housing = state.housingComponents[objectId];
-                if (!housing || !state.selectedDoorId) return undefined;
-                return housing.doors.find(d => d.id === state.selectedDoorId);
-            },
-            
-            getSelectedWindow: (objectId) => {
-                const state = get();
-                const housing = state.housingComponents[objectId];
-                if (!housing || !state.selectedWindowId) return undefined;
-                return housing.windows.find(w => w.id === state.selectedWindowId);
-            },
-            
-            getBuildingConnections: (objectId) => {
-                const state = get();
-                return state.buildingConnections.filter(conn => 
-                    conn.fromObjectId === objectId || conn.toObjectId === objectId
-                );
-            },
-            
             // Parametric wall actions
             addParametricWall: (wall) => set((state) => ({
                 parametricWalls: { ...state.parametricWalls, [wall.id]: wall }
@@ -735,20 +398,43 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 return { parametricWalls: newWalls };
             }),
             
-            addDoorToWall: (wallId, door) => {
+            addOpeningToWall: (wallId, opening) => {
                 const state = get();
                 const wall = state.parametricWalls[wallId];
                 if (!wall) return '';
                 
-                const doorId = `door-opening-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                const newDoor: DoorOpening = { ...door, id: doorId };
+                const openingId = `${opening.type}-opening-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                
+                let newOpening: Opening;
+
+                if (opening.type === 'door') {
+                    newOpening = {
+                        id: openingId,
+                        type: 'door',
+                        width: opening.width,
+                        height: opening.height,
+                        offset: opening.offset,
+                    };
+                } else if (opening.type === 'window') {
+                    newOpening = {
+                        id: openingId,
+                        type: 'window',
+                        width: opening.width,
+                        height: opening.height,
+                        offset: opening.offset,
+                        sillHeight: opening.sillHeight,
+                    };
+                } else {
+                    // This should not be reachable with the current Opening types
+                    return '';
+                }
                 
                 set((state) => ({
                     parametricWalls: {
                         ...state.parametricWalls,
                         [wallId]: {
                             ...wall,
-                            openings: [...wall.openings, newDoor]
+                            openings: [...wall.openings, newOpening]
                         }
                     }
                 }));
@@ -756,10 +442,10 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 // Trigger mesh regeneration
                 get().regenerateWallMesh(wallId);
                 
-                return doorId;
+                return openingId;
             },
             
-            updateDoorPosition: (wallId, doorId, offset) => {
+            removeOpeningFromWall: (wallId, openingId) => {
                 set((state) => {
                     const wall = state.parametricWalls[wallId];
                     if (!wall) return state;
@@ -769,9 +455,7 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                             ...state.parametricWalls,
                             [wallId]: {
                                 ...wall,
-                                openings: wall.openings.map(opening =>
-                                    opening.id === doorId ? { ...opening, offset } : opening
-                                )
+                                openings: wall.openings.filter(opening => opening.id !== openingId)
                             }
                         }
                     };
@@ -781,49 +465,7 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 get().regenerateWallMesh(wallId);
             },
             
-            updateDoorDimensions: (wallId, doorId, width, height) => {
-                set((state) => {
-                    const wall = state.parametricWalls[wallId];
-                    if (!wall) return state;
-                    
-                    return {
-                        parametricWalls: {
-                            ...state.parametricWalls,
-                            [wallId]: {
-                                ...wall,
-                                openings: wall.openings.map(opening =>
-                                    opening.id === doorId ? { ...opening, width, height } : opening
-                                )
-                            }
-                        }
-                    };
-                });
-                
-                // Trigger mesh regeneration
-                get().regenerateWallMesh(wallId);
-            },
-            
-            removeDoorFromWall: (wallId, doorId) => {
-                set((state) => {
-                    const wall = state.parametricWalls[wallId];
-                    if (!wall) return state;
-                    
-                    return {
-                        parametricWalls: {
-                            ...state.parametricWalls,
-                            [wallId]: {
-                                ...wall,
-                                openings: wall.openings.filter(opening => opening.id !== doorId)
-                            }
-                        }
-                    };
-                });
-                
-                // Trigger mesh regeneration
-                get().regenerateWallMesh(wallId);
-            },
-            
-            setSelectedDoorOpeningId: (doorId) => set({ selectedDoorOpeningId: doorId }),
+            setSelectedOpeningId: (openingId) => set({ selectedOpeningId: openingId }),
             
             getParametricWall: (objectId) => {
                 const state = get();
@@ -848,6 +490,23 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                             : obj
                     )
                 }));
+            },
+            
+            updateOpeningInWall: (wallId, opening) => {
+                set((state) => {
+                    const wall = state.parametricWalls[wallId];
+                    if (!wall) return state;
+                    return {
+                        parametricWalls: {
+                            ...state.parametricWalls,
+                            [wallId]: {
+                                ...wall,
+                                openings: wall.openings.map(o => o.id === opening.id ? opening : o)
+                            }
+                        }
+                    };
+                });
+                get().regenerateWallMesh(wallId);
             },
             
             // Computed getters
@@ -886,7 +545,8 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             isObjectLocked: (objectId) => {
                 const state = get()
                 return state.objectLocked[objectId] === true
-            }
+            },
+            setScene: (scene: Scene) => set({ scene })
         }),
         {
             name: 'scene-store',
@@ -916,11 +576,9 @@ export type {
     ControlPointVisualization, 
     TransformMode, 
     PrimitiveType,
-    ModularHousingObject,
-    BuildingConnection,
-    HousingOperation,
-    Door,
-    Window,
-    Wall,
-    ImportError
+    ImportError,
+    ParametricWallParams,
+    Opening,
+    DoorOpeningParams,
+    WindowOpeningParams
 }

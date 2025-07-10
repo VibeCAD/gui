@@ -3,15 +3,15 @@ import { Vector3, Color3, PickingInfo, Matrix } from 'babylonjs'
 import { SceneManager } from '../sceneManager'
 import { useSceneStore } from '../../state/sceneStore'
 import { useGizmoManager } from '../gizmoManager'
-import type { SceneObject } from '../../types/types'
+import type { SceneObject, ParametricWallObject } from '../../types/types'
 
 // Custom hook to get the previous value of a prop or state
 function usePrevious<T>(value: T): T | undefined {
-  const ref = useRef<T>()
+  const ref = useRef<T>(undefined);
   useEffect(() => {
-    ref.current = value
-  }, [value])
-  return ref.current
+    ref.current = value;
+  }, [value]);
+  return ref.current;
 }
 
 export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | null>) => {
@@ -49,7 +49,8 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     setMultiSelectPivot,
     setMultiSelectInitialStates,
     setGridMesh,
-    clearSelection
+    clearSelection,
+    setScene // Added setScene action
   } = store
 
   // Keep sceneObjectsRef synchronized with sceneObjects state for callbacks
@@ -132,13 +133,14 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
           console.log('🎲 Adding initial ground to scene...')
           
           // Add initial ground to the scene and store
-          sceneManager.addMesh(initialGround)
+          sceneManager.addObject(initialGround)
           
           // Initialize store with initial ground only
           store.setSceneObjects([initialGround])
           
           setSceneInitialized(true)
           console.log('✅ useBabylonScene initialized successfully')
+          useSceneStore.getState().setScene(sceneManager.getScene()!);
         } else {
           console.error('❌ Failed to initialize SceneManager')
           isInitializedRef.current = false // Allow retry if initialization fails
@@ -268,27 +270,33 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
       if (!prevObj) {
         // New object added
         console.log(`➕ Adding new mesh: ${id} (${currentObj.type})`)
-        sceneManager.addMesh(currentObj)
+        sceneManager.addObject(currentObj)
       } else if (currentObj !== prevObj) {
-        // Existing object updated, calculate a diff
+        // Existing object updated
         console.log(`🔄 Updating existing mesh: ${id}`)
-        const diff: Partial<SceneObject> = {}
         
-        if (currentObj.position !== prevObj.position && !currentObj.position.equals(prevObj.position)) {
-          diff.position = currentObj.position
-        }
-        if (currentObj.rotation !== prevObj.rotation && !currentObj.rotation.equals(prevObj.rotation)) {
-          diff.rotation = currentObj.rotation
-        }
-        if (currentObj.scale !== prevObj.scale && !currentObj.scale.equals(prevObj.scale)) {
-          diff.scale = currentObj.scale
-        }
-        if (currentObj.color !== prevObj.color) {
-          diff.color = currentObj.color
-        }
-        
-        if (Object.keys(diff).length > 0) {
-          sceneManager.updateMeshProperties(id, diff)
+        // If it's a parametric wall, its geometry might have changed
+        if (currentObj.type === 'parametric-wall' && prevObj.type === 'parametric-wall' && (currentObj as any).params !== (prevObj as any).params) {
+            sceneManager.regenerateCompositeMesh(id, currentObj as ParametricWallObject);
+        } else {
+            // For other objects or simple transform changes, do a property diff
+            const diff: Partial<SceneObject> = {}
+            if (currentObj.position !== prevObj.position && !currentObj.position.equals(prevObj.position)) {
+            diff.position = currentObj.position
+            }
+            if (currentObj.rotation !== prevObj.rotation && !currentObj.rotation.equals(prevObj.rotation)) {
+            diff.rotation = currentObj.rotation
+            }
+            if (currentObj.scale !== prevObj.scale && !currentObj.scale.equals(prevObj.scale)) {
+            diff.scale = currentObj.scale
+            }
+            if (currentObj.color !== prevObj.color) {
+            diff.color = currentObj.color
+            }
+            
+            if (Object.keys(diff).length > 0) {
+            sceneManager.updateMeshProperties(id, diff)
+            }
         }
       }
     })

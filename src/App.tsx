@@ -16,6 +16,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 
 import { useSceneStore } from './state/sceneStore'
 import type { SceneObject, PrimitiveType, TransformMode, ControlPointVisualization } from './types/types'
+import type { ParametricWallParams } from './types/types'
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -277,6 +278,38 @@ function App() {
     setSelectedObjectId(newId);
     setActiveDropdown(null);
   }
+
+  const createParametricWall = () => {
+    if (!sceneInitialized) return;
+
+    const newId = `parametric-wall-${Date.now()}`;
+    const position = new Vector3(Math.random() * 4 - 2, 0, Math.random() * 4 - 2);
+
+    const params: ParametricWallParams = {
+      id: newId,
+      width: 5,
+      height: 3,
+      depth: 0.2,
+      color: '#8B4513',
+      openings: [],
+      position,
+      rotation: new Vector3(0, 0, 0),
+    };
+
+    useSceneStore.getState().addParametricWall(params);
+
+    const newObj: SceneObject = {
+      id: newId,
+      type: 'parametric-wall',
+      position: position.clone(),
+      rotation: params.rotation.clone(),
+      scale: new Vector3(1, 1, 1),
+      color: params.color,
+      isNurbs: false,
+    };
+
+    useSceneStore.getState().addObject(newObj);
+  };
 
   const duplicateObject = () => {
     if (!selectedObject || !sceneInitialized) return
@@ -670,6 +703,10 @@ function App() {
                 <button className="dropdown-button" onClick={() => createHousingComponent('floor')}>
                   <span className="dropdown-icon">🟫</span>
                   Floor
+                </button>
+                <button className="dropdown-button" onClick={() => createParametricWall()}>
+                  <span className="dropdown-icon">🧱</span>
+                  Parametric Wall
                 </button>
               </div>
             </div>
