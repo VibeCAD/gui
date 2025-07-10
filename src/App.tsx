@@ -16,6 +16,9 @@ import { AISidebar } from './components/sidebar/AISidebar'
 // Import the CompassOverlay component
 import { CompassOverlay } from './components/ui/CompassOverlay'
 
+// Import the MinimapOverlay component
+import { MinimapOverlay } from './components/ui/MinimapOverlay'
+
 // Import the keyboard shortcuts hook
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 
@@ -78,6 +81,12 @@ function App() {
     showConnectionPoints,
     movementEnabled,
     movementSpeed,
+    minimapVisible,
+    minimapPosition,
+    minimapSize,
+    minimapOpacity,
+    minimapShowGrid,
+    minimapShowLabels,
 
     // Actions
     setSceneObjects,
@@ -114,6 +123,12 @@ function App() {
     setShowConnectionPoints,
     setMovementEnabled,
     setMovementSpeed,
+    setMinimapVisible,
+    setMinimapPosition,
+    setMinimapSize,
+    setMinimapOpacity,
+    setMinimapShowGrid,
+    setMinimapShowLabels,
     
     // Getters from store (for checking object status)
     hasSelection,
@@ -1789,6 +1804,75 @@ function App() {
                 >
                   {snapToGrid ? '✓' : ''} Snap to Grid
                 </button>
+                <button 
+                  className={`dropdown-action ${minimapVisible ? 'active' : ''}`}
+                  onClick={() => setMinimapVisible(!minimapVisible)}
+                >
+                  {minimapVisible ? '✓' : ''} Minimap
+                </button>
+              </div>
+            </div>
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Minimap Settings</div>
+              <div className="dropdown-controls">
+                <div className="control-row">
+                  <label className="control-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={minimapShowGrid}
+                      onChange={(e) => setMinimapShowGrid(e.target.checked)}
+                    />
+                    <span>Show Grid on Minimap</span>
+                  </label>
+                </div>
+                <div className="control-row">
+                  <label className="control-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={minimapShowLabels}
+                      onChange={(e) => setMinimapShowLabels(e.target.checked)}
+                    />
+                    <span>Show Labels on Minimap</span>
+                  </label>
+                </div>
+                <div className="control-row">
+                  <span className="control-label">Size:</span>
+                  <select
+                    value={minimapSize}
+                    onChange={(e) => setMinimapSize(e.target.value as 'small' | 'medium' | 'large')}
+                    className="control-select"
+                  >
+                    <option value="small">Small</option>
+                    <option value="medium">Medium</option>
+                    <option value="large">Large</option>
+                  </select>
+                </div>
+                <div className="control-row">
+                  <span className="control-label">Position:</span>
+                  <select
+                    value={minimapPosition}
+                    onChange={(e) => setMinimapPosition(e.target.value as 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right')}
+                    className="control-select"
+                  >
+                    <option value="top-left">Top Left</option>
+                    <option value="top-right">Top Right</option>
+                    <option value="bottom-left">Bottom Left</option>
+                    <option value="bottom-right">Bottom Right</option>
+                  </select>
+                </div>
+                <div className="control-row">
+                  <span className="control-label">Opacity:</span>
+                  <input
+                    type="range"
+                    value={minimapOpacity}
+                    onChange={(e) => setMinimapOpacity(parseFloat(e.target.value))}
+                    min="0.5"
+                    max="1.0"
+                    step="0.05"
+                    className="control-range"
+                  />
+                  <span className="control-value">{(minimapOpacity * 100).toFixed(0)}%</span>
+                </div>
               </div>
             </div>
             <div className="dropdown-section">
@@ -1858,6 +1942,27 @@ function App() {
   const handleOpenCustomRoomModal = () => {
     console.log('🎨 Opening custom room modal from AI command')
     setShowCustomRoomModal(true)
+  }
+
+  // Minimap event handlers
+  const handleMinimapCameraMove = (worldX: number, worldZ: number) => {
+    if (sceneAPI) {
+      const newCameraPosition = new Vector3(worldX, 5, worldZ)
+      sceneAPI.focusOnPosition(newCameraPosition)
+      console.log('🗺️ Camera moved via minimap to:', { worldX, worldZ })
+    }
+  }
+
+  const handleMinimapObjectSelect = (objectId: string) => {
+    console.log('🗺️ Object selected via minimap:', objectId)
+    setSelectedObjectId(objectId)
+    setSelectedObjectIds([])
+    
+    // Focus on the selected object
+    const selectedObj = sceneObjects.find(obj => obj.id === objectId)
+    if (selectedObj && sceneAPI) {
+      sceneAPI.focusOnPosition(selectedObj.position)
+    }
   }
   /*
   const clearAllObjects = () => {
@@ -1937,6 +2042,40 @@ function App() {
           />
           {/* Compass overlay for directional reference */}
           <CompassOverlay />
+          
+          {/* Minimap overlay for scene navigation */}
+          {(() => {
+            const sceneManager = sceneAPI?.getSceneManager()
+            console.log('🗺️ Minimap render check:', {
+              sceneInitialized,
+              hasSceneAPI: !!sceneAPI,
+              hasSceneManager: !!sceneManager,
+              minimapVisible,
+              minimapPosition,
+              minimapSize
+            })
+            
+            if (sceneInitialized && sceneAPI && sceneManager) {
+              return (
+                <MinimapOverlay
+                  position={minimapPosition}
+                  size={minimapSize}
+                  opacity={minimapOpacity}
+                  visible={minimapVisible}
+                  showGrid={minimapShowGrid}
+                  showLabels={minimapShowLabels}
+                  sceneManager={sceneManager}
+                  onPositionChange={setMinimapPosition}
+                  onSizeChange={setMinimapSize}
+                  onOpacityChange={setMinimapOpacity}
+                  onVisibilityChange={setMinimapVisible}
+                  onCameraMove={handleMinimapCameraMove}
+                  onObjectSelect={handleMinimapObjectSelect}
+                />
+              )
+            }
+            return null
+          })()}
         </div>
         <AISidebar 
           apiKey={apiKey}

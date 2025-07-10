@@ -47,6 +47,14 @@ interface SceneState {
     movementEnabled: boolean
     movementSpeed: number
     
+    // Minimap controls
+    minimapVisible: boolean
+    minimapPosition: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+    minimapSize: 'small' | 'medium' | 'large'
+    minimapOpacity: number
+    minimapShowGrid: boolean
+    minimapShowLabels: boolean
+    
     // Object properties
     objectVisibility: {[key: string]: boolean}
     objectLocked: {[key: string]: boolean}
@@ -128,6 +136,14 @@ interface SceneActions {
     // Movement control actions
     setMovementEnabled: (enabled: boolean) => void
     setMovementSpeed: (speed: number) => void
+    
+    // Minimap control actions
+    setMinimapVisible: (visible: boolean) => void
+    setMinimapPosition: (position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right') => void
+    setMinimapSize: (size: 'small' | 'medium' | 'large') => void
+    setMinimapOpacity: (opacity: number) => void
+    setMinimapShowGrid: (show: boolean) => void
+    setMinimapShowLabels: (show: boolean) => void
     
     // Object property actions
     setObjectVisibility: (objectId: string, visible: boolean) => void
@@ -259,6 +275,57 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 } catch (e) {
                     console.warn('Failed to load movement speed setting from localStorage:', e)
                     return 0.1
+                }
+            })(),
+            
+            // Minimap controls initial state (load from localStorage if available)
+            minimapVisible: (() => {
+                try {
+                    const saved = localStorage.getItem('vibecad_minimap_visible')
+                    return saved ? JSON.parse(saved) : true
+                } catch (e) {
+                    return true
+                }
+            })(),
+            minimapPosition: (() => {
+                try {
+                    const saved = localStorage.getItem('vibecad_minimap_position')
+                    return saved ? JSON.parse(saved) : 'top-left'
+                } catch (e) {
+                    return 'top-left'
+                }
+            })(),
+            minimapSize: (() => {
+                try {
+                    const saved = localStorage.getItem('vibecad_minimap_size')
+                    return saved ? JSON.parse(saved) : 'medium'
+                } catch (e) {
+                    return 'medium'
+                }
+            })(),
+            minimapOpacity: (() => {
+                try {
+                    const saved = localStorage.getItem('vibecad_minimap_opacity')
+                    const parsed = saved ? JSON.parse(saved) : 0.85
+                    return Math.max(0.5, Math.min(1.0, parsed)) // Ensure valid range
+                } catch (e) {
+                    return 0.85
+                }
+            })(),
+            minimapShowGrid: (() => {
+                try {
+                    const saved = localStorage.getItem('vibecad_minimap_show_grid')
+                    return saved ? JSON.parse(saved) : false
+                } catch (e) {
+                    return false
+                }
+            })(),
+            minimapShowLabels: (() => {
+                try {
+                    const saved = localStorage.getItem('vibecad_minimap_show_labels')
+                    return saved ? JSON.parse(saved) : false
+                } catch (e) {
+                    return false
                 }
             })(),
             
@@ -405,6 +472,57 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                     localStorage.setItem('vibecad_movement_speed', JSON.stringify(clampedSpeed))
                 } catch (e) {
                     console.warn('Failed to save movement speed setting to localStorage:', e)
+                }
+            },
+            
+            // Minimap control actions
+            setMinimapVisible: (visible) => {
+                set({ minimapVisible: visible })
+                try {
+                    localStorage.setItem('vibecad_minimap_visible', JSON.stringify(visible))
+                } catch (e) {
+                    console.warn('Failed to save minimap visibility setting to localStorage:', e)
+                }
+            },
+            setMinimapPosition: (position) => {
+                set({ minimapPosition: position })
+                try {
+                    localStorage.setItem('vibecad_minimap_position', JSON.stringify(position))
+                } catch (e) {
+                    console.warn('Failed to save minimap position setting to localStorage:', e)
+                }
+            },
+            setMinimapSize: (size) => {
+                set({ minimapSize: size })
+                try {
+                    localStorage.setItem('vibecad_minimap_size', JSON.stringify(size))
+                } catch (e) {
+                    console.warn('Failed to save minimap size setting to localStorage:', e)
+                }
+            },
+            setMinimapOpacity: (opacity) => {
+                const clampedOpacity = Math.max(0.5, Math.min(1.0, opacity))
+                set({ minimapOpacity: clampedOpacity })
+                try {
+                    localStorage.setItem('vibecad_minimap_opacity', JSON.stringify(clampedOpacity))
+                } catch (e) {
+                    console.warn('Failed to save minimap opacity setting to localStorage:', e)
+                }
+            },
+            setMinimapShowGrid: (show) => {
+                set({ minimapShowGrid: show })
+                try {
+                    localStorage.setItem('vibecad_minimap_show_grid', JSON.stringify(show))
+                } catch (e) {
+                    console.warn('Failed to save minimap grid setting to localStorage:', e)
+                }
+            },
+            setMinimapShowLabels: (show) => {
+                set({ minimapShowLabels: show })
+                try {
+                    localStorage.setItem('vibecad_minimap_show_labels', JSON.stringify(show))
+                } catch (e) {
+                    console.warn('Failed to save minimap labels setting to localStorage:', e)
                 }
             },
             

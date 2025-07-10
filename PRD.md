@@ -1,352 +1,497 @@
-# Product Requirements Document: WASD Movement Controls
+# Product Requirements Document: Minimap Navigation Display
 
 ## 1. Overview
 
 ### 1.1 Feature Name
-WASD Camera Movement Controls
+3D Scene Minimap
 
 ### 1.2 Feature Description
-Implementation of keyboard-based camera movement controls in VibeCad, providing users with a familiar first-person navigation system similar to Minecraft and other 3D applications.
+A real-time, top-down minimap display positioned in the top-left corner of the VibeCad interface, providing users with spatial awareness of object positions and camera orientation within the 3D scene.
 
 ### 1.3 Document Information
 - **Author**: VibeCad Development Team
 - **Date**: December 2024
 - **Version**: 1.0
-- **Status**: Implemented
+- **Status**: Proposed
 
 ## 2. Background & Context
 
 ### 2.1 Problem Statement
-Currently, users can only navigate the 3D scene using mouse controls (orbit, pan, zoom). This limits productivity for users who need to:
-- Quickly navigate large scenes
-- Precisely position the camera for detailed work
-- Maintain one hand on the keyboard while modeling
-- Switch between different viewpoints rapidly
+Users working with complex 3D scenes face several navigation challenges:
+- **Spatial Disorientation**: Losing track of position in large scenes
+- **Object Location**: Difficulty finding specific objects when zoomed in
+- **Scene Overview**: No quick way to understand overall scene layout
+- **Camera Context**: Unclear which direction camera is facing
+- **Relative Positioning**: Hard to judge distances between objects
 
 ### 2.2 Market Research
-Industry standard 3D applications provide keyboard navigation:
-- **Minecraft**: WASD + Space/Shift for movement
-- **Blender**: WASD navigation in fly mode
-- **Unity/Unreal**: Standard FPS controls
-- **AutoCAD**: Keyboard shortcuts for navigation
+Industry standard 3D applications with minimap features:
+- **Game Engines**: Unity, Unreal Engine (scene overview widgets)
+- **CAD Software**: AutoCAD (ViewCube + Navigation tools)
+- **3D Modeling**: Blender (viewport navigation aids)
+- **Games**: Minecraft, SimCity (minimap for orientation)
 
 ### 2.3 Strategic Alignment
-This feature aligns with VibeCad's goals to:
-- Improve user productivity
-- Reduce learning curve for users familiar with gaming controls
-- Provide professional-grade navigation tools
-- Enable efficient scene exploration
+This feature supports VibeCad's mission to:
+- Improve spatial navigation in complex scenes
+- Reduce time spent searching for objects
+- Enhance professional workflow efficiency
+- Provide familiar navigation patterns from gaming
 
 ## 3. Objectives & Success Metrics
 
 ### 3.1 Primary Objectives
-1. Enable keyboard-based camera movement
-2. Provide intuitive controls familiar to gamers and 3D artists
-3. Allow seamless switching between mouse and keyboard navigation
-4. Maintain smooth performance during movement
+1. Provide constant spatial awareness of scene layout
+2. Enable quick object location and identification
+3. Show real-time camera position and orientation
+4. Improve navigation efficiency in large scenes
 
 ### 3.2 Success Metrics
-- **Adoption Rate**: 60% of active users enable WASD controls within first month
-- **Performance**: Movement maintains 60+ FPS on standard hardware
-- **User Satisfaction**: 4.5+ star rating in user feedback
-- **Productivity**: 25% reduction in time to navigate complex scenes
+- **Navigation Time**: 40% reduction in time to locate objects
+- **User Adoption**: 75% of users with 10+ objects use minimap
+- **Performance Impact**: < 5% FPS reduction when enabled
+- **Error Reduction**: 30% fewer "lost in scene" support tickets
+- **Satisfaction**: 4.2+ star rating for navigation features
 
 ## 4. User Personas & Use Cases
 
 ### 4.1 Primary Personas
 
-**1. 3D Designer (Sarah)**
-- Expert in 3D modeling software
-- Values efficiency and keyboard shortcuts
-- Needs precise camera control for detailed work
+**1. Architectural Designer (David)**
+- Works with large building models
+- Needs to navigate between rooms quickly
+- Requires overview while focusing on details
+- Values efficient spatial navigation
 
-**2. Game Developer (Mike)**
-- Familiar with FPS controls
-- Expects standard WASD movement
-- Requires quick scene navigation
+**2. Product Designer (Emma)**
+- Creates complex mechanical assemblies
+- Needs to track multiple components
+- Switches between detail and overview frequently
+- Requires precise object location
 
-**3. Architecture Student (Lisa)**
-- Learning 3D design
-- Comfortable with gaming controls
-- Needs intuitive navigation
+**3. Educational User (Prof. Zhang)**
+- Demonstrates 3D concepts to students
+- Needs clear visualization aids
+- Values intuitive navigation tools
+- Requires easy-to-explain features
 
 ### 4.2 Use Cases
 
-**UC1: Scene Exploration**
-- User imports large architectural model
-- Enables WASD controls
-- Navigates through building using keyboard
-- Inspects details from various angles
+**UC1: Large Scene Navigation**
+```
+Given: User has imported a multi-story building with 100+ objects
+When: User enables minimap
+Then: Can see all floors/rooms from top view
+And: Can click minimap to jump to specific areas
+```
 
-**UC2: Precise Positioning**
-- User needs specific camera angle
-- Uses WASD for rough positioning
-- Fine-tunes with mouse controls
-- Saves camera position
+**UC2: Object Search & Location**
+```
+Given: User needs to find specific door component
+When: User looks at minimap
+Then: Sees highlighted object indicator
+And: Can identify object by color/icon
+And: Understands object's position relative to camera
+```
 
-**UC3: Presentation Mode**
-- User demonstrates design to client
-- Uses smooth WASD movement for walkthrough
-- Adjusts speed for cinematic effect
-- Maintains professional appearance
+**UC3: Collaborative Design Review**
+```
+Given: Designer presenting to client via screen share
+When: Navigating through 3D model
+Then: Client can follow along using minimap
+And: Understands current location in overall design
+```
+
+**UC4: Multi-Object Assembly**
+```
+Given: User assembling multiple components
+When: Placing objects precisely
+Then: Uses minimap to verify spacing
+And: Confirms alignment from top view
+```
 
 ## 5. Functional Requirements
 
-### 5.1 Core Requirements
+### 5.1 Core Display Requirements
 
-**FR1: Movement Controls**
-- **FR1.1**: W key moves camera forward
-- **FR1.2**: S key moves camera backward
-- **FR1.3**: A key strafes camera left
-- **FR1.4**: D key strafes camera right
-- **FR1.5**: Q key moves camera down
-- **FR1.6**: E key moves camera up
-- **FR1.7**: Shift modifier doubles movement speed
+**FR1: Minimap Rendering**
+- **FR1.1**: Display top-down orthographic view of scene
+- **FR1.2**: Update in real-time (30+ FPS minimum)
+- **FR1.3**: Show all non-hidden objects
+- **FR1.4**: Maintain aspect ratio of scene bounds
+- **FR1.5**: Auto-scale to fit all objects
 
-**FR2: Movement Behavior**
-- **FR2.1**: Movement relative to camera facing direction
-- **FR2.2**: Horizontal movement constrained to XZ plane
-- **FR2.3**: Vertical movement independent of camera pitch
-- **FR2.4**: No physics simulation (no gravity, momentum)
-- **FR2.5**: Smooth, consistent movement speed
+**FR2: Object Representation**
+- **FR2.1**: Display objects as simplified 2D shapes
+- **FR2.2**: Use object colors from main scene
+- **FR2.3**: Show object selection state
+- **FR2.4**: Indicate locked objects differently
+- **FR2.5**: Group overlapping objects intelligently
 
-**FR3: Configuration**
-- **FR3.1**: Toggle WASD controls on/off
-- **FR3.2**: Adjustable movement speed (0.05 - 1.0 units/frame)
-- **FR3.3**: Settings persist across sessions
-- **FR3.4**: Visual indicators for enabled state
+**FR3: Camera Visualization**
+- **FR3.1**: Show camera position as distinct icon
+- **FR3.2**: Display camera viewing direction (cone/arrow)
+- **FR3.3**: Indicate camera field of view
+- **FR3.4**: Update smoothly during movement
+- **FR3.5**: Different icon when in WASD mode
 
-**FR4: Integration**
-- **FR4.1**: Compatible with existing mouse controls
-- **FR4.2**: Disabled during text input
-- **FR4.3**: Works with all camera modes
-- **FR4.4**: Respects scene boundaries
+**FR4: Interactive Features**
+- **FR4.1**: Click to center camera on location
+- **FR4.2**: Click objects to select them
+- **FR4.3**: Drag to pan camera to area
+- **FR4.4**: Scroll to zoom minimap view
+- **FR4.5**: Right-click for context menu
 
-### 5.2 User Interface Requirements
+### 5.2 Configuration Requirements
 
-**UI1: Controls Menu**
-- Located in Tools dropdown
-- Checkbox to enable/disable
-- Slider for speed adjustment
-- Help text showing key mappings
+**FR5: Display Options**
+- **FR5.1**: Toggle minimap on/off
+- **FR5.2**: Resize minimap (S/M/L presets)
+- **FR5.3**: Adjust transparency (50-100%)
+- **FR5.4**: Choose corner position (TL/TR/BL/BR)
+- **FR5.5**: Set update frequency
 
-**UI2: Status Indicators**
-- Toolbar shows "Movement: WASD/OFF"
-- Speed value displayed next to slider
-- Visual feedback during movement
+**FR6: Filtering Options**
+- **FR6.1**: Filter by object type
+- **FR6.2**: Show/hide ground plane
+- **FR6.3**: Show/hide selection only
+- **FR6.4**: Toggle label display
+- **FR6.5**: Set minimum object size
 
-**UI3: Documentation**
-- Keyboard shortcuts listed in help panel
-- Tooltips on hover
-- First-time user onboarding
+### 5.3 Visual Design Requirements
+
+**FR7: Appearance**
+- **FR7.1**: Semi-transparent background
+- **FR7.2**: Subtle border with resize handle
+- **FR7.3**: Compass rose indicating North
+- **FR7.4**: Scale indicator
+- **FR7.5**: Optional grid overlay
+
+**FR8: Information Display**
+- **FR8.1**: Object count indicator
+- **FR8.2**: Current zoom level
+- **FR8.3**: Coordinates on hover
+- **FR8.4**: Distance measurements
+- **FR8.5**: Selection information
 
 ## 6. Non-Functional Requirements
 
 ### 6.1 Performance
-- **NFR1**: Movement at 60+ FPS on Intel i5/GTX 1060
-- **NFR2**: No frame drops during continuous movement
-- **NFR3**: Sub-16ms input latency
-- **NFR4**: Smooth interpolation between positions
+- **NFR1**: < 5ms render time per frame
+- **NFR2**: < 50MB memory footprint
+- **NFR3**: GPU-accelerated rendering
+- **NFR4**: Level-of-detail for 1000+ objects
+- **NFR5**: Efficient culling algorithm
 
 ### 6.2 Usability
-- **NFR5**: Familiar to FPS game players
-- **NFR6**: Learnable within 2 minutes
-- **NFR7**: No interference with other shortcuts
-- **NFR8**: Accessible key positions
+- **NFR6**: Learnable in < 1 minute
+- **NFR7**: Intuitive iconography
+- **NFR8**: Consistent with gaming minimaps
+- **NFR9**: Clear visual hierarchy
+- **NFR10**: Accessible color choices
 
-### 6.3 Compatibility
-- **NFR9**: Works on all supported browsers
-- **NFR10**: Functions with international keyboards
-- **NFR11**: Compatible with all scene types
-- **NFR12**: Maintains state through scene changes
+### 6.3 Responsiveness
+- **NFR11**: Resize with viewport
+- **NFR12**: Maintain readability at all sizes
+- **NFR13**: Touch-friendly on tablets
+- **NFR14**: Smooth animations
+- **NFR15**: No lag during interaction
 
 ## 7. Technical Specifications
 
 ### 7.1 Architecture
 
 ```
-┌─────────────────┐
-│   App.tsx       │
-│  (UI Controls)  │
-└────────┬────────┘
-         │
-┌────────▼────────┐
-│  SceneManager   │
-│ (Owns Instance) │
-└────────┬────────┘
-         │
-┌────────▼────────────┐
-│ MovementController  │
-│ (Handles Movement)  │
+┌─────────────────────┐
+│   MinimapOverlay    │
+│   (React Component) │
+└──────────┬──────────┘
+           │
+┌──────────▼──────────┐
+│  MinimapRenderer    │
+│  (Canvas/WebGL)     │
+└──────────┬──────────┘
+           │
+┌──────────▼──────────┐
+│  SceneDataAdapter   │
+│ (Object Positions)  │
+└──────────┬──────────┘
+           │
+┌──────────▼──────────┐
+│    SceneManager     │
+│  (Source of Truth)  │
 └─────────────────────┘
 ```
 
-### 7.2 Implementation Details
+### 7.2 Implementation Components
 
-**Class: MovementController**
+**Component: MinimapOverlay**
 ```typescript
-class MovementController {
-  - scene: Scene
-  - camera: ArcRotateCamera
-  - moveSpeed: number
-  - keysPressed: Map<string, boolean>
-  - isEnabled: boolean
+interface MinimapProps {
+  position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  size: 'small' | 'medium' | 'large'
+  opacity: number
+  showGrid: boolean
+  showLabels: boolean
+  filterTypes: string[]
+}
+
+class MinimapOverlay extends React.Component<MinimapProps> {
+  - canvas: HTMLCanvasElement
+  - renderer: MinimapRenderer
+  - isInteracting: boolean
   
-  + updateMovement(): void
-  + setEnabled(enabled: boolean): void
-  + setMoveSpeed(speed: number): void
-  + dispose(): void
+  + handleClick(x: number, y: number): void
+  + handleDrag(dx: number, dy: number): void
+  + handleZoom(delta: number): void
+  + updateDisplay(): void
 }
 ```
 
-**Key Algorithms**:
-1. Camera-relative movement vector calculation
-2. XZ plane projection for horizontal movement
-3. Frame-rate independent movement scaling
-4. Input filtering for text fields
+**Component: MinimapRenderer**
+```typescript
+class MinimapRenderer {
+  - ctx: CanvasRenderingContext2D
+  - viewBounds: BoundingBox
+  - zoom: number
+  - offset: Vector2
+  
+  + renderFrame(objects: MinimapObject[]): void
+  + projectToMinimap(worldPos: Vector3): Vector2
+  + unprojectFromMinimap(screenPos: Vector2): Vector3
+  + drawObject(obj: MinimapObject): void
+  + drawCamera(pos: Vector3, dir: Vector3): void
+}
+```
 
 ### 7.3 Data Flow
-1. User presses movement key
-2. KeyboardEvent captured by MovementController
-3. Movement vector calculated based on camera orientation
-4. Position updated in render loop
-5. Camera and target positions synchronized
+1. Scene objects update in main view
+2. SceneDataAdapter extracts positions
+3. MinimapRenderer projects to 2D
+4. Canvas renders simplified shapes
+5. User interactions converted to 3D commands
+
+### 7.4 Rendering Pipeline
+```
+World Space → View Projection → Screen Space → Canvas Draw
+     ↓              ↓                ↓              ↓
+  3D Coords    Orthographic    2D Coords     Shapes/Icons
+```
 
 ## 8. User Experience Design
 
-### 8.1 Interaction Flow
+### 8.1 Visual Hierarchy
 ```
-Enable WASD → Press Keys → Camera Moves → Release Keys → Movement Stops
-     ↑                                                           ↓
-     └─────────────── Adjust Speed Settings ←───────────────────┘
+┌─────────────────┐
+│ ┌─┐ North      │ ← Compass
+│ │C│    ↑       │ ← Camera Icon
+│ └─┘    │       │
+│        │       │
+│ ▪ ▪ ▪  │  ▪ ▪  │ ← Object Dots
+│ ▪ ▪ ▪ ─┴─ ▪ ▪  │
+│                │
+│ 10m ├────┤     │ ← Scale
+└─────────────────┘
 ```
 
-### 8.2 Visual Design
-- Minimal UI footprint
-- Consistent with existing toolbar design
-- Clear on/off state indication
-- Subtle speed adjustment controls
+### 8.2 Interaction States
+- **Default**: Semi-transparent, minimal info
+- **Hover**: Show coordinates, highlight objects
+- **Active**: Full opacity, detailed information
+- **Dragging**: Pan indicator, distance display
+- **Minimized**: Icon only, click to expand
 
-### 8.3 Error Handling
-- Graceful degradation if WebGL context lost
-- Clear messaging if controls conflict
-- Automatic disable during modal dialogs
-- Recovery from unexpected states
+### 8.3 Responsive Behavior
+- **Small (150x150px)**: Icons only, no labels
+- **Medium (250x250px)**: Icons + selection info
+- **Large (350x350px)**: Full details + labels
 
 ## 9. Testing Requirements
 
-### 9.1 Unit Tests
-- Movement vector calculation accuracy
-- Key state management
-- Speed scaling calculations
-- Input filtering logic
+### 9.1 Functional Tests
+- Object position accuracy (< 1px deviation)
+- Camera orientation correctness
+- Click targeting precision
+- Zoom level calculations
+- Filter functionality
 
-### 9.2 Integration Tests
-- Camera synchronization
-- Mouse/keyboard interaction
-- Settings persistence
-- Scene boundary respect
+### 9.2 Performance Tests
+- 1000 object scene at 60 FPS
+- Continuous movement tracking
+- Memory leak detection
+- GPU utilization monitoring
+- Battery impact on mobile
 
-### 9.3 User Acceptance Tests
-- Navigate complex scene in < 30 seconds
-- Switch between mouse/keyboard seamlessly
-- Adjust speed while moving
-- Use during object manipulation
+### 9.3 Usability Tests
+- Time to locate specific object
+- Accuracy of spatial understanding
+- Learning curve measurement
+- Accessibility compliance
+- Color blind compatibility
 
-### 9.4 Performance Tests
-- 1000+ frame movement sequences
-- Multi-key simultaneous input
-- Scene with 10,000+ objects
-- Extended usage sessions
+### 9.4 Integration Tests
+- WASD movement synchronization
+- Selection state consistency
+- Multi-viewport support
+- Save/load state persistence
+- Real-time collaboration sync
 
 ## 10. Release & Rollout Plan
 
-### 10.1 Release Phases
+### 10.1 Development Phases
 
-**Phase 1: Beta Release**
-- 10% of users
-- A/B testing enabled
-- Feedback collection active
+**Phase 1: MVP (Week 1-2)**
+- Basic top-down view
+- Camera position indicator
+- Object dots with colors
+- Click to navigate
 
-**Phase 2: General Availability**
-- All users
-- Documentation published
-- Tutorial videos created
+**Phase 2: Enhanced (Week 3-4)**
+- Interactive features
+- Filtering options
+- Performance optimization
+- Polish animations
 
-**Phase 3: Enhancement**
-- User feedback incorporated
-- Advanced features added
-- Performance optimizations
+**Phase 3: Advanced (Week 5-6)**
+- Labels and measurements
+- Multi-floor support
+- Heatmap modes
+- API for plugins
 
-### 10.2 Success Criteria
-- < 0.1% crash rate
-- > 60% feature adoption
-- < 5% disable after trying
-- Positive user sentiment
+### 10.2 Feature Flags
+```javascript
+{
+  "minimap": {
+    "enabled": true,
+    "maxObjects": 1000,
+    "updateRate": 30,
+    "features": {
+      "interaction": true,
+      "filtering": true,
+      "labels": false,
+      "measurements": false
+    }
+  }
+}
+```
 
 ## 11. Future Enhancements
 
-### 11.1 Planned Features
-1. **Gamepad Support**: Xbox/PlayStation controller navigation
-2. **Flight Paths**: Recorded movement sequences
-3. **Collision Detection**: Optional boundary enforcement
-4. **Variable Speed**: Context-aware speed adjustment
-5. **Custom Keybindings**: User-defined movement keys
+### 11.1 Version 2.0 Features
+1. **3D Minimap Mode**: Isometric view option
+2. **Path Planning**: Show movement routes
+3. **Heatmaps**: Object density visualization
+4. **Time Scrubbing**: Historical position playback
+5. **AR Mode**: Project onto physical surface
 
-### 11.2 Potential Integrations
-- VR headset movement sync
-- Multiplayer camera sharing
-- Cinematic camera tools
-- Accessibility options
+### 11.2 Advanced Capabilities
+- **AI Assistant**: "Show me all doors" highlighting
+- **Collaboration**: Multi-user position tracking
+- **Analytics**: Movement pattern analysis
+- **Export**: Minimap as separate image/video
+- **Customization**: User-defined minimap styles
+
+### 11.3 Integration Opportunities
+- Building Information Modeling (BIM) data
+- IoT sensor visualization
+- Real-time simulation data
+- Version control visualization
+- Project timeline overview
 
 ## 12. Risks & Mitigations
 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
-| Key conflicts with OS | High | Medium | Detect and warn users |
-| Motion sickness | Medium | Low | Smooth movement, adjustable speed |
-| Performance degradation | High | Low | Frame-rate limiting, optimization |
-| Learning curve | Low | Medium | Clear documentation, tutorials |
+| Performance degradation | High | Medium | Canvas optimization, WebGL fallback |
+| Visual clutter | Medium | High | Smart filtering, LOD system |
+| Mobile usability | High | Medium | Responsive design, gesture support |
+| Color accessibility | Medium | Medium | High contrast mode, patterns |
+| Scene complexity | High | Low | Intelligent clustering, sampling |
 
 ## 13. Dependencies
 
 ### 13.1 Technical Dependencies
-- Babylon.js 5.x camera system
-- Browser keyboard event API
-- RequestAnimationFrame API
-- Local storage for settings
+- HTML5 Canvas API
+- WebGL 2.0 (optional acceleration)
+- React 18+ (portal rendering)
+- Babylon.js scene graph
+- Browser ResizeObserver API
 
-### 13.2 Design Dependencies
-- Existing toolbar structure
-- Current keybinding system
-- UI component library
-- Style guidelines
+### 13.2 Design System Dependencies
+- Consistent iconography
+- Color palette adherence
+- Animation timing standards
+- Tooltip components
+- Accessibility framework
 
-## 14. Appendices
+## 14. API Specification
 
-### A. Keyboard Layout Reference
+### 14.1 Public API
+```typescript
+interface MinimapAPI {
+  // Control
+  show(): void
+  hide(): void
+  toggle(): void
+  
+  // Navigation
+  centerOn(position: Vector3): void
+  zoomToFit(objects?: string[]): void
+  
+  // Configuration
+  setSize(size: 'small' | 'medium' | 'large'): void
+  setPosition(corner: Corner): void
+  setFilters(filters: FilterOptions): void
+  
+  // Events
+  on(event: 'click', handler: (pos: Vector3) => void): void
+  on(event: 'hover', handler: (obj: string | null) => void): void
+}
 ```
-        [Q]     [W]     [E]
-         ↓       ↓       ↓
-      Down  Forward    Up
 
-    [A]  ←  [S]  →  [D]
-     ↓       ↓       ↓
-   Left   Back    Right
+### 14.2 Events
+- `minimap:click` - User clicked location
+- `minimap:objectSelect` - Object selected via minimap
+- `minimap:zoom` - Zoom level changed
+- `minimap:pan` - View panned
+- `minimap:toggle` - Visibility changed
 
-   [Shift] = Sprint (2x speed)
+## 15. Appendices
+
+### A. Competitive Analysis
+| Software | Minimap Type | Features | Interaction |
+|----------|--------------|----------|-------------|
+| Unity | 2D Overlay | Objects, camera, gizmos | Click to focus |
+| AutoCAD | ViewCube+ | 3D navigation, views | Full navigation |
+| Blender | Outliner | Tree view, no spatial | Selection only |
+| Minecraft | 2D Map | Terrain, entities | Zoom levels |
+| SimCity | 2D Overview | Zones, buildings | Click to jump |
+
+### B. Size Specifications
+```
+Small:  150x150px (mobile friendly)
+Medium: 250x250px (default desktop)
+Large:  350x350px (detailed work)
+
+Border: 2px
+Padding: 8px
+Corner Radius: 8px
+Opacity: 0.85 (default)
 ```
 
-### B. Competitive Analysis
-| Application | Movement Keys | Speed Control | Special Features |
-|-------------|--------------|---------------|------------------|
-| Minecraft | WASD + Space/Shift | Fixed | Flying mode |
-| Blender | WASD in fly mode | Scroll wheel | Gravity option |
-| Unity | WASD + QE | Shift/Ctrl | Acceleration |
-| VibeCad | WASD + QE | Slider + Shift | No physics |
+### C. Icon Library
+- **Camera**: Triangle with view cone
+- **Selected Object**: Highlight ring
+- **Locked Object**: Lock symbol overlay
+- **Hidden Object**: Dashed outline
+- **Ground Plane**: Grid pattern
+- **North Indicator**: Compass arrow
+- **Scale Bar**: Graduated line
 
-### C. Glossary
-- **Strafe**: Sideways movement without turning
-- **FPS Controls**: First-person shooter style navigation
-- **Frame-rate Independent**: Consistent speed regardless of FPS
-- **Input Latency**: Delay between keypress and movement
+### D. Performance Benchmarks
+| Objects | Target FPS | Max Memory | Update Rate |
+|---------|------------|-------------|-------------|
+| 100 | 60 | 10MB | 60Hz |
+| 1000 | 60 | 25MB | 30Hz |
+| 10000 | 30 | 50MB | 15Hz |
+| 100000 | 15 | 100MB | 5Hz |

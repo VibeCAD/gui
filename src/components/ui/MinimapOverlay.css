@@ -1,0 +1,280 @@
+.minimap-overlay {
+  position: fixed;
+  z-index: 1000;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+  backdrop-filter: blur(2px);
+  user-select: none;
+}
+
+/* Positioning variants */
+.minimap-top-left {
+  top: 20px;
+  left: 20px;
+}
+
+.minimap-top-right {
+  top: 20px;
+  right: 20px;
+}
+
+.minimap-bottom-left {
+  bottom: 20px;
+  left: 20px;
+}
+
+.minimap-bottom-right {
+  bottom: 20px;
+  right: 20px;
+}
+
+/* Size variants */
+.minimap-small {
+  border-radius: 6px;
+}
+
+.minimap-medium {
+  border-radius: 8px;
+}
+
+.minimap-large {
+  border-radius: 10px;
+}
+
+/* Canvas styling */
+.minimap-canvas {
+  display: block;
+  border-radius: inherit;
+  cursor: crosshair;
+  transition: cursor 0.2s ease;
+}
+
+.minimap-canvas:hover {
+  cursor: pointer;
+}
+
+/* Interaction states */
+.minimap-overlay.interacting {
+  transform: scale(1.02);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.minimap-overlay.interacting .minimap-canvas {
+  cursor: grabbing;
+}
+
+/* Loading overlay */
+.minimap-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 20, 20, 0.9);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.minimap-loading-text {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+}
+
+/* Controls overlay */
+.minimap-controls {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.minimap-overlay:hover .minimap-controls {
+  opacity: 1;
+}
+
+.minimap-controls button {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  padding: 0;
+  line-height: 1;
+}
+
+.minimap-controls button:hover {
+  background: rgba(0, 0, 0, 0.9);
+  transform: scale(1.1);
+}
+
+.minimap-controls button:active {
+  transform: scale(0.95);
+}
+
+.minimap-toggle-size {
+  font-size: 9px;
+}
+
+.minimap-toggle-position {
+  font-size: 8px;
+}
+
+.minimap-close {
+  font-size: 8px;
+  font-weight: bold;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .minimap-overlay {
+    transform: scale(0.8);
+  }
+  
+  .minimap-top-left,
+  .minimap-top-right {
+    top: 10px;
+  }
+  
+  .minimap-bottom-left,
+  .minimap-bottom-right {
+    bottom: 10px;
+  }
+  
+  .minimap-top-left,
+  .minimap-bottom-left {
+    left: 10px;
+  }
+  
+  .minimap-top-right,
+  .minimap-bottom-right {
+    right: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .minimap-overlay {
+    transform: scale(0.7);
+  }
+  
+  .minimap-top-left,
+  .minimap-top-right {
+    top: 5px;
+  }
+  
+  .minimap-bottom-left,
+  .minimap-bottom-right {
+    bottom: 5px;
+  }
+  
+  .minimap-top-left,
+  .minimap-bottom-left {
+    left: 5px;
+  }
+  
+  .minimap-top-right,
+  .minimap-bottom-right {
+    right: 5px;
+  }
+}
+
+/* Animation for position changes */
+@keyframes minimap-position-change {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.minimap-overlay.position-changing {
+  animation: minimap-position-change 0.3s ease;
+}
+
+/* Dark theme support */
+@media (prefers-color-scheme: dark) {
+  .minimap-overlay {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  }
+  
+  .minimap-controls button {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
+  }
+  
+  .minimap-controls button:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+}
+
+/* Light theme support */
+@media (prefers-color-scheme: light) {
+  .minimap-overlay {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  }
+  
+  .minimap-controls button {
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+  }
+  
+  .minimap-controls button:hover {
+    background: rgba(0, 0, 0, 0.8);
+  }
+}
+
+/* Accessibility */
+.minimap-overlay:focus-within {
+  outline: 2px solid #007acc;
+  outline-offset: 2px;
+}
+
+.minimap-controls button:focus {
+  outline: 1px solid #007acc;
+  outline-offset: 1px;
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+  .minimap-overlay {
+    border: 2px solid white;
+  }
+  
+  .minimap-controls button {
+    border: 1px solid white;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .minimap-overlay,
+  .minimap-controls,
+  .minimap-controls button {
+    transition: none;
+  }
+  
+  .minimap-overlay.position-changing {
+    animation: none;
+  }
+} 
