@@ -236,12 +236,36 @@ function App() {
     setActiveDropdown(null);
   }
 
+  // Helper function to get parametric position of a point on a line segment
+  const getParametricPosition = (lineStart: Vector3, lineEnd: Vector3, point: Vector3): number => {
+    const lineDir = lineEnd.subtract(lineStart)
+    const lineLengthSq = lineDir.lengthSquared()
+    
+    if (lineLengthSq < 0.0001) return 0 // Degenerate line
+    
+    const toPoint = point.subtract(lineStart)
+    const t = Vector3.Dot(toPoint, lineDir) / lineLengthSq
+    
+    return t
+  }
+  
+  // Helper function to check if a point is on a line segment
+  const isPointOnSegment = (point: Vector3, segStart: Vector3, segEnd: Vector3): boolean => {
+    const t = getParametricPosition(segStart, segEnd, point)
+    if (t < 0 || t > 1) return false
+    
+    const projectedPoint = Vector3.Lerp(segStart, segEnd, t)
+    const distance = Vector3.Distance(point, projectedPoint)
+    
+    return distance < 0.01 // Tolerance for floating point comparison
+  }
+
   /**
    * Callback invoked when the user finishes drawing a custom room shape in the modal.
    * Converts 2D SVG coordinates to 3D world-space points, extrudes the polygon,
    * registers the mesh with the scene, and stores a SceneObject entry.
    */
-  const handleCreateCustomRoom = (roomData: { points: { x: number; y: number }[]; openings?: { start: { x: number; y: number }; end: { x: number; y: number } }[]; name?: string }) => {
+  const handleCreateCustomRoom = (roomData: { points: { x: number; y: number }[]; openings?: { start: { x: number; y: number }; end: { x: number; y: number } }[]; name?: string; allSegments?: { start: { x: number; y: number }; end: { x: number; y: number }; isOpening?: boolean }[] }) => {
     if (!sceneInitialized) return
 
     const sceneManager = sceneAPI.getSceneManager()
@@ -253,7 +277,7 @@ function App() {
     const WALL_HEIGHT = 2.0
     const WALL_THICKNESS = 0.15
 
-    const { points, openings, name } = roomData
+    const { points, openings, name, allSegments } = roomData
 
     // Convert SVG (origin top-left, +y down) to Babylon XZ plane (origin center, +z forward)
     const vertices2D = points.map(p => new Vector2(
@@ -322,78 +346,165 @@ function App() {
       const wallLength = Vector3.Distance(p1, p2)
       if (wallLength < 0.01) continue // Skip zero-length walls
 
-      // Check if this wall segment is an opening
-      const isOpening = worldOpenings.some(opening => {
-        const p1_2d = new Vector2(p1.x, p1.z)
-        const p2_2d = new Vector2(p2.x, p2.z)
+      // Find all openings that intersect with this wall segment
+      const wallDirection = p2.subtract(p1).normalize()
+      const wallSegments: Array<{ start: Vector3; end: Vector3 }> = []
+      
+      // Collect all opening intersections along this wall
+      const intersections: number[] = [0, 1] // Start with wall endpoints (in parametric form)
+      
+      worldOpenings.forEach(opening => {
+        // Check if opening is on the same line as the wall
+        const openingStart = new Vector3(opening.start.x, 0, opening.start.y)
+        const openingEnd = new Vector3(opening.end.x, 0, opening.end.y)
         
-        // Check if the wall segment matches an opening (considering both directions)
+        // Calculate parametric positions of opening points on the wall line
+        const t1 = getParametricPosition(p1, p2, openingStart)
+        const t2 = getParametricPosition(p1, p2, openingEnd)
+        
+        // Check if opening overlaps with this wall segment
+        if ((t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1) || (t1 < 0 && t2 > 1)) {
+          // Add intersection points
+          if (t1 >= 0 && t1 <= 1) intersections.push(t1)
+          if (t2 >= 0 && t2 <= 1) intersections.push(t2)
+        }
+      })
+      
+      // Sort intersection points
+      intersections.sort((a, b) => a - b)
+      
+      // Create wall segments between openings
+      for (let j = 0; j < intersections.length - 1; j++) {
+        const t1 = intersections[j]
+        const t2 = intersections[j + 1]
+        
+        if (Math.abs(t2 - t1) < 0.001) continue // Skip tiny segments
+        
+        const segmentStart = Vector3.Lerp(p1, p2, t1)
+        const segmentEnd = Vector3.Lerp(p1, p2, t2)
+        
+        // Check if this segment is inside an opening
+        const segmentMid = Vector3.Lerp(segmentStart, segmentEnd, 0.5)
+        const isInOpening = worldOpenings.some(opening => {
+          return isPointOnSegment(
+            segmentMid,
+            new Vector3(opening.start.x, 0, opening.start.y),
+            new Vector3(opening.end.x, 0, opening.end.y)
+          )
+        })
+        
+        if (!isInOpening) {
+          wallSegments.push({ start: segmentStart, end: segmentEnd })
+        }
+      }
+      
+      // Create wall meshes for each segment
+      wallSegments.forEach((segment, segIdx) => {
+        const segmentLength = Vector3.Distance(segment.start, segment.end)
+        if (segmentLength < 0.01) return
+        
+        const wall = MeshBuilder.CreateBox(`${newId}-wall-${i}-${segIdx}`, {
+          width: segmentLength,
+          height: WALL_HEIGHT,
+          depth: WALL_THICKNESS
+        }, scene)
+
+        // Position and orient the wall segment
+        const direction = segment.end.subtract(segment.start).normalize()
+        const midPoint = Vector3.Lerp(segment.start, segment.end, 0.5)
+        const outward = Vector3.Cross(Vector3.Up(), direction).normalize().scale(orientationSign)
+        const wallPos = midPoint.add(outward.scale(WALL_THICKNESS / 2))
+
+        wall.position = wallPos
+        wall.position.y += WALL_HEIGHT / 2
+        wall.rotation.y = -Math.atan2(direction.z, direction.x)
+        wall.material = wallMaterial
+        wall.parent = rootMesh
+
+        // Add connection point at the top middle of wall segment
+        const cpMid = Vector3.Lerp(segment.start, segment.end, 0.5)
+        const cpPosLocal = new Vector3(cpMid.x, WALL_HEIGHT, cpMid.z)
+        const cp: ConnectionPoint = {
+          id: `wall-top-${i}-${segIdx}`,
+          position: cpPosLocal,
+          normal: new Vector3(0, 1, 0),
+          kind: 'edge'
+        }
+        wallTopConnectionPoints.push(cp)
+      })
+    }
+    
+    // --- Create Interior Walls ---
+    // Find all wall segments that are not openings and create 3D walls for them
+    // This includes both perimeter walls (already created above) and interior walls
+    const allWallSegments = allSegments?.filter((segment: { isOpening?: boolean }) => !segment.isOpening) || []
+    
+    // Convert line segments to world coordinates for comparison
+    const worldWallSegments = allWallSegments.map((segment: { start: { x: number; y: number }; end: { x: number; y: number } }) => ({
+      start: new Vector2(
+        (segment.start.x - SVG_SIZE / 2) * SCALE,
+        ((SVG_SIZE / 2) - segment.start.y) * SCALE
+      ),
+      end: new Vector2(
+        (segment.end.x - SVG_SIZE / 2) * SCALE,
+        ((SVG_SIZE / 2) - segment.end.y) * SCALE
+      )
+    }))
+    
+    // Track which wall segments have already been created as perimeter walls
+    const createdWalls = new Set<string>()
+    
+    // Mark perimeter walls as created
+    for (let i = 0; i < vertices2D.length; i++) {
+      const p1 = vertices2D[i]
+      const p2 = vertices2D[(i + 1) % vertices2D.length]
+      
+      // Find matching wall segment
+      worldWallSegments.forEach((segment: { start: Vector2; end: Vector2 }, idx: number) => {
         const matchesForward = 
-          (Math.abs(p1_2d.x - opening.start.x) < 0.01 && Math.abs(p1_2d.y - opening.start.y) < 0.01 &&
-           Math.abs(p2_2d.x - opening.end.x) < 0.01 && Math.abs(p2_2d.y - opening.end.y) < 0.01)
+          (Math.abs(p1.x - segment.start.x) < 0.01 && Math.abs(p1.y - segment.start.y) < 0.01 &&
+           Math.abs(p2.x - segment.end.x) < 0.01 && Math.abs(p2.y - segment.end.y) < 0.01)
         
         const matchesReverse = 
-          (Math.abs(p1_2d.x - opening.end.x) < 0.01 && Math.abs(p1_2d.y - opening.end.y) < 0.01 &&
-           Math.abs(p2_2d.x - opening.start.x) < 0.01 && Math.abs(p2_2d.y - opening.start.y) < 0.01)
+          (Math.abs(p1.x - segment.end.x) < 0.01 && Math.abs(p1.y - segment.end.y) < 0.01 &&
+           Math.abs(p2.x - segment.start.x) < 0.01 && Math.abs(p2.y - segment.start.y) < 0.01)
         
-        return matchesForward || matchesReverse
+        if (matchesForward || matchesReverse) {
+          createdWalls.add(`wall-${idx}`)
+        }
       })
-
-      // Skip creating wall if it's an opening
-      if (isOpening) {
-        console.log(`[CustomRoom] Skipping wall ${i} as it's marked as an opening`)
-        continue
-      }
-
-      const wall = MeshBuilder.CreateBox(`${newId}-wall-${i}`, {
+    }
+    
+    // Create interior walls (walls not part of the perimeter)
+    worldWallSegments.forEach((segment: { start: Vector2; end: Vector2 }, idx: number) => {
+      if (createdWalls.has(`wall-${idx}`)) return // Skip if already created as perimeter
+      
+      const p1 = new Vector3(segment.start.x, 0, segment.start.y)
+      const p2 = new Vector3(segment.end.x, 0, segment.end.y)
+      
+      const wallLength = Vector3.Distance(p1, p2)
+      if (wallLength < 0.01) return // Skip zero-length walls
+      
+      const interiorWall = MeshBuilder.CreateBox(`${newId}-interior-wall-${idx}`, {
         width: wallLength,
         height: WALL_HEIGHT,
         depth: WALL_THICKNESS
       }, scene)
-
-      // -------------------------------------------------------------
-      // Compute wall direction vector and outward normal
-      // -------------------------------------------------------------
+      
+      // Position and orient the interior wall
       const direction = p2.subtract(p1).normalize()
-
-      // Mid-point of the wall segment
       const midPoint = Vector3.Lerp(p1, p2, 0.5)
-
-      // Compute outward normal as Up × direction (right-hand side).
-      // This gives the exterior of a CCW polygon; multiply by
-      // orientationSign so CW polygons are handled, too.
-      const outward = Vector3.Cross(Vector3.Up(), direction)
-        .normalize()
-        .scale(orientationSign)
-
-      // Final wall position offset by half thickness
-      const wallPos = midPoint.add(outward.scale(WALL_THICKNESS / 2))
-
-      wall.position = wallPos
-      wall.position.y += WALL_HEIGHT / 2
-
-      // -------------------------------------------------------------
-      // Rotate wall so its local X axis aligns with the edge direction
-      // Use signed angle to handle all quadrants correctly.
-      // -------------------------------------------------------------
-      wall.rotation.y = -Math.atan2(direction.z, direction.x);
-       
-      wall.material = wallMaterial
-      wall.parent = rootMesh
-
-      // ----------------------------------------------
-      // Add connection point at the top middle of wall
-      // ----------------------------------------------
-      const cpMid = Vector3.Lerp(p1, p2, 0.5)
-      const cpPosLocal = new Vector3(cpMid.x, WALL_HEIGHT, cpMid.z)
-      const cp: ConnectionPoint = {
-        id: `wall-top-${i}`,
-        position: cpPosLocal,
-        normal: new Vector3(0, 1, 0), // upward normal for stacking
-        kind: 'edge'
-      }
-      wallTopConnectionPoints.push(cp)
-    }
+      
+      interiorWall.position = midPoint
+      interiorWall.position.y += WALL_HEIGHT / 2
+      interiorWall.rotation.y = -Math.atan2(direction.z, direction.x)
+      
+      // Apply the same material as perimeter walls
+      interiorWall.material = wallMaterial
+      interiorWall.parent = rootMesh
+      
+      console.log(`[CustomRoom] Created interior wall ${idx}`)
+    })
     
     // -------------------------------------------------------------
     // Attach connection points after geometry created so boundary
@@ -478,7 +589,7 @@ function App() {
     setActiveDropdown(null)
   }
 
-  const handleCreateMultipleCustomRooms = (roomsData: Array<{ points: { x: number; y: number }[]; openings?: { start: { x: number; y: number }; end: { x: number; y: number } }[]; name?: string }>) => {
+  const handleCreateMultipleCustomRooms = (roomsData: Array<{ points: { x: number; y: number }[]; openings?: { start: { x: number; y: number }; end: { x: number; y: number } }[]; name?: string; allSegments?: { start: { x: number; y: number }; end: { x: number; y: number }; isOpening?: boolean }[] }>) => {
     // Create all rooms with slight delays to ensure unique IDs
     roomsData.forEach((roomData, index) => {
       setTimeout(() => {

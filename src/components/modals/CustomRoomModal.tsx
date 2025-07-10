@@ -9,6 +9,7 @@ interface RoomData {
   points: Point[]
   openings?: { start: Point; end: Point }[]  // Line segments that are openings
   name?: string  // Optional room name/tag
+  allSegments?: { start: Point; end: Point; isOpening?: boolean }[]  // All line segments for interior walls
 }
 
 interface GridPoint {
@@ -449,12 +450,20 @@ export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCanc
       end: { x: line.end.x * GRID_SIZE, y: line.end.y * GRID_SIZE }
     }))
 
+    // Convert all line segments to pixel coordinates
+    const allSegments = lineSegments.map(line => ({
+      start: { x: line.start.x * GRID_SIZE, y: line.start.y * GRID_SIZE },
+      end: { x: line.end.x * GRID_SIZE, y: line.end.y * GRID_SIZE },
+      isOpening: line.isOpening
+    }))
+
     if (onCreateMultiple) {
       // Create all rooms at once with their names
       const roomsData: RoomData[] = rooms.map((room, index) => ({
         points: room,
         openings: openings.length > 0 ? openings : undefined,
-        name: roomNames[index] || `Room ${index + 1}`
+        name: roomNames[index] || `Room ${index + 1}`,
+        allSegments: allSegments.length > 0 ? allSegments : undefined
       }))
       onCreateMultiple(roomsData)
     } else {
@@ -464,7 +473,8 @@ export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCanc
           const roomData: RoomData = {
             points: room,
             openings: openings.length > 0 ? openings : undefined,
-            name: roomNames[index] || `Room ${index + 1}`
+            name: roomNames[index] || `Room ${index + 1}`,
+            allSegments: allSegments.length > 0 ? allSegments : undefined
           }
           onCreate(roomData)
         }, index * 100)
