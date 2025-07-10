@@ -29,7 +29,7 @@ export class SceneManager {
   private gridMesh: Mesh | null = null
   private multiSelectPivot: Mesh | null = null
   private pointerDownPosition: { x: number, y: number } | null = null
-  private collisionDetectionEnabled: boolean = true
+  private collisionDetectionEnabled: boolean = false
   private textureManager: TextureManager | null = null
   
   // Event callbacks
@@ -71,9 +71,6 @@ export class SceneManager {
       const light = new HemisphericLight('light', new Vector3(0, 1, 0), this.scene)
       light.intensity = 0.7
       
-      // Create ground
-      this.createGround()
-      
       // Set up pointer events
       this.setupPointerEvents()
       
@@ -96,17 +93,7 @@ export class SceneManager {
     }
   }
 
-  private createGround(): void {
-    if (!this.scene) return
-    
-    const ground = MeshBuilder.CreateGround('ground', { width: 10, height: 10 }, this.scene)
-    const groundMaterial = new StandardMaterial('groundMaterial', this.scene)
-    groundMaterial.diffuseColor = new Color3(0.5, 0.5, 0.5)
-    ground.material = groundMaterial
-    ground.isPickable = true
-    
-    this.meshMap.set('ground', ground)
-  }
+
 
   private setupPointerEvents(): void {
     if (!this.scene) return;

@@ -229,7 +229,7 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             showConnectionPoints: false,
             gridSize: 1,
             gridMesh: null,
-            collisionDetectionEnabled: true,
+            collisionDetectionEnabled: false,
             
             objectVisibility: {},
             objectLocked: {},
