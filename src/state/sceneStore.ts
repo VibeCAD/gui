@@ -234,7 +234,7 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             currentColor: '#3498db',
             wireframeMode: false,
             showGrid: true,
-            snapToGrid: false,
+            snapToGrid: true,
             snapToObjects: true,
             showConnectionPoints: false,
             gridSize: 1,
