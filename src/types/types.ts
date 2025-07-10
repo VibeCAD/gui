@@ -6,7 +6,7 @@ export type PrimitiveType = 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' |
     'house-room-modular' | 'house-wall' | 'house-ceiling' | 'house-floor' |
     'house-door-single' | 'house-door-double' | 'house-door-sliding' | 'house-door-french' | 'house-door-garage' |
     'house-window-single' | 'house-window-double' | 'house-window-bay' | 'house-window-casement' | 'house-window-sliding' | 'house-window-skylight' |
-    'house-stairs' | 'house-foundation' | 'imported-glb' | 'imported-stl' | 'imported-obj'
+    'house-stairs' | 'house-foundation' | 'imported-glb' | 'imported-stl' | 'imported-obj' | 'custom-room'
 
 // Import error types
 export type ImportErrorType = 'FILE_TOO_LARGE' | 'INVALID_FORMAT' | 'LOADING_FAILED'

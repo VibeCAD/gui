@@ -1,5 +1,5 @@
-import { useEffect, useRef, useMemo } from 'react'
-import { Vector3, StandardMaterial, Color3, Mesh, Engine, ArcRotateCamera, GizmoManager, PickingInfo, Matrix, HemisphericLight } from 'babylonjs';
+import { useEffect, useRef, useMemo, useState } from 'react'
+import { Vector3, Vector2, StandardMaterial, Color3, Mesh, PolygonMeshBuilder } from 'babylonjs'
 import './App.css'
 
 // Import material presets constant (value)
@@ -16,9 +16,14 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 
 import { useSceneStore } from './state/sceneStore'
 import type { SceneObject, PrimitiveType, TransformMode, ControlPointVisualization } from './types/types'
+import { CustomRoomModal } from './components/modals/CustomRoomModal'
+import { MeshBuilder } from 'babylonjs'
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  
+  // Modal state for custom room drawing
+  const [showCustomRoomModal, setShowCustomRoomModal] = useState(false)
   
   // Use the new babylon scene hook
   const { sceneAPI, sceneInitialized } = useBabylonScene(canvasRef)
@@ -227,6 +232,135 @@ function App() {
     addObject(newObj);
     setSelectedObjectId(newId);
     setActiveDropdown(null);
+  }
+
+  /**
+   * Callback invoked when the user finishes drawing a custom room shape in the modal.
+   * Converts 2D SVG coordinates to 3D world-space points, extrudes the polygon,
+   * registers the mesh with the scene, and stores a SceneObject entry.
+   */
+  const handleCreateCustomRoom = (points: { x: number; y: number }[]) => {
+    if (!sceneInitialized) return
+
+    const sceneManager = sceneAPI.getSceneManager()
+    const scene = sceneManager?.getScene()
+    if (!scene || !sceneManager) return
+
+    const SVG_SIZE = 400 // matches modal SVG dimension
+    const SCALE = 0.05 // px -> world units (adjust as desired)
+    const WALL_HEIGHT = 2.0
+    const WALL_THICKNESS = 0.15
+
+    // Convert SVG (origin top-left, +y down) to Babylon XZ plane (origin center, +z forward)
+    const vertices2D = points.map(p => new Vector2(
+      (p.x - SVG_SIZE / 2) * SCALE,
+      ((SVG_SIZE / 2) - p.y) * SCALE // flip Y
+    ))
+
+    if (vertices2D.length < 3) return
+
+    const newId = `custom-room-${Date.now()}`
+
+    // -------------------------------------------------------------
+    // Determine polygon orientation (CW vs CCW)
+    // Used to ensure outward normals always point outside even for
+    // concave polygons, without relying on a centroid approximation.
+    // -------------------------------------------------------------
+    const signedArea = vertices2D.reduce((acc, curr, idx) => {
+      const next = vertices2D[(idx + 1) % vertices2D.length]
+      return acc + (curr.x * next.y - next.x * curr.y)
+    }, 0)
+    // For a counter-clockwise (positive area) polygon, the vector
+    // Up × direction already points outward. For clockwise polygons
+    // (negative area), invert the sign.
+    const orientationSign = signedArea >= 0 ? 1 : -1
+
+    // Create a root mesh to act as the parent for all room components
+    const rootMesh = new Mesh(newId, scene)
+
+    // --- Create Floor ---
+    // Convert 2D vertices to 3D for the floor polygon
+    const floorVertices = vertices2D.map(p => new Vector3(p.x, 0, p.y))
+
+    // Use CreatePolygon to build a solid floor with thickness (depth)
+    const floor = MeshBuilder.CreatePolygon(`${newId}-floor`, {
+      shape: floorVertices,
+      depth: WALL_THICKNESS
+    }, scene)
+    floor.position.y -= WALL_THICKNESS / 2 // Position floor correctly
+    const floorMaterial = new StandardMaterial(`${newId}-floor-mat`, scene)
+    floorMaterial.diffuseColor = Color3.FromHexString('#A0522D') // Sienna brown
+    floor.material = floorMaterial
+    floor.parent = rootMesh
+
+    // --- Create Walls ---
+    const wallMaterial = new StandardMaterial(`${newId}-wall-mat`, scene)
+    wallMaterial.diffuseColor = Color3.FromHexString('#DEB887') // BurlyWood
+
+    for (let i = 0; i < vertices2D.length; i++) {
+      const p1 = new Vector3(vertices2D[i].x, 0, vertices2D[i].y)
+      const p2 = new Vector3(vertices2D[(i + 1) % vertices2D.length].x, 0, vertices2D[(i + 1) % vertices2D.length].y)
+
+      const wallLength = Vector3.Distance(p1, p2)
+      if (wallLength < 0.01) continue // Skip zero-length walls
+
+      const wall = MeshBuilder.CreateBox(`${newId}-wall-${i}`, {
+        width: wallLength,
+        height: WALL_HEIGHT,
+        depth: WALL_THICKNESS
+      }, scene)
+
+      // -------------------------------------------------------------
+      // Compute wall direction vector and outward normal
+      // -------------------------------------------------------------
+      const direction = p2.subtract(p1).normalize()
+
+      // Mid-point of the wall segment
+      const midPoint = Vector3.Lerp(p1, p2, 0.5)
+
+      // Compute outward normal as Up × direction (right-hand side).
+      // This gives the exterior of a CCW polygon; multiply by
+      // orientationSign so CW polygons are handled, too.
+      const outward = Vector3.Cross(Vector3.Up(), direction)
+        .normalize()
+        .scale(orientationSign)
+
+      // Final wall position offset by half thickness
+      const wallPos = midPoint.add(outward.scale(WALL_THICKNESS / 2))
+
+      wall.position = wallPos
+      wall.position.y += WALL_HEIGHT / 2
+
+      // -------------------------------------------------------------
+      // Rotate wall so its local X axis aligns with the edge direction
+      // Use signed angle to handle all quadrants correctly.
+      // -------------------------------------------------------------
+      wall.rotation.y = -Math.atan2(direction.z, direction.x);
+       
+      wall.material = wallMaterial
+      wall.parent = rootMesh
+    }
+    
+    // Register the root mesh with the SceneManager
+    sceneManager.addPreExistingMesh(rootMesh, newId)
+
+    // Store SceneObject
+    const newObj: SceneObject = {
+      id: newId,
+      type: 'custom-room',
+      position: rootMesh.position.clone(),
+      scale: rootMesh.scaling.clone(),
+      rotation: rootMesh.rotation.clone(),
+      color: '#DEB887',
+      isNurbs: false
+    }
+
+    addObject(newObj)
+    setSelectedObjectId(newId)
+
+    // Close modal
+    setShowCustomRoomModal(false)
+    setActiveDropdown(null)
   }
 
   const createHousingComponent = (componentType: string, subType?: string) => {
@@ -720,6 +854,16 @@ function App() {
                 <button className="dropdown-button" onClick={() => createHousingComponent('window', 'skylight')}>
                   <span className="dropdown-icon">🪟</span>
                   Skylight
+                </button>
+              </div>
+            </div>
+            {/* Custom */}
+            <div className="dropdown-section">
+              <div className="dropdown-section-title">Custom</div>
+              <div className="dropdown-grid">
+                <button className="dropdown-button" onClick={() => { setShowCustomRoomModal(true); setActiveDropdown(null) }}>
+                  <span className="dropdown-icon">📐</span>
+                  Custom Room
                 </button>
               </div>
             </div>
@@ -1436,6 +1580,12 @@ function App() {
           sceneAPI={sceneAPI}
         />
       </div>
+      {/* Custom Room Drawing Modal */}
+      <CustomRoomModal
+        isOpen={showCustomRoomModal}
+        onCancel={() => setShowCustomRoomModal(false)}
+        onCreate={handleCreateCustomRoom}
+      />
     </div>
   )
 }
