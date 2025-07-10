@@ -17,6 +17,15 @@ import type {
     TextureAsset,
     TextureType
 } from '../types/types'
+import type { UndoAction } from './undoMiddleware'
+import {
+    createAddObjectAction,
+    createRemoveObjectAction,
+    createUpdateObjectAction,
+    createSetObjectLockedAction,
+    createSetObjectVisibilityAction,
+    createBatchDeleteAction
+} from './undoMiddleware'
 
 // Store State Interface
 interface SceneState {
@@ -89,6 +98,12 @@ interface SceneState {
     selectedDoorId: string | null
     selectedWindowId: string | null
     housingEditMode: 'none' | 'wall' | 'door' | 'window' | 'ceiling'
+    
+    // Undo/Redo state
+    undoHistory: UndoAction[]
+    redoHistory: UndoAction[]
+    canUndo: boolean
+    canRedo: boolean
 }
 
 // Store Actions Interface
@@ -214,6 +229,13 @@ interface SceneActions {
     isObjectSelected: (objectId: string) => boolean
     isObjectVisible: (objectId: string) => boolean
     isObjectLocked: (objectId: string) => boolean
+    
+    // Undo/Redo actions
+    undo: () => void
+    redo: () => void
+    pushUndoAction: (action: UndoAction) => void
+    clearUndoHistory: () => void
+    executeUndoAction: (action: UndoAction) => void
 }
 
 // Create the store
@@ -300,28 +322,81 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             selectedWindowId: null,
             housingEditMode: 'none',
             
+            // Undo/Redo initial state
+            undoHistory: [],
+            redoHistory: [],
+            canUndo: false,
+            canRedo: false,
+            
             // Actions
-            addObject: (object) => set((state) => ({
-                sceneObjects: [...state.sceneObjects, object]
-            })),
+            addObject: (object) => {
+                set((state) => ({
+                    sceneObjects: [...state.sceneObjects, object]
+                }))
+                // Track for undo
+                get().pushUndoAction(createAddObjectAction(object))
+            },
             
-            removeObject: (objectId) => set((state) => ({
-                sceneObjects: state.sceneObjects.filter(obj => obj.id !== objectId),
-                selectedObjectId: state.selectedObjectId === objectId ? null : state.selectedObjectId,
-                selectedObjectIds: state.selectedObjectIds.filter(id => id !== objectId)
-            })),
+            removeObject: (objectId) => {
+                const state = get()
+                const objectToRemove = state.sceneObjects.find(obj => obj.id === objectId)
+                
+                if (objectToRemove) {
+                    set((state) => ({
+                        sceneObjects: state.sceneObjects.filter(obj => obj.id !== objectId),
+                        selectedObjectId: state.selectedObjectId === objectId ? null : state.selectedObjectId,
+                        selectedObjectIds: state.selectedObjectIds.filter(id => id !== objectId)
+                    }))
+                    // Track for undo
+                    get().pushUndoAction(createRemoveObjectAction(objectToRemove))
+                }
+            },
             
-            updateObject: (objectId, updates) => set((state) => ({
-                sceneObjects: state.sceneObjects.map(obj => 
-                    obj.id === objectId ? (() => { 
-                        const updated = { ...obj, ...updates };
-                        if (updates.rotation) {
-                          console.log(`📝 sceneStore: Updated rotation for ${objectId} to (${updates.rotation.x.toFixed(3)}, ${updates.rotation.y.toFixed(3)}, ${updates.rotation.z.toFixed(3)})`);
+            updateObject: (objectId, updates) => {
+                console.log(`📝 updateObject called for ${objectId}:`, updates)
+                const state = get()
+                const existingObject = state.sceneObjects.find(obj => obj.id === objectId)
+                
+                if (existingObject) {
+                    // Extract only the properties being updated for the undo action
+                    // Properly clone Vector3 objects to avoid reference issues
+                    const previousValues: any = {}
+                    Object.keys(updates).forEach(key => {
+                        const value = existingObject[key as keyof typeof existingObject]
+                        if (value instanceof Vector3) {
+                            previousValues[key] = value.clone()
+                        } else {
+                            previousValues[key] = value
                         }
-                        return updated;
-                    })() : obj
-                )
-            })),
+                    })
+                    
+                    set((state) => ({
+                        sceneObjects: state.sceneObjects.map(obj => 
+                            obj.id === objectId ? (() => { 
+                                const updated = { ...obj, ...updates };
+                                if (updates.rotation) {
+                                  console.log(`📝 sceneStore: Updated rotation for ${objectId} to (${updates.rotation.x.toFixed(3)}, ${updates.rotation.y.toFixed(3)}, ${updates.rotation.z.toFixed(3)})`);
+                                }
+                                return updated;
+                            })() : obj
+                        )
+                    }))
+                    
+                    // Track for undo - also clone Vector3s in updates for consistency
+                    const clonedUpdates: any = {}
+                    Object.keys(updates).forEach(key => {
+                        const value = updates[key as keyof typeof updates]
+                        if (value instanceof Vector3) {
+                            clonedUpdates[key] = value.clone()
+                        } else {
+                            clonedUpdates[key] = value
+                        }
+                    })
+                    
+                    get().pushUndoAction(createUpdateObjectAction(objectId, clonedUpdates, previousValues))
+                    console.log(`🔄 Undo: Tracked object update for ${objectId}:`, Object.keys(clonedUpdates))
+                }
+            },
             
             setSceneObjects: (objects) => set({ sceneObjects: objects }),
             
@@ -408,13 +483,31 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 }
             },
             
-            setObjectVisibility: (objectId, visible) => set((state) => ({
-                objectVisibility: { ...state.objectVisibility, [objectId]: visible }
-            })),
+            setObjectVisibility: (objectId, visible) => {
+                const state = get()
+                const previousVisible = state.objectVisibility[objectId] !== false // default is true
+                
+                if (previousVisible !== visible) {
+                    set((state) => ({
+                        objectVisibility: { ...state.objectVisibility, [objectId]: visible }
+                    }))
+                    // Track for undo
+                    get().pushUndoAction(createSetObjectVisibilityAction(objectId, visible, previousVisible))
+                }
+            },
             
-            setObjectLocked: (objectId, locked) => set((state) => ({
-                objectLocked: { ...state.objectLocked, [objectId]: locked }
-            })),
+            setObjectLocked: (objectId, locked) => {
+                const state = get()
+                const previousLocked = state.objectLocked[objectId] || false
+                
+                if (previousLocked !== locked) {
+                    set((state) => ({
+                        objectLocked: { ...state.objectLocked, [objectId]: locked }
+                    }))
+                    // Track for undo
+                    get().pushUndoAction(createSetObjectLockedAction(objectId, locked, previousLocked))
+                }
+            },
             
             setTessellationQuality: (objectId, quality) => set((state) => ({
                 tessellationQuality: { ...state.tessellationQuality, [objectId]: quality }
@@ -952,6 +1045,150 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             isObjectLocked: (objectId) => {
                 const state = get()
                 return state.objectLocked[objectId] === true
+            },
+            
+            // Undo/Redo implementation
+            undo: () => {
+                const state = get()
+                if (state.undoHistory.length === 0) return
+                
+                const lastAction = state.undoHistory[state.undoHistory.length - 1]
+                const newUndoHistory = state.undoHistory.slice(0, -1)
+                const newRedoHistory = [...state.redoHistory, lastAction]
+                
+                console.log('🔄 Undoing action:', lastAction.type, 'Payload:', lastAction.payload)
+                console.log('🔄 Full undo history:', state.undoHistory.map(a => a.type))
+                
+                // Execute the inverse action
+                get().executeUndoAction(lastAction.inverse)
+                
+                // Update undo/redo state
+                set({
+                    undoHistory: newUndoHistory,
+                    redoHistory: newRedoHistory,
+                    canUndo: newUndoHistory.length > 0,
+                    canRedo: true
+                })
+            },
+            
+            redo: () => {
+                const state = get()
+                if (state.redoHistory.length === 0) return
+                
+                const lastUndoneAction = state.redoHistory[state.redoHistory.length - 1]
+                const newRedoHistory = state.redoHistory.slice(0, -1)
+                const newUndoHistory = [...state.undoHistory, lastUndoneAction]
+                
+                console.log('🔄 Redoing action:', lastUndoneAction.type)
+                
+                // Re-execute the original action
+                get().executeUndoAction(lastUndoneAction)
+                
+                // Update undo/redo state
+                set({
+                    undoHistory: newUndoHistory,
+                    redoHistory: newRedoHistory,
+                    canUndo: true,
+                    canRedo: newRedoHistory.length > 0
+                })
+            },
+            
+            pushUndoAction: (action: UndoAction) => {
+                const state = get()
+                const newUndoHistory = [...state.undoHistory, action]
+                
+                console.log('📋 Adding to undo history:', action.type, 'Total actions:', newUndoHistory.length)
+                
+                // Limit history size (keep last 50 actions)
+                if (newUndoHistory.length > 50) {
+                    newUndoHistory.shift()
+                }
+                
+                set({
+                    undoHistory: newUndoHistory,
+                    redoHistory: [], // Clear redo history when new action is performed
+                    canUndo: true,
+                    canRedo: false
+                })
+            },
+            
+            clearUndoHistory: () => {
+                set({
+                    undoHistory: [],
+                    redoHistory: [],
+                    canUndo: false,
+                    canRedo: false
+                })
+            },
+            
+            // Helper function to execute undo/redo actions
+            executeUndoAction: (action: UndoAction) => {
+                const { type, payload } = action
+                
+                switch (type) {
+                    case 'ADD_OBJECT':
+                        set((state) => ({
+                            sceneObjects: [...state.sceneObjects, payload.object]
+                        }))
+                        break
+                        
+                    case 'REMOVE_OBJECT':
+                        set((state) => ({
+                            sceneObjects: state.sceneObjects.filter(obj => obj.id !== payload.objectId),
+                            selectedObjectId: state.selectedObjectId === payload.objectId ? null : state.selectedObjectId,
+                            selectedObjectIds: state.selectedObjectIds.filter(id => id !== payload.objectId)
+                        }))
+                        break
+                        
+                    case 'UPDATE_OBJECT':
+                        set((state) => ({
+                            sceneObjects: state.sceneObjects.map(obj => 
+                                obj.id === payload.objectId ? (() => {
+                                    // Clone Vector3 objects to avoid reference issues
+                                    const clonedUpdates: any = {}
+                                    Object.keys(payload.updates).forEach(key => {
+                                        const value = payload.updates[key]
+                                        if (value instanceof Vector3) {
+                                            clonedUpdates[key] = value.clone()
+                                        } else {
+                                            clonedUpdates[key] = value
+                                        }
+                                    })
+                                    return { ...obj, ...clonedUpdates }
+                                })() : obj
+                            )
+                        }))
+                        break
+                        
+                    case 'SET_OBJECT_LOCKED':
+                        set((state) => ({
+                            objectLocked: { ...state.objectLocked, [payload.objectId]: payload.locked }
+                        }))
+                        break
+                        
+                    case 'SET_OBJECT_VISIBILITY':
+                        set((state) => ({
+                            objectVisibility: { ...state.objectVisibility, [payload.objectId]: payload.visible }
+                        }))
+                        break
+                        
+                    case 'BATCH_DELETE':
+                        set((state) => ({
+                            sceneObjects: state.sceneObjects.filter(obj => !payload.objectIds.includes(obj.id)),
+                            selectedObjectId: payload.objectIds.includes(state.selectedObjectId) ? null : state.selectedObjectId,
+                            selectedObjectIds: state.selectedObjectIds.filter(id => !payload.objectIds.includes(id))
+                        }))
+                        break
+                        
+                    case 'BATCH_ADD':
+                        set((state) => ({
+                            sceneObjects: [...state.sceneObjects, ...payload.objects]
+                        }))
+                        break
+                        
+                    default:
+                        console.warn('Unknown undo action type:', type)
+                }
             }
         }),
         {

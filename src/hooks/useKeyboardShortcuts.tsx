@@ -19,7 +19,11 @@ export const useKeyboardShortcuts = () => {
     setActiveDropdown,
     hasSelection,
     setSelectedObjectIds,
-    getSelectableObjects
+    getSelectableObjects,
+    undo,
+    redo,
+    canUndo,
+    canRedo
   } = useSceneStore()
 
   useEffect(() => {
@@ -46,6 +50,11 @@ export const useKeyboardShortcuts = () => {
           if (hasSelection()) {
             event.preventDefault()
             const objectsToDelete = selectedObjectId ? [selectedObjectId] : selectedObjectIds
+            
+            // Get object data before deletion for undo
+            const objectsData = sceneObjects.filter(obj => objectsToDelete.includes(obj.id))
+            
+            // Delete objects individually (this will create individual undo actions)
             objectsToDelete.forEach(id => removeObject(id))
             clearSelection()
             console.log('⚡ Keyboard: Deleted selected objects:', objectsToDelete)
@@ -98,6 +107,37 @@ export const useKeyboardShortcuts = () => {
           }
           break
 
+        case 'z':
+          if (isCtrlOrCmd) {
+            event.preventDefault()
+            if (event.shiftKey) {
+              // Cmd+Shift+Z: Redo
+              if (canRedo) {
+                redo()
+                console.log('⚡ Keyboard: Redo action')
+              }
+            } else {
+              // Cmd+Z: Undo
+              if (canUndo) {
+                undo()
+                console.log('⚡ Keyboard: Undo action')
+              } else {
+                console.log('⚡ Keyboard: No actions to undo')
+              }
+            }
+          }
+          break
+
+        case 'h':
+          if (isCtrlOrCmd && event.shiftKey) {
+            // Cmd+Shift+H: Debug - show undo history
+            event.preventDefault()
+            const { undoHistory, redoHistory } = useSceneStore.getState()
+            console.log('📋 Undo History:', undoHistory.map(a => `${a.type} (${a.timestamp})`))
+            console.log('📋 Redo History:', redoHistory.map(a => `${a.type} (${a.timestamp})`))
+          }
+          break
+
         case 'escape':
           event.preventDefault()
           clearSelection()
@@ -130,7 +170,11 @@ export const useKeyboardShortcuts = () => {
     setActiveDropdown,
     hasSelection,
     setSelectedObjectIds,
-    getSelectableObjects
+    getSelectableObjects,
+    undo,
+    redo,
+    canUndo,
+    canRedo
   ])
 
   // This hook doesn't return anything, it just sets up the event listeners
