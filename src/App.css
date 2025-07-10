@@ -1415,6 +1415,67 @@ body {
   background: #a8a8a8;
 }
 
+/* Texture Library Section Styles */
+.texture-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.texture-section {
+  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.texture-section-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 15px;
+  background-color: rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.texture-section-header:hover {
+  background-color: rgba(0, 0, 0, 0.15);
+}
+
+.section-toggle {
+  margin-right: 8px;
+  font-size: 12px;
+  color: #7f8c8d;
+}
+
+.texture-section-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.texture-item.default-texture {
+  position: relative;
+}
+
+.texture-item.default-texture::after {
+  content: '✓';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background-color: #27ae60;
+  color: white;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+}
+
 /* API Key Setup */
 .api-key-setup {
   display: flex;

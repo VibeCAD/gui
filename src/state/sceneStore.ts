@@ -76,6 +76,7 @@ interface SceneState {
     selectedTextureId: string | null
     isUploadingTexture: boolean
     textureUploadError: string | null
+    defaultTexturesLoaded: boolean
     
     // Housing-specific state
     housingComponents: {[objectId: string]: ModularHousingObject}
@@ -166,6 +167,7 @@ interface SceneActions {
     removeTextureFromObject: (objectId: string, textureType: TextureType) => void
     setTextureScale: (objectId: string, scale: { u: number; v: number }) => void
     setTextureOffset: (objectId: string, offset: { u: number; v: number }) => void
+    loadDefaultTextures: () => void
     
     // Housing-specific actions
     addHousingComponent: (objectId: string, housingObject: ModularHousingObject) => void
@@ -259,6 +261,7 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             selectedTextureId: null,
             isUploadingTexture: false,
             textureUploadError: null,
+            defaultTexturesLoaded: false,
             
             // Housing-specific initial state
             housingComponents: {},
@@ -492,7 +495,9 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                             delete newTextureIds[textureType];
                             return {
                                 ...obj,
-                                textureIds: Object.keys(newTextureIds).length > 0 ? newTextureIds : undefined
+                                textureIds: Object.keys(newTextureIds).length > 0 ? newTextureIds : undefined,
+                                // Ensure color is included in the update for proper restoration
+                                color: obj.color
                             };
                         }
                         return obj;
@@ -526,6 +531,30 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                         return obj;
                     })
                 }));
+            },
+            
+            loadDefaultTextures: async () => {
+                const state = get();
+                if (state.defaultTexturesLoaded) {
+                    return; // Already loaded
+                }
+                
+                // Lazy import to avoid circular dependencies
+                const { getAllDefaultTextures } = await import('../config/defaultTextures');
+                const defaultTextures = getAllDefaultTextures();
+                
+                // Add default textures to the store
+                const newTextureAssets = new Map(state.textureAssets);
+                defaultTextures.forEach(texture => {
+                    newTextureAssets.set(texture.id, texture);
+                });
+                
+                set({ 
+                    textureAssets: newTextureAssets,
+                    defaultTexturesLoaded: true
+                });
+                
+                console.log(`✅ Loaded ${defaultTextures.length} default textures`);
             },
             
             // Housing-specific actions

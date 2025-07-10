@@ -304,6 +304,10 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
         // Check for texture changes
         if (JSON.stringify(currentObj.textureIds) !== JSON.stringify(prevObj.textureIds)) {
           diff.textureIds = currentObj.textureIds
+          // When textures are removed, also include the color to restore it
+          if (!currentObj.textureIds || Object.keys(currentObj.textureIds).length === 0) {
+            diff.color = currentObj.color
+          }
         }
         if (JSON.stringify(currentObj.textureScale) !== JSON.stringify(prevObj.textureScale)) {
           diff.textureScale = currentObj.textureScale

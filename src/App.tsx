@@ -32,6 +32,17 @@ function App() {
 
   // Use keyboard shortcuts hook
   useKeyboardShortcuts()
+  
+  // Load default textures when scene is initialized
+  useEffect(() => {
+    if (sceneInitialized) {
+      const loadDefaults = async () => {
+        const { loadDefaultTextures } = useSceneStore.getState();
+        await loadDefaultTextures();
+      };
+      loadDefaults();
+    }
+  }, [sceneInitialized]);
 
   // --- START: Reading state from the Zustand store ---
   const {

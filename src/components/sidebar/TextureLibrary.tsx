@@ -15,6 +15,8 @@ export const TextureLibrary: React.FC<TextureLibraryProps> = ({
     const [selectedTextureType, setSelectedTextureType] = useState<TextureType>('diffuse');
     const [renameTextureId, setRenameTextureId] = useState<string | null>(null);
     const [renameName, setRenameName] = useState('');
+    const [showDefaultTextures, setShowDefaultTextures] = useState(true);
+    const [showUserTextures, setShowUserTextures] = useState(true);
     
     const {
         textureAssets,
@@ -29,15 +31,31 @@ export const TextureLibrary: React.FC<TextureLibraryProps> = ({
         hasSelection
     } = useSceneStore();
     
-    // Convert Map to array and filter based on search
-    const filteredTextures = useMemo(() => {
+    // Convert Map to array and filter based on search, separating default and user textures
+    const { defaultTextures, userTextures } = useMemo(() => {
         const texturesArray = Array.from(textureAssets.values());
         
-        if (!searchTerm) return texturesArray;
+        // Separate default textures (those with IDs starting with 'default-') from user textures
+        const defaults = texturesArray.filter(t => t.id.startsWith('default-'));
+        const users = texturesArray.filter(t => !t.id.startsWith('default-'));
         
-        return texturesArray.filter(texture => 
-            texture.name.toLowerCase().includes(searchTerm.toLowerCase())
-        );
+        // Apply search filter if needed
+        if (searchTerm) {
+            const term = searchTerm.toLowerCase();
+            return {
+                defaultTextures: defaults.filter(texture => 
+                    texture.name.toLowerCase().includes(term)
+                ),
+                userTextures: users.filter(texture => 
+                    texture.name.toLowerCase().includes(term)
+                )
+            };
+        }
+        
+        return {
+            defaultTextures: defaults,
+            userTextures: users
+        };
     }, [textureAssets, searchTerm]);
     
     const handleTextureClick = (textureId: string) => {
@@ -75,6 +93,12 @@ export const TextureLibrary: React.FC<TextureLibraryProps> = ({
     const handleDeleteTexture = (textureId: string, e: React.MouseEvent) => {
         e.stopPropagation(); // Prevent texture selection
         
+        // Don't allow deleting default textures
+        if (textureId.startsWith('default-')) {
+            addToResponseLog('⚠️ Default textures cannot be deleted');
+            return;
+        }
+        
         const texture = textureAssets.get(textureId);
         if (window.confirm(`Delete texture "${texture?.name}"?`)) {
             removeTextureAsset(textureId);
@@ -89,6 +113,12 @@ export const TextureLibrary: React.FC<TextureLibraryProps> = ({
     
     const handleRename = (textureId: string, e: React.MouseEvent) => {
         e.stopPropagation();
+        
+        // Don't allow renaming default textures
+        if (textureId.startsWith('default-')) {
+            return;
+        }
+        
         const texture = textureAssets.get(textureId);
         if (texture) {
             setRenameTextureId(textureId);
@@ -106,12 +136,14 @@ export const TextureLibrary: React.FC<TextureLibraryProps> = ({
     };
     
     const formatFileSize = (bytes: number): string => {
+        if (bytes === 0) return 'N/A'; // For default textures
         if (bytes < 1024) return bytes + ' B';
         if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
         return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     };
     
     const formatDate = (timestamp: number): string => {
+        if (timestamp === 0) return 'Built-in'; // For default textures
         const date = new Date(timestamp);
         const now = new Date();
         const diffMs = now.getTime() - date.getTime();
@@ -122,6 +154,69 @@ export const TextureLibrary: React.FC<TextureLibraryProps> = ({
         if (diffMins < 1440) return `${Math.floor(diffMins / 60)} hours ago`;
         return date.toLocaleDateString();
     };
+    
+    const renderTextureItem = (texture: TextureAsset, isDefault: boolean = false) => (
+        <div
+            key={texture.id}
+            className={`texture-item ${selectedTextureId === texture.id ? 'selected' : ''} ${isDefault ? 'default-texture' : ''}`}
+            onClick={() => handleTextureClick(texture.id)}
+        >
+            <div className="texture-thumbnail">
+                <img src={texture.url} alt={texture.name} />
+            </div>
+            
+            <div className="texture-info">
+                {renameTextureId === texture.id ? (
+                    <input
+                        type="text"
+                        value={renameName}
+                        onChange={(e) => setRenameName(e.target.value)}
+                        onBlur={() => handleRenameSubmit(texture.id)}
+                        onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                                handleRenameSubmit(texture.id);
+                            }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="texture-rename-input"
+                        autoFocus
+                    />
+                ) : (
+                    <div className="texture-name" title={texture.name}>
+                        {texture.name}
+                    </div>
+                )}
+                
+                <div className="texture-meta">
+                    <span>{texture.dimensions.width}×{texture.dimensions.height}</span>
+                    <span>{formatFileSize(texture.fileSize)}</span>
+                </div>
+                
+                <div className="texture-date">
+                    {formatDate(texture.uploadedAt)}
+                </div>
+            </div>
+            
+            {!isDefault && (
+                <div className="texture-actions">
+                    <button
+                        className="texture-action-btn rename"
+                        onClick={(e) => handleRename(texture.id, e)}
+                        title="Rename"
+                    >
+                        ✏️
+                    </button>
+                    <button
+                        className="texture-action-btn delete"
+                        onClick={(e) => handleDeleteTexture(texture.id, e)}
+                        title="Delete"
+                    >
+                        🗑️
+                    </button>
+                </div>
+            )}
+        </div>
+    );
     
     return (
         <div className={`texture-library-container ${className}`}>
@@ -149,78 +244,50 @@ export const TextureLibrary: React.FC<TextureLibraryProps> = ({
                 </div>
             </div>
             
-            {filteredTextures.length === 0 ? (
+            {defaultTextures.length === 0 && userTextures.length === 0 ? (
                 <div className="texture-library-empty">
                     <span className="empty-icon">🖼️</span>
                     <span className="empty-text">
-                        {searchTerm ? 'No textures found' : 'No textures uploaded yet'}
-                    </span>
-                    <span className="empty-hint">
-                        Upload textures using the upload area above
+                        {searchTerm ? 'No textures found' : 'Loading textures...'}
                     </span>
                 </div>
             ) : (
-                <div className="texture-grid">
-                    {filteredTextures.map(texture => (
-                        <div
-                            key={texture.id}
-                            className={`texture-item ${selectedTextureId === texture.id ? 'selected' : ''}`}
-                            onClick={() => handleTextureClick(texture.id)}
-                        >
-                            <div className="texture-thumbnail">
-                                <img src={texture.url} alt={texture.name} />
+                <div className="texture-sections">
+                    {/* Default Textures Section */}
+                    {defaultTextures.length > 0 && (
+                        <div className="texture-section">
+                            <div 
+                                className="texture-section-header" 
+                                onClick={() => setShowDefaultTextures(!showDefaultTextures)}
+                            >
+                                <span className="section-toggle">{showDefaultTextures ? '▼' : '▶'}</span>
+                                <h4>Default Textures ({defaultTextures.length})</h4>
                             </div>
-                            
-                            <div className="texture-info">
-                                {renameTextureId === texture.id ? (
-                                    <input
-                                        type="text"
-                                        value={renameName}
-                                        onChange={(e) => setRenameName(e.target.value)}
-                                        onBlur={() => handleRenameSubmit(texture.id)}
-                                        onKeyPress={(e) => {
-                                            if (e.key === 'Enter') {
-                                                handleRenameSubmit(texture.id);
-                                            }
-                                        }}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="texture-rename-input"
-                                        autoFocus
-                                    />
-                                ) : (
-                                    <div className="texture-name" title={texture.name}>
-                                        {texture.name}
-                                    </div>
-                                )}
-                                
-                                <div className="texture-meta">
-                                    <span>{texture.dimensions.width}×{texture.dimensions.height}</span>
-                                    <span>{formatFileSize(texture.fileSize)}</span>
+                            {showDefaultTextures && (
+                                <div className="texture-grid">
+                                    {defaultTextures.map(texture => renderTextureItem(texture, true))}
                                 </div>
-                                
-                                <div className="texture-date">
-                                    {formatDate(texture.uploadedAt)}
-                                </div>
-                            </div>
-                            
-                            <div className="texture-actions">
-                                <button
-                                    className="texture-action-btn rename"
-                                    onClick={(e) => handleRename(texture.id, e)}
-                                    title="Rename"
-                                >
-                                    ✏️
-                                </button>
-                                <button
-                                    className="texture-action-btn delete"
-                                    onClick={(e) => handleDeleteTexture(texture.id, e)}
-                                    title="Delete"
-                                >
-                                    🗑️
-                                </button>
-                            </div>
+                            )}
                         </div>
-                    ))}
+                    )}
+                    
+                    {/* User Textures Section */}
+                    {userTextures.length > 0 && (
+                        <div className="texture-section">
+                            <div 
+                                className="texture-section-header" 
+                                onClick={() => setShowUserTextures(!showUserTextures)}
+                            >
+                                <span className="section-toggle">{showUserTextures ? '▼' : '▶'}</span>
+                                <h4>My Textures ({userTextures.length})</h4>
+                            </div>
+                            {showUserTextures && (
+                                <div className="texture-grid">
+                                    {userTextures.map(texture => renderTextureItem(texture, false))}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
             

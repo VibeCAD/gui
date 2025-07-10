@@ -331,7 +331,7 @@ export class SceneManager {
       }
       
       // Handle texture updates
-      if (sceneObject.textureIds !== undefined && this.textureManager && mesh.material) {
+      if ('textureIds' in sceneObject && this.textureManager && mesh.material) {
         console.log('🎨 Texture update detected:', {
           meshId: id,
           textureIds: sceneObject.textureIds,
@@ -339,7 +339,7 @@ export class SceneManager {
           materialType: mesh.material.constructor.name
         });
         
-        // If textureIds is empty or null, remove all textures
+        // If textureIds is empty, null, or undefined, remove all textures
         if (!sceneObject.textureIds || Object.keys(sceneObject.textureIds).length === 0) {
           const material = mesh.material as StandardMaterial;
           console.log('🗑️ Removing all textures from mesh:', id);
@@ -348,6 +348,13 @@ export class SceneManager {
           material.bumpTexture = null;
           material.specularTexture = null;
           material.emissiveTexture = null;
+          
+          // Restore the original diffuse color from the scene object
+          // The color should be passed in the update when textures are removed
+          if (sceneObject.color) {
+            console.log('🎨 Restoring original color:', sceneObject.color);
+            material.diffuseColor = Color3.FromHexString(sceneObject.color);
+          }
         } else {
           // Apply each texture type
           for (const [textureType, textureId] of Object.entries(sceneObject.textureIds)) {
@@ -370,7 +377,8 @@ export class SceneManager {
                 case 'diffuse':
                   console.log('🎨 Applying diffuse texture');
                   this.textureManager.applyDiffuseTexture(material, texture);
-                  // Ensure the texture is visible by resetting diffuse color to white
+                  // Ensure the texture is visible by setting diffuse color to white
+                  // This allows the texture to show properly without color tinting
                   material.diffuseColor = new Color3(1, 1, 1);
                   break;
                 case 'normal':
