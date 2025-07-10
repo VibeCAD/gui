@@ -639,6 +639,7 @@ When creating objects with spatial relationships, you MUST:
 
 Respond ONLY with valid JSON array of commands.
 DO NOT INCLUDE ANY OTHER TEXT IN YOUR RESPONSE. YOU MUST ONLY RESPOND WITH VALID JSON.
+DO NOT INCLUDE ANY COMMENTS IN THE JSON BLOCK.
 
 Object IDs currently in scene: ${objectIds.join(', ')}`;
   }
