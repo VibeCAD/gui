@@ -1,5 +1,7 @@
 import { useEffect, useRef, useMemo, useState } from 'react'
 import { Vector3, Vector2, StandardMaterial, Color3, Mesh, PolygonMeshBuilder } from 'babylonjs'
+import { computeCompositeBoundary, generateDefaultConnectionPoints } from './babylon/boundaryUtils'
+import type { ConnectionPoint } from './types/types'
 import './App.css'
 
 // Import material presets constant (value)
@@ -297,6 +299,8 @@ function App() {
     const wallMaterial = new StandardMaterial(`${newId}-wall-mat`, scene)
     wallMaterial.diffuseColor = Color3.FromHexString('#DEB887') // BurlyWood
 
+    const wallTopConnectionPoints: ConnectionPoint[] = []
+
     for (let i = 0; i < vertices2D.length; i++) {
       const p1 = new Vector3(vertices2D[i].x, 0, vertices2D[i].y)
       const p2 = new Vector3(vertices2D[(i + 1) % vertices2D.length].x, 0, vertices2D[(i + 1) % vertices2D.length].y)
@@ -339,8 +343,34 @@ function App() {
        
       wall.material = wallMaterial
       wall.parent = rootMesh
+
+      // ----------------------------------------------
+      // Add connection point at the top middle of wall
+      // ----------------------------------------------
+      const cpMid = Vector3.Lerp(p1, p2, 0.5)
+      const cpPosLocal = new Vector3(cpMid.x, WALL_HEIGHT, cpMid.z)
+      const cp: ConnectionPoint = {
+        id: `wall-top-${i}`,
+        position: cpPosLocal,
+        normal: new Vector3(0, 1, 0), // upward normal for stacking
+        kind: 'edge'
+      }
+      wallTopConnectionPoints.push(cp)
     }
     
+    // -------------------------------------------------------------
+    // Attach connection points after geometry created so boundary
+    // includes floor and walls (important for correct snapping)
+    // -------------------------------------------------------------
+    const compositeBoundary = computeCompositeBoundary(rootMesh)
+    const defaultCPs = generateDefaultConnectionPoints(rootMesh, compositeBoundary)
+    const cps = [...defaultCPs, ...wallTopConnectionPoints]
+    if (!rootMesh.metadata) rootMesh.metadata = {}
+    ;(rootMesh.metadata as any).connectionPoints = cps
+
+    // Debugging: log connection point info
+    console.log(`[CustomRoom] Generated ${cps.length} connection points for ${newId}:`, cps.map(cp => ({ id: cp.id, pos: cp.position.toString(), normal: cp.normal.toString() })))
+
     // Register the root mesh with the SceneManager
     sceneManager.addPreExistingMesh(rootMesh, newId)
 

@@ -1,4 +1,4 @@
-import { Vector3, Mesh } from 'babylonjs'
+import { Vector3, Vector2, Quaternion, Mesh } from 'babylonjs'
 
 export type TransformMode = 'select' | 'move' | 'rotate' | 'scale'
 export type PrimitiveType = 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 'nurbs' | 
@@ -236,8 +236,33 @@ export interface ConnectionPoint {
     position: Vector3
     /** Local-space outward normal of the face this point belongs to. Used to orient snapping. */
     normal: Vector3
+    /** Semantic kind of connector (face, edge, corner, custom) */
+    kind?: 'face' | 'edge' | 'corner' | 'custom'
     /** Optional list of object primitive types that are allowed to connect to this point */
     allowedTypes?: string[]
+    /** Optional priority (lower = preferred) when multiple snaps are possible */
+    snapPriority?: number
+}
+
+/**
+ * Axis-aligned / oriented bounding information used for snapping & stacking logic.
+ */
+export interface Boundary {
+    /** Axis-aligned bounding box */
+    aabb: {
+        min: Vector3
+        max: Vector3
+        size: Vector3
+        center: Vector3
+    }
+    /** Optional oriented bounding box */
+    obb?: {
+        center: Vector3
+        halfSizes: Vector3
+        orientation: Quaternion
+    }
+    /** Optional 2D footprint (projected on XZ plane) for advanced layout */
+    footprint2D?: Vector2[]
 }
 
 // Utility types for housing operations

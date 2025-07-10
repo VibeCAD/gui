@@ -1,6 +1,7 @@
 import { Scene, MeshBuilder, StandardMaterial, Color3, Mesh, Vector3 } from 'babylonjs';
 import type { PrimitiveType, ConnectionPoint } from '../types/types';
 import { createHousingMesh } from './housingFactory';
+import { generateDefaultConnectionPoints } from './boundaryUtils';
 
 export interface MeshCreationOptions {
   position?: Vector3;
@@ -187,7 +188,8 @@ export const updateMesh = (mesh: Mesh, options: Partial<MeshCreationOptions>): v
  * Attaches connection points metadata to a mesh for snapping/alignment purposes
  */
 const attachConnectionPoints = (mesh: Mesh, type: PrimitiveType): void => {
-  let connectionPoints: ConnectionPoint[] = [];
+  // Begin with generic AABB-based points for universal compatibility
+  let connectionPoints: ConnectionPoint[] = generateDefaultConnectionPoints(mesh);
 
   switch (type) {
     case 'cube': {
@@ -218,6 +220,7 @@ const attachConnectionPoints = (mesh: Mesh, type: PrimitiveType): void => {
       break;
   }
 
+  // Merge unique IDs from shape-specific list (if any) with generic defaults
   if (connectionPoints.length > 0) {
     if (!mesh.metadata) mesh.metadata = {};
     (mesh.metadata as any).connectionPoints = connectionPoints;
