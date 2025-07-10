@@ -316,6 +316,11 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
           diff.textureOffset = currentObj.textureOffset
         }
         
+        // Check for gridInfo changes (custom rooms)
+        if (currentObj.type === 'custom-room' && JSON.stringify(currentObj.gridInfo) !== JSON.stringify(prevObj.gridInfo)) {
+          diff.gridInfo = currentObj.gridInfo
+        }
+        
         if (Object.keys(diff).length > 0) {
           sceneManager.updateMeshProperties(id, diff)
         }

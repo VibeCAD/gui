@@ -18,6 +18,7 @@ import {
 import type { SceneObject, PrimitiveType, TransformMode, ConnectionPoint, TextureAsset, TextureType } from '../types/types'
 import { createHousingMesh } from './housingFactory'
 import { TextureManager } from './textureManager'
+import { createFullGridTexture, calculateFullGridUVScale } from './gridTextureUtils'
 
 
 export class SceneManager {
@@ -442,6 +443,73 @@ export class SceneManager {
         }
         if (material.emissiveTexture) {
           this.textureManager.setTextureOffset(material.emissiveTexture as Texture, sceneObject.textureOffset);
+        }
+      }
+      
+      // Handle grid info updates for custom rooms
+      if ('gridInfo' in sceneObject && sceneObject.gridInfo && mesh.metadata) {
+        // Update metadata
+        (mesh.metadata as any).gridInfo = sceneObject.gridInfo
+        
+        // If this is a custom room, update the floor texture
+        if (mesh.id.includes('custom-room')) {
+          console.log('🔲 Updating grid texture for custom room:', id)
+          
+          // Find the floor mesh (it's a child of the root mesh)
+          const floorMesh = mesh.getChildMeshes().find(child => child.name.includes('-floor'))
+          if (floorMesh && floorMesh.material && floorMesh.material instanceof StandardMaterial && this.scene) {
+            const floorBounds = floorMesh.getBoundingInfo()
+            if (floorBounds) {
+              const floorWidth = floorBounds.maximum.x - floorBounds.minimum.x
+              const floorDepth = floorBounds.maximum.z - floorBounds.minimum.z
+              
+              // Create new grid texture with updated settings
+              const gridTexture = createFullGridTexture(
+                this.scene,
+                sceneObject.gridInfo.gridSize,
+                sceneObject.gridInfo.drawingBounds?.width || 400,
+                sceneObject.gridInfo.drawingBounds?.height || 400,
+                1024,
+                {
+                  lineColor: sceneObject.gridInfo.lineColor || '#e0e0e0',
+                  backgroundColor: '#A0522D',
+                  lineWidth: 2,
+                  opacity: 1,
+                  showSubGrid: sceneObject.gridInfo.showSubGrid !== false,
+                  subGridDivisions: 4
+                }
+              )
+              
+              // Calculate UV scale
+              const uvScale = calculateFullGridUVScale(
+                floorWidth,
+                floorDepth,
+                sceneObject.gridInfo.drawingBounds?.width || 400,
+                sceneObject.gridInfo.drawingBounds?.height || 400,
+                sceneObject.gridInfo.worldScale
+              )
+              
+              gridTexture.uScale = uvScale.u
+              gridTexture.vScale = uvScale.v
+              
+              // Apply the texture
+              const material = floorMesh.material as StandardMaterial
+              if (material.diffuseTexture) {
+                material.diffuseTexture.dispose()
+              }
+              
+              if (sceneObject.gridInfo.visible !== false) {
+                material.diffuseTexture = gridTexture
+                material.specularColor = new Color3(0.1, 0.1, 0.1)
+              } else {
+                // If grid is hidden, just show solid color
+                material.diffuseTexture = null
+                material.diffuseColor = Color3.FromHexString('#A0522D')
+              }
+              
+              console.log('✅ Grid texture updated successfully')
+            }
+          }
         }
       }
       

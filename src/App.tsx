@@ -1,6 +1,7 @@
 import { useEffect, useRef, useMemo, useState } from 'react'
 import { Vector3, Vector2, StandardMaterial, Color3, Mesh, PolygonMeshBuilder, DynamicTexture } from 'babylonjs'
 import { computeCompositeBoundary, generateDefaultConnectionPoints } from './babylon/boundaryUtils'
+import { createFullGridTexture, calculateFullGridUVScale } from './babylon/gridTextureUtils'
 import type { ConnectionPoint } from './types/types'
 import './App.css'
 
@@ -15,6 +16,9 @@ import { AISidebar } from './components/sidebar/AISidebar'
 
 // Import the CompassOverlay component
 import { CompassOverlay } from './components/ui/CompassOverlay'
+
+// Import the MeasurementOverlay component
+import { MeasurementOverlay } from './components/ui/MeasurementOverlay'
 
 // Import the keyboard shortcuts hook
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
@@ -279,7 +283,7 @@ function App() {
    * Converts 2D SVG coordinates to 3D world-space points, extrudes the polygon,
    * registers the mesh with the scene, and stores a SceneObject entry.
    */
-  const handleCreateCustomRoom = (roomData: { points: { x: number; y: number }[]; openings?: { start: { x: number; y: number }; end: { x: number; y: number } }[]; name?: string; allSegments?: { start: { x: number; y: number }; end: { x: number; y: number }; isOpening?: boolean }[] }) => {
+  const handleCreateCustomRoom = (roomData: { points: { x: number; y: number }[]; openings?: { start: { x: number; y: number }; end: { x: number; y: number } }[]; name?: string; allSegments?: { start: { x: number; y: number }; end: { x: number; y: number }; isOpening?: boolean }[]; gridSize?: number; drawingBounds?: { width: number; height: number } }) => {
     if (!sceneInitialized) return
 
     const sceneManager = sceneAPI.getSceneManager()
@@ -331,7 +335,44 @@ function App() {
     }, scene)
     floor.position.y -= WALL_THICKNESS / 2 // Position floor correctly
     const floorMaterial = new StandardMaterial(`${newId}-floor-mat`, scene)
-    floorMaterial.diffuseColor = Color3.FromHexString('#A0522D') // Sienna brown
+    
+    // Create grid texture for the floor
+    const gridTexture = createFullGridTexture(
+      scene,
+      roomData.gridSize || 20,
+      roomData.drawingBounds?.width || 400,
+      roomData.drawingBounds?.height || 400,
+      1024,
+      {
+        lineColor: '#e0e0e0',
+        backgroundColor: '#A0522D',
+        lineWidth: 2,
+        opacity: 1,
+        showSubGrid: true,
+        subGridDivisions: 4
+      }
+    )
+    
+    // Apply the grid texture
+    floorMaterial.diffuseTexture = gridTexture
+    floorMaterial.specularColor = new Color3(0.1, 0.1, 0.1)
+    
+    // Calculate proper UV scaling for the floor
+    const floorBounds = floor.getBoundingInfo()
+    if (floorBounds) {
+      const floorWidth = floorBounds.maximum.x - floorBounds.minimum.x
+      const floorDepth = floorBounds.maximum.z - floorBounds.minimum.z
+      const uvScale = calculateFullGridUVScale(
+        floorWidth,
+        floorDepth,
+        roomData.drawingBounds?.width || 400,
+        roomData.drawingBounds?.height || 400,
+        SCALE
+      )
+      gridTexture.uScale = uvScale.u
+      gridTexture.vScale = uvScale.v
+    }
+    
     floor.material = floorMaterial
     floor.parent = rootMesh
 
@@ -530,6 +571,13 @@ function App() {
     if (!rootMesh.metadata) rootMesh.metadata = {}
     ;(rootMesh.metadata as any).connectionPoints = cps
     
+    // Store grid information in metadata
+    ;(rootMesh.metadata as any).gridInfo = {
+      gridSize: roomData.gridSize || 20,
+      worldScale: SCALE,
+      drawingBounds: roomData.drawingBounds || { width: 400, height: 400 }
+    }
+    
     // Store room name in metadata
     if (name) {
       (rootMesh.metadata as any).roomName = name
@@ -592,7 +640,12 @@ function App() {
       rotation: rootMesh.rotation.clone(),
       color: '#DEB887',
       isNurbs: false,
-      roomName: name
+      roomName: name,
+      gridInfo: {
+        gridSize: roomData.gridSize || 20,
+        worldScale: SCALE,
+        drawingBounds: roomData.drawingBounds || { width: 400, height: 400 }
+      }
     }
 
     addObject(newObj)
@@ -603,7 +656,7 @@ function App() {
     setActiveDropdown(null)
   }
 
-  const handleCreateMultipleCustomRooms = (roomsData: Array<{ points: { x: number; y: number }[]; openings?: { start: { x: number; y: number }; end: { x: number; y: number } }[]; name?: string; allSegments?: { start: { x: number; y: number }; end: { x: number; y: number }; isOpening?: boolean }[] }>) => {
+  const handleCreateMultipleCustomRooms = (roomsData: Array<{ points: { x: number; y: number }[]; openings?: { start: { x: number; y: number }; end: { x: number; y: number } }[]; name?: string; allSegments?: { start: { x: number; y: number }; end: { x: number; y: number }; isOpening?: boolean }[]; gridSize?: number; drawingBounds?: { width: number; height: number } }>) => {
     // Create all rooms with slight delays to ensure unique IDs
     roomsData.forEach((roomData, index) => {
       setTimeout(() => {
@@ -1852,6 +1905,8 @@ function App() {
           />
           {/* Compass overlay for directional reference */}
           <CompassOverlay />
+          {/* Measurement overlay for grid coordinates and distance measurement */}
+          <MeasurementOverlay scene={sceneAPI.getSceneManager()?.getScene() || null} />
         </div>
         <AISidebar 
           apiKey={apiKey}

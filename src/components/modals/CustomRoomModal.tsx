@@ -10,6 +10,8 @@ interface RoomData {
   openings?: { start: Point; end: Point }[]  // Line segments that are openings
   name?: string  // Optional room name/tag
   allSegments?: { start: Point; end: Point; isOpening?: boolean }[]  // All line segments for interior walls
+  gridSize?: number  // Grid size used during drawing (in pixels)
+  drawingBounds?: { width: number; height: number }  // SVG canvas dimensions
 }
 
 interface GridPoint {
@@ -463,7 +465,9 @@ export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCanc
         points: room,
         openings: openings.length > 0 ? openings : undefined,
         name: roomNames[index] || `Room ${index + 1}`,
-        allSegments: allSegments.length > 0 ? allSegments : undefined
+        allSegments: allSegments.length > 0 ? allSegments : undefined,
+        gridSize: GRID_SIZE,  // Pass the current grid size
+        drawingBounds: { width: SVG_WIDTH, height: SVG_HEIGHT }  // Pass drawing bounds
       }))
       onCreateMultiple(roomsData)
     } else {
@@ -474,7 +478,9 @@ export const CustomRoomModal: React.FC<CustomRoomModalProps> = ({ isOpen, onCanc
             points: room,
             openings: openings.length > 0 ? openings : undefined,
             name: roomNames[index] || `Room ${index + 1}`,
-            allSegments: allSegments.length > 0 ? allSegments : undefined
+            allSegments: allSegments.length > 0 ? allSegments : undefined,
+            gridSize: GRID_SIZE,  // Pass the current grid size
+            drawingBounds: { width: SVG_WIDTH, height: SVG_HEIGHT }  // Pass drawing bounds
           }
           onCreate(roomData)
         }, index * 100)
