@@ -107,108 +107,9 @@ export const AISidebar: React.FC<AISidebarProps> = ({
   const performAlignment = (command: SceneCommand, sceneManager: any) => {
     if (!command.objectId || !command.relativeToObject || !command.edge) return;
 
-    // Get both meshes
-    const movingMesh = sceneManager.getMeshById(command.objectId);
-    const referenceMesh = sceneManager.getMeshById(command.relativeToObject);
+    // Use the sceneManager's alignMesh method which handles all edge types including 'nearest-wall'
+    sceneManager.alignMesh(command.objectId, command.relativeToObject, command.edge, command.offset);
     
-    if (!movingMesh || !referenceMesh) {
-      console.error('Could not find meshes for alignment:', command.objectId, command.relativeToObject);
-      return;
-    }
-
-    // Get bounding info for both objects
-    const movingBounds = movingMesh.getBoundingInfo();
-    const referenceBounds = referenceMesh.getBoundingInfo();
-    
-    if (!movingBounds || !referenceBounds) {
-      console.error('Could not get bounding info for alignment');
-      return;
-    }
-
-    console.log(`🔧 Starting alignment: ${command.objectId} to ${command.edge} edge of ${command.relativeToObject}`);
-
-    // Ensure world matrices are up to date
-    referenceMesh.computeWorldMatrix(true);
-    movingMesh.computeWorldMatrix(true);
-
-    // Calculate reference object dimensions and position in world space
-    const refMin = referenceBounds.boundingBox.minimumWorld;
-    const refMax = referenceBounds.boundingBox.maximumWorld;
-    const refCenter = referenceBounds.boundingBox.center;
-    
-    console.log(`📐 Reference bounds: min(${refMin.x.toFixed(2)}, ${refMin.y.toFixed(2)}, ${refMin.z.toFixed(2)}) max(${refMax.x.toFixed(2)}, ${refMax.y.toFixed(2)}, ${refMax.z.toFixed(2)})`);
-    
-    // Get the original (unrotated) dimensions of the moving object
-    // We need these to calculate proper flush positioning after rotation
-    const movingLocalBounds = movingBounds.boundingBox;
-    const movingLocalSize = movingLocalBounds.maximum.subtract(movingLocalBounds.minimum);
-    const originalWidth = movingLocalSize.x;   // 4.0 for wall
-    const originalHeight = movingLocalSize.y;  // 1.5 for wall  
-    const originalDepth = movingLocalSize.z;   // 0.2 for wall
-    
-    console.log(`📐 Moving object original dimensions: ${originalWidth.toFixed(2)} x ${originalHeight.toFixed(2)} x ${originalDepth.toFixed(2)}`);
-
-    const targetPosition = new Vector3();
-    const targetRotation = new Vector3(0, 0, 0); // Start with zero rotation
-    const offset = command.offset || 0;
-
-    // Calculate position and rotation based on edge
-    // For walls, we want them to sit ON the floor, not float above it
-    const wallBottomY = refMax.y; // Floor top surface
-    const wallCenterY = wallBottomY + (originalHeight / 2); // Wall center Y position
-    
-    switch (command.edge) {
-      case 'north': // +Z direction - wall faces north, extends in X direction
-        targetPosition.x = refCenter.x;
-        targetPosition.y = wallCenterY;
-        targetPosition.z = refMax.z + (originalDepth / 2) + offset; // Wall thickness/2 for flush contact
-        targetRotation.x = 0;
-        targetRotation.y = 0; // No rotation - wall naturally extends in X direction
-        targetRotation.z = 0;
-        console.log(`🧭 North alignment: placing at Z=${refMax.z.toFixed(2)} + ${(originalDepth/2).toFixed(2)} + ${offset} = ${targetPosition.z.toFixed(2)}, Y=${wallCenterY.toFixed(2)}`);
-        break;
-        
-      case 'south': // -Z direction - wall faces south, extends in X direction
-        targetPosition.x = refCenter.x;
-        targetPosition.y = wallCenterY;
-        targetPosition.z = refMin.z - (originalDepth / 2) - offset; // Wall thickness/2 for flush contact
-        targetRotation.x = 0;
-        targetRotation.y = Math.PI; // 180° rotation to face south
-        targetRotation.z = 0;
-        console.log(`🧭 South alignment: placing at Z=${refMin.z.toFixed(2)} - ${(originalDepth/2).toFixed(2)} - ${offset} = ${targetPosition.z.toFixed(2)}, Y=${wallCenterY.toFixed(2)}`);
-        break;
-        
-      case 'east': // +X direction - wall faces east, extends in Z direction
-        targetPosition.x = refMax.x + (originalDepth / 2) + offset; // Wall thickness/2 for flush contact
-        targetPosition.y = wallCenterY;
-        targetPosition.z = refCenter.z;
-        targetRotation.x = 0;
-        targetRotation.y = -Math.PI / 2; // -90° rotation to face east
-        targetRotation.z = 0;
-        console.log(`🧭 East alignment: placing at X=${refMax.x.toFixed(2)} + ${(originalDepth/2).toFixed(2)} + ${offset} = ${targetPosition.x.toFixed(2)}, Y=${wallCenterY.toFixed(2)}`);
-        break;
-        
-      case 'west': // -X direction - wall faces west, extends in Z direction
-        targetPosition.x = refMin.x - (originalDepth / 2) - offset; // Wall thickness/2 for flush contact
-        targetPosition.y = wallCenterY;
-        targetPosition.z = refCenter.z;
-        targetRotation.x = 0;
-        targetRotation.y = Math.PI / 2; // +90° rotation to face west
-        targetRotation.z = 0;
-        console.log(`🧭 West alignment: placing at X=${refMin.x.toFixed(2)} - ${(originalDepth/2).toFixed(2)} - ${offset} = ${targetPosition.x.toFixed(2)}, Y=${wallCenterY.toFixed(2)}`);
-        break;
-    }
-
-    console.log(`🎯 Target position: (${targetPosition.x.toFixed(2)}, ${targetPosition.y.toFixed(2)}, ${targetPosition.z.toFixed(2)})`);
-    console.log(`🎯 Target rotation: (${targetRotation.x.toFixed(2)}, ${targetRotation.y.toFixed(2)}, ${targetRotation.z.toFixed(2)})`);
-
-    // Apply the transformation directly without snap correction
-    // (snap correction was interfering with precise alignment)
-    updateObject(command.objectId, {
-      position: targetPosition,
-      rotation: targetRotation
-    });
-
     console.log(`✅ Aligned ${command.objectId} to ${command.edge} edge of ${command.relativeToObject}`);
   };
 
@@ -502,13 +403,32 @@ export const AISidebar: React.FC<AISidebarProps> = ({
       // Get the updated scene objects
       const currentSceneObjects = useSceneStore.getState().sceneObjects;
       
+      // Enrich scene objects with mesh metadata for custom rooms
+      const enrichedSceneObjects = currentSceneObjects.map(obj => {
+        if (obj.type === 'custom-room' && sceneAPI) {
+          const sceneManager = sceneAPI.getSceneManager();
+          const mesh = sceneManager?.getMeshById(obj.id);
+          if (mesh && mesh.metadata) {
+            // Add metadata to the object for AI processing
+            return {
+              ...obj,
+              metadata: mesh.metadata
+            };
+          }
+        }
+        return obj;
+      });
+      
       // Get current selection
       const { selectedObjectId: currentSelectedId, selectedObjectIds: currentSelectedIds } = useSceneStore.getState();
       
       // Debug: Log current scene objects before AI call
       console.log('🔍 Current scene objects at AI call time:');
-      currentSceneObjects.forEach(obj => {
+      enrichedSceneObjects.forEach(obj => {
         console.log(`  - ${obj.id} (${obj.type}): position (${obj.position.x.toFixed(2)}, ${obj.position.y.toFixed(2)}, ${obj.position.z.toFixed(2)})`);
+        if (obj.type === 'custom-room' && (obj as any).metadata?.floorPolygon) {
+          console.log(`    Floor polygon: ${(obj as any).metadata.floorPolygon.length} vertices`);
+        }
       });
       
       // Debug: Log current selection
@@ -527,7 +447,7 @@ export const AISidebar: React.FC<AISidebarProps> = ({
       ];
 
       const aiService = createAIService(apiKey, glbObjectNames);
-      const result = await aiService.getSceneCommands(textInput, currentSceneObjects, currentSelectedId, currentSelectedIds);
+      const result = await aiService.getSceneCommands(textInput, enrichedSceneObjects, currentSelectedId, currentSelectedIds);
       
       if (result.success && result.commands) {
         // Log the user prompt and AI response

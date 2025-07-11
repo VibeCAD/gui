@@ -599,6 +599,9 @@ function App() {
       drawingBounds: roomData.drawingBounds || { width: 400, height: 400 }
     }
     
+    // Store floor polygon for AI and collision detection
+    ;(rootMesh.metadata as any).floorPolygon = vertices2D.map(v => ({ x: v.x, z: v.y }))
+    
     // Store room name in metadata
     if (name) {
       (rootMesh.metadata as any).roomName = name
@@ -666,6 +669,14 @@ function App() {
         gridSize: roomData.gridSize || 20,
         worldScale: SCALE,
         drawingBounds: roomData.drawingBounds || { width: 400, height: 400 }
+      },
+      metadata: {
+        floorPolygon: vertices2D.map(v => ({ x: v.x, z: v.y })),
+        gridInfo: {
+          gridSize: roomData.gridSize || 20,
+          worldScale: SCALE,
+          drawingBounds: roomData.drawingBounds || { width: 400, height: 400 }
+        }
       }
     }
 

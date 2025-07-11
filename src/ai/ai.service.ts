@@ -1,6 +1,11 @@
 import OpenAI from 'openai';
-import type { SceneObject } from '../types/types';
+import type { SceneObject as BabylonSceneObject } from '../types/types';
 import { Vector3 } from 'babylonjs';
+
+// Extend SceneObject to include metadata for this service's use
+type SceneObject = BabylonSceneObject & {
+  metadata?: any;
+};
 
 export interface SceneCommand {
   action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'undo' | 'redo' | 'describe' | 'rename' | 'texture';
@@ -23,7 +28,7 @@ export interface SceneCommand {
   matchDimensions?: boolean;
   contactType?: 'direct' | 'gap' | 'overlap';
   // New align-specific properties
-  edge?: 'north' | 'south' | 'east' | 'west';
+  edge?: 'north' | 'south' | 'east' | 'west' | 'nearest-wall';
   offset?: number;
   
   // New texture-specific properties
@@ -554,6 +559,20 @@ export class AIService {
       description += `Ground plane at (0, 0, 0). `;
     }
     
+    // Process custom rooms first to provide spatial context
+    const customRooms = sceneObjects.filter(obj => obj.type === 'custom-room');
+    if (customRooms.length > 0) {
+      const roomDescriptions = customRooms.map(room => {
+        let roomDesc = `Custom room "${room.id}" at (${room.position.x.toFixed(1)}, ${room.position.y.toFixed(1)}, ${room.position.z.toFixed(1)})`;
+        if (room.metadata?.floorPolygon) {
+          const points = room.metadata.floorPolygon.map((p: { x: number, z: number }) => `(${p.x.toFixed(1)}, ${p.z.toFixed(1)})`).join(', ');
+          roomDesc += ` with floor corners at [${points}]. The walls are the segments connecting these corners.`;
+        }
+        return roomDesc;
+      }).join(' ');
+      description += `Rooms: ${roomDescriptions}. `;
+    }
+
     if (primitiveObjects.length > 0) {
       const primitiveDescription = primitiveObjects
         .map(obj => {
@@ -773,6 +792,9 @@ ALIGNMENT COMMAND EXAMPLES:
 "Align the wall to the north edge of the floor with 0.1 offset":
 [{"action": "align", "objectId": "wall-id", "relativeToObject": "floor-id", "edge": "north", "offset": 0.1}]
 
+"Align the bookcase to the nearest wall of the room":
+[{"action": "align", "objectId": "bookcase-id", "relativeToObject": "room-id", "edge": "nearest-wall"}]
+
 UNDO/REDO COMMAND EXAMPLES:
 "Undo the last action":
 [{"action": "undo"}]
@@ -791,6 +813,23 @@ UNDO/REDO COMMAND EXAMPLES:
 
 "Restore the last undone action":
 [{"action": "redo"}]
+
+ROOM GEOMETRY COMMANDS:
+- "against the wall" or "against a wall": Use the 'align' command with 'edge' set to 'nearest-wall' and the room ID as 'relativeToObject'.
+  Example: [{"action": "align", "objectId": "chair-1", "relativeToObject": "custom-room-1", "edge": "nearest-wall"}]
+- "in the corner" or "in a corner": Find the corner coordinates from the room's floor corners and use a 'move' command to place the object there.
+  Example: If room has corners at [(0,0), (4,0), (4,4), (0,4)], use [{"action": "move", "objectId": "lamp-1", "x": 0, "y": 0, "z": 0}]
+  For "in the corner", choose the corner closest to the object's current position.
+  For "in the northeast corner", use the corner with maximum x and z values.
+  For "in the southwest corner", use the corner with minimum x and z values.
+- "outside the room" or "out of the room": Calculate a position outside the room's polygon and use a 'move' command.
+  Example: [{"action": "move", "objectId": "chair-1", "x": 6, "y": 0, "z": 0}] (assuming room extends to x=4)
+
+When working with custom rooms:
+- The room's floor corners are provided in the scene description as coordinates like [(x1,z1), (x2,z2), ...]
+- To place an object in a corner, choose one of these corner coordinates
+- To place an object outside, choose coordinates that are NOT within the polygon formed by these corners
+- Always use the custom room's ID (like "custom-room-1") as the relativeToObject when using align with nearest-wall
 
 TEXTURE COMMAND EXAMPLES:
 "Apply wood texture to the cube":
