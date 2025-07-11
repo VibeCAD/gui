@@ -38,6 +38,7 @@ interface SceneState {
     
     // Transform and interaction
     transformMode: TransformMode
+    moveToMode: boolean
     multiSelectMode: boolean
     multiSelectPivot: Mesh | null
     multiSelectInitialStates: {[objectId: string]: MultiSelectInitialState}
@@ -127,6 +128,7 @@ interface SceneActions {
     
     // Transform actions
     setTransformMode: (mode: TransformMode) => void
+    setMoveToMode: (enabled: boolean) => void
     setMultiSelectMode: (enabled: boolean) => void
     setMultiSelectPivot: (pivot: Mesh | null) => void
     setMultiSelectInitialStates: (states: {[objectId: string]: MultiSelectInitialState}) => void
@@ -251,6 +253,7 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             hoveredObjectId: null,
             
             transformMode: 'select',
+            moveToMode: false,
             multiSelectMode: false,
             multiSelectPivot: null,
             multiSelectInitialStates: {},
@@ -451,9 +454,16 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             setHoveredObjectId: (objectId) => set({ hoveredObjectId: objectId }),
             
             setTransformMode: (mode) => set({ transformMode: mode }),
-            
+            setMoveToMode: (enabled) => {
+                set(state => {
+                    if (enabled) {
+                        // When entering move-to mode, disable other gizmos
+                        return { moveToMode: true, transformMode: 'select' }
+                    }
+                    return { moveToMode: false }
+                })
+            },
             setMultiSelectMode: (enabled) => set({ multiSelectMode: enabled }),
-            
             setMultiSelectPivot: (pivot) => set({ multiSelectPivot: pivot }),
             
             setMultiSelectInitialStates: (states) => set({ multiSelectInitialStates: states }),
@@ -1107,144 +1117,47 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 })
             },
             
-            pushUndoAction: (action: UndoAction) => {
-                const state = get()
-                const newUndoHistory = [...state.undoHistory, action]
-                
-                console.log('📋 Adding to undo history:', action.type, 'Total actions:', newUndoHistory.length)
-                
-                // Limit history size (keep last 50 actions)
-                if (newUndoHistory.length > 50) {
-                    newUndoHistory.shift()
-                }
-                
-                set({
-                    undoHistory: newUndoHistory,
-                    redoHistory: [], // Clear redo history when new action is performed
+            pushUndoAction: (action) => {
+                set((state) => ({
+                    undoHistory: [...state.undoHistory, action],
+                    redoHistory: [], // Clear redo history on new action
                     canUndo: true,
                     canRedo: false
-                })
+                }))
             },
             
             clearUndoHistory: () => {
-                set({
-                    undoHistory: [],
-                    redoHistory: [],
-                    canUndo: false,
-                    canRedo: false
-                })
-            },
-            
-            // Helper function to execute undo/redo actions
-            executeUndoAction: (action: UndoAction) => {
-                const { type, payload } = action
-                
-                switch (type) {
-                    case 'ADD_OBJECT':
-                        set((state) => ({
-                            sceneObjects: [...state.sceneObjects, payload.object]
-                        }))
-                        break
-                        
-                    case 'REMOVE_OBJECT':
-                        set((state) => ({
-                            sceneObjects: state.sceneObjects.filter(obj => obj.id !== payload.objectId),
-                            selectedObjectId: state.selectedObjectId === payload.objectId ? null : state.selectedObjectId,
-                            selectedObjectIds: state.selectedObjectIds.filter(id => id !== payload.objectId)
-                        }))
-                        break
-                        
-                    case 'UPDATE_OBJECT':
-                        set((state) => ({
-                            sceneObjects: state.sceneObjects.map(obj => 
-                                obj.id === payload.objectId ? (() => {
-                                    // Clone Vector3 objects to avoid reference issues
-                                    const clonedUpdates: any = {}
-                                    Object.keys(payload.updates).forEach(key => {
-                                        const value = payload.updates[key]
-                                        if (value instanceof Vector3) {
-                                            clonedUpdates[key] = value.clone()
-                                        } else {
-                                            clonedUpdates[key] = value
-                                        }
-                                    })
-                                    return { ...obj, ...clonedUpdates }
-                                })() : obj
-                            )
-                        }))
-                        break
-                        
-                    case 'SET_OBJECT_LOCKED':
-                        set((state) => ({
-                            objectLocked: { ...state.objectLocked, [payload.objectId]: payload.locked }
-                        }))
-                        break
-                        
-                    case 'SET_OBJECT_VISIBILITY':
-                        set((state) => ({
-                            objectVisibility: { ...state.objectVisibility, [payload.objectId]: payload.visible }
-                        }))
-                        break
-                        
-                    case 'BATCH_DELETE':
-                        set((state) => ({
-                            sceneObjects: state.sceneObjects.filter(obj => !payload.objectIds.includes(obj.id)),
-                            selectedObjectId: payload.objectIds.includes(state.selectedObjectId) ? null : state.selectedObjectId,
-                            selectedObjectIds: state.selectedObjectIds.filter(id => !payload.objectIds.includes(id))
-                        }))
-                        break
-                        
-                    case 'BATCH_ADD':
-                        set((state) => ({
-                            sceneObjects: [...state.sceneObjects, ...payload.objects]
-                        }))
-                        break
-                        
-                    case 'RENAME':
-                        get()._renameObject(action.payload.oldId, action.payload.newId)
-                        break
-                        
-                    default:
-                        console.warn('Unknown undo action type:', type)
-                }
+                set({ undoHistory: [], redoHistory: [], canUndo: false, canRedo: false })
             },
 
-            // Private state setters for undo/redo
-            _addObject: (object) => set(state => ({ sceneObjects: [...state.sceneObjects, object] })),
-            _removeObject: (objectId) => set(state => ({ sceneObjects: state.sceneObjects.filter(o => o.id !== objectId) })),
-            _updateObject: (objectId, updates) =>
-                set(state => ({
-                    sceneObjects: state.sceneObjects.map(o => (o.id === objectId ? { ...o, ...updates } : o))
-                })),
-            _renameObject: (oldId, newId) =>
-                set(state => ({
-                    sceneObjects: state.sceneObjects.map(o => (o.id === oldId ? { ...o, id: newId } : o)),
-                    selectedObjectId: state.selectedObjectId === oldId ? newId : state.selectedObjectId,
-                    selectedObjectIds: state.selectedObjectIds.map(id => id === oldId ? newId : id),
-                    objectVisibility: Object.fromEntries(Object.entries(state.objectVisibility).map(([key, value]) => [key === oldId ? newId : key, value])),
-                    objectLocked: Object.fromEntries(Object.entries(state.objectLocked).map(([key, value]) => [key === oldId ? newId : key, value])),
-                })),
-            _setObjectLocked: (objectId, locked) => 
-                set(state => ({
-                    objectLocked: { ...state.objectLocked, [objectId]: locked }
-                }))
+            executeUndoAction: (action) => {
+                switch (action.type) {
+                    case 'ADD_OBJECT':
+                        get().removeObject(action.payload.object.id)
+                        break
+                    case 'REMOVE_OBJECT':
+                        get().addObject(action.payload.object)
+                        break
+                    case 'UPDATE_OBJECT':
+                        get().updateObject(action.payload.objectId, action.payload.oldState)
+                        break
+                    case 'RENAME_OBJECT':
+                        get().renameObject(action.payload.newId, action.payload.oldId)
+                        break
+                    case 'SET_OBJECT_LOCKED':
+                        get().setObjectLocked(action.payload.objectId, action.payload.oldLocked)
+                        break
+                    case 'SET_OBJECT_VISIBILITY':
+                        get().setObjectVisibility(action.payload.objectId, action.payload.oldVisible)
+                        break
+                    case 'BATCH_DELETE':
+                        action.payload.objects.forEach(obj => get().addObject(obj))
+                        break
+                }
+            }
         }),
         {
-            name: 'scene-store',
-            partialize: (state: SceneState & SceneActions) => ({
-                // Persist only non-Babylon.js objects to avoid serialization issues
-                currentColor: state.currentColor,
-                wireframeMode: state.wireframeMode,
-                showGrid: state.showGrid,
-                snapToGrid: state.snapToGrid,
-                gridSize: state.gridSize,
-                sidebarCollapsed: state.sidebarCollapsed,
-                apiKey: state.apiKey,
-                showApiKeyInput: state.showApiKeyInput,
-                transformMode: state.transformMode,
-                multiSelectMode: state.multiSelectMode,
-                collisionDetectionEnabled: state.collisionDetectionEnabled
-            })
+            name: 'vibecad-scene-store',
         }
     )
 )

@@ -85,6 +85,7 @@ function App() {
     showConnectionPoints,
     movementEnabled,
     movementSpeed,
+    moveToMode,
 
     // Actions
     setSceneObjects,
@@ -121,6 +122,7 @@ function App() {
     setShowConnectionPoints,
     setMovementEnabled,
     setMovementSpeed,
+    setMoveToMode,
     
     // Getters from store (for checking object status)
     hasSelection,
@@ -1059,6 +1061,23 @@ function App() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Move To Point Tool */}
+        <div className="toolbar-item">
+            <button
+                className={`toolbar-button move-to-button ${moveToMode ? 'active' : ''}`}
+                onClick={() => {
+                    if(hasSelection()){
+                        setMoveToMode(!moveToMode)
+                    }
+                }}
+                disabled={!hasSelection()}
+                title="Move to Point"
+            >
+                <span className="dropdown-icon">📍</span>
+                Move to...
+            </button>
         </div>
 
         {/* Create Menu */}

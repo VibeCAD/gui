@@ -39,6 +39,7 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     multiSelectPivot,
     multiSelectInitialStates,
     sceneInitialized,
+    moveToMode,
     
     // Actions
     setSceneInitialized,
@@ -125,6 +126,25 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
           console.log('🔗 Setting up object hover callback')
           sceneManager.setObjectHoverCallback(handleObjectHover)
           
+          
+          console.log('🔗 Setting up move to callback')
+          sceneManager.setMoveToCallback((position: Vector3) => {
+            const { selectedObjectId, updateObject, setMoveToMode } = useSceneStore.getState()
+            if (selectedObjectId) {
+              const sceneManager = sceneManagerRef.current;
+              const mesh = sceneManager?.getMeshById(selectedObjectId);
+              if (mesh) {
+                // Adjust position so object's bottom is flush with the ground
+                const boundingBox = mesh.getBoundingInfo().boundingBox;
+                const objectHeight = boundingBox.maximumWorld.y - boundingBox.minimumWorld.y;
+                position.y += objectHeight / 2;
+              }
+              updateObject(selectedObjectId, { position })
+            }
+            // Deactivate move-to mode after completion
+            setMoveToMode(false)
+          })
+
           // Set up texture asset callback
           console.log('🔗 Setting up texture asset callback')
           sceneManager.setTextureAssetCallback((textureId: string) => {
@@ -379,6 +399,12 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
       sceneManagerRef.current!.setMeshVisibility(objectId, visible)
     })
   }, [objectVisibility, sceneInitialized])
+
+  // Handle move-to mode changes
+  useEffect(() => {
+    if (!sceneManagerRef.current || !sceneInitialized) return
+    sceneManagerRef.current.setMoveToMode(moveToMode)
+  }, [moveToMode, sceneInitialized])
 
   // Handle visual grid changes
   useEffect(() => {
