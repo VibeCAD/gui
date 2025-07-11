@@ -297,6 +297,23 @@ export const AISidebar: React.FC<AISidebarProps> = ({
           }
           break;
 
+        // ===== NEW PLACE-ON-FLOOR HANDLER =====
+        case 'place-on-floor':
+          if (sceneAPI && command.objectId && command.relativeToObject) {
+            const sceneManager = sceneAPI.getSceneManager();
+            if (sceneManager && typeof sceneManager.placeObjectOnRoomFloor === 'function') {
+              const success = sceneManager.placeObjectOnRoomFloor(
+                command.objectId,
+                command.relativeToObject,
+                command.snapToGrid !== false
+              );
+              console.log(`🛏️ place-on-floor: ${success ? 'placed' : 'failed'} object`, command.objectId, 'in room', command.relativeToObject);
+            } else {
+              console.warn('SceneManager.placeObjectOnRoomFloor not available');
+            }
+          }
+          break;
+
         case 'undo':
           // Call the undo function from the store
           undo();

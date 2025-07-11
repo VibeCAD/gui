@@ -1,9 +1,11 @@
 import OpenAI from 'openai';
 import type { SceneObject } from '../types/types';
 import { Vector3 } from 'babylonjs';
+import { findContainingRoom, getRoomFloorY, getRoomCenter, getRandomPositionInRoom } from '../babylon/boundaryUtils';
+import { snapToRoomGrid } from '../babylon/gridTextureUtils';
 
 export interface SceneCommand {
-  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'undo' | 'redo';
+  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'place-on-floor' | 'undo' | 'redo';
   objectId?: string;
   type?: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 
     'house-basic' | 'house-room' | 'house-hallway' | 'house-roof-flat' | 'house-roof-pitched' |
@@ -28,6 +30,8 @@ export interface SceneCommand {
   // New align-specific properties
   edge?: 'north' | 'south' | 'east' | 'west';
   offset?: number;
+  // New place-on-floor properties
+  snapToGrid?: boolean;
 }
 
 export interface AIServiceResult {
@@ -83,7 +87,8 @@ export class AIService {
       'house-window-casement': { width: 0.8, height: 1, depth: 0.05 },
       'house-window-sliding': { width: 1.2, height: 0.8, depth: 0.05 },
       'house-window-skylight': { width: 0.8, height: 0.8, depth: 0.05 },
-      'ground': { width: 10, height: 1, depth: 10 }
+      'ground': { width: 10, height: 1, depth: 10 },
+      'custom-room': { width: 4, height: 2.5, depth: 4 } // Default custom room dimensions
     };
 
     const base = baseDimensions[obj.type] || { width: 1, height: 1, depth: 1 };
@@ -120,12 +125,22 @@ export class AIService {
   }
 
   /**
-   * Find an object by color or name from the scene
+   * Find an object by color, name, room name, or type from the scene
    */
   private findObjectByDescription(description: string, sceneObjects: SceneObject[]): SceneObject | undefined {
     const lowerDesc = description.toLowerCase();
     
-    // First try to find by color
+    // First try to find custom rooms by name
+    const roomNameMatches = sceneObjects.filter(obj => 
+      obj.type === 'custom-room' && obj.roomName && 
+      (obj.roomName.toLowerCase().includes(lowerDesc) || lowerDesc.includes(obj.roomName.toLowerCase()))
+    );
+
+    if (roomNameMatches.length === 1) {
+      return roomNameMatches[0];
+    }
+
+    // Then try to find by color
     const colorMatches = sceneObjects.filter(obj => {
       if (obj.color) {
         const colorName = this.getColorName(obj.color);
@@ -138,10 +153,12 @@ export class AIService {
       return colorMatches[0];
     }
 
-    // Then try to find by type
-    const typeMatches = sceneObjects.filter(obj => 
-      obj.type.toLowerCase().includes(lowerDesc) || lowerDesc.includes(obj.type.toLowerCase())
-    );
+    // Then try to find by type (including "room" for custom-room types)
+    const typeMatches = sceneObjects.filter(obj => {
+      const objType = obj.type.toLowerCase();
+      const isRoom = obj.type === 'custom-room' && (lowerDesc.includes('room') || lowerDesc.includes('room'));
+      return objType.includes(lowerDesc) || lowerDesc.includes(objType) || isRoom;
+    });
 
     if (typeMatches.length === 1) {
       return typeMatches[0];
@@ -192,6 +209,52 @@ export class AIService {
   }
 
   /**
+   * Calculate room-aware placement with grid snapping for custom rooms
+   */
+  private calculateRoomAwarePlacement(
+    targetObject: SceneObject,
+    room: SceneObject,
+    relation: string
+  ): { x: number; y: number; z: number } {
+    const targetDimensions = this.getObjectDimensions(targetObject);
+    const floorY = getRoomFloorY(room);
+    
+    if (relation === 'inside') {
+      // Get a position within the room
+      const roomPosition = getRandomPositionInRoom(room);
+      
+      // Apply grid snapping if the room has a mesh with grid info
+      if (room.mesh) {
+        const snappedPosition = snapToRoomGrid(
+          { x: roomPosition.x, z: roomPosition.z },
+          room.mesh
+        );
+        
+        return {
+          x: snappedPosition.x,
+          y: floorY + targetDimensions.height / 2, // Place object with bottom on floor
+          z: snappedPosition.z
+        };
+      }
+      
+      // Fallback without grid snapping
+      return {
+        x: roomPosition.x,
+        y: floorY + targetDimensions.height / 2,
+        z: roomPosition.z
+      };
+    }
+    
+    // For other relations, use room center
+    const roomCenter = getRoomCenter(room);
+    return {
+      x: roomCenter.x,
+      y: floorY + targetDimensions.height / 2,
+      z: roomCenter.z
+    };
+  }
+
+  /**
    * Calculate precise position and scaling for spatial relationships
    */
   private calculatePreciseSpatialPlacement(
@@ -214,7 +277,10 @@ export class AIService {
     let position: { x: number; y: number; z: number };
     let scale: { x: number; y: number; z: number } | undefined;
     
-    if (shouldMatchDimensions) {
+    // Special handling for custom rooms
+    if (referenceObject.type === 'custom-room') {
+      position = this.calculateRoomAwarePlacement(targetObject, referenceObject, relation);
+    } else if (shouldMatchDimensions) {
       // Calculate scale factors to match reference object dimensions
       const scaleFactors = this.calculateDimensionMatchingScale(targetObject, referenceObject, relation);
       scale = scaleFactors;
@@ -375,6 +441,29 @@ export class AIService {
           z: refBox.min.z - targetDimensions.depth / 2 // Direct contact on Z axis
         };
       
+      case 'inside':
+        // Place object inside a room at floor level
+        if (referenceObject.type === 'custom-room') {
+          const roomCenter = getRoomCenter(referenceObject);
+          const floorY = getRoomFloorY(referenceObject);
+          
+          // Get a random position within the room
+          const roomPosition = getRandomPositionInRoom(referenceObject);
+          
+          return {
+            x: roomPosition.x,
+            y: roomPosition.y + targetDimensions.height / 2, // Place object with bottom on floor
+            z: roomPosition.z
+          };
+        } else {
+          // Fallback for non-room objects - same as default
+          return {
+            x: referenceObject.position.x,
+            y: referenceObject.position.y,
+            z: referenceObject.position.z
+          };
+        }
+      
       default:
         // Default: same position
         return {
@@ -468,14 +557,29 @@ export class AIService {
       console.log(`  - ${obj.id} (${obj.type}): position (${obj.position.x.toFixed(2)}, ${obj.position.y.toFixed(2)}, ${obj.position.z.toFixed(2)})`);
     });
 
+    const customRooms = sceneObjects.filter(obj => obj.type === 'custom-room');
     const housingObjects = sceneObjects.filter(obj => obj.type.startsWith('house-'));
-    const primitiveObjects = sceneObjects.filter(obj => !obj.type.startsWith('house-') && obj.type !== 'ground');
+    const primitiveObjects = sceneObjects.filter(obj => !obj.type.startsWith('house-') && obj.type !== 'ground' && obj.type !== 'custom-room');
     const groundObject = sceneObjects.find(obj => obj.type === 'ground');
     
     let description = '';
     
     if (groundObject) {
       description += `Ground plane at (0, 0, 0). `;
+    }
+
+    // Describe custom rooms first as they're important spatial containers
+    if (customRooms.length > 0) {
+      const roomsDescription = customRooms
+        .map(room => {
+          const dimensions = this.getObjectDimensions(room);
+          const roomName = room.roomName || 'Unnamed Room';
+          const gridInfo = room.gridInfo ? ` with ${room.gridInfo.gridSize}px grid` : '';
+          
+          return `"${roomName}" room "${room.id}" (${dimensions.width.toFixed(1)}×${dimensions.depth.toFixed(1)}) at (${room.position.x.toFixed(1)}, ${room.position.z.toFixed(1)})${gridInfo}`;
+        })
+        .join(', ');
+      description += `Rooms: ${roomsDescription}`;
     }
     
     if (primitiveObjects.length > 0) {
@@ -495,7 +599,7 @@ export class AIService {
           return `${colorName} ${obj.type} "${obj.id}" (${sizeDesc}) at (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)})${rotationDesc}`;
         })
         .join(', ');
-      description += `Objects: ${primitiveDescription}`;
+      description += (description ? '. ' : '') + `Objects: ${primitiveDescription}`;
     }
     
     if (housingObjects.length > 0) {
@@ -540,8 +644,9 @@ Available actions:
 5. delete: Remove an object
 6. rotate: Rotate an object by rotationX, rotationY, rotationZ angles in radians
 7. align: Align an object to a specific edge of another object with perfect perpendicularity and flush contact
-8. undo: Undo the last action performed on the scene
-9. redo: Redo the last undone action
+8. place-on-floor: Place an object on the floor of a room with automatic grid snapping
+9. undo: Undo the last action performed on the scene
+10. redo: Redo the last undone action
 
 OBJECT TYPES:
 Basic: cube, sphere, cylinder, plane, torus, cone
@@ -665,6 +770,30 @@ HOUSING OBJECT LOGIC:
 - Rooms and hallways connect at ground level
 - Proper architectural proportions maintained
 - Direct contact between walls and roofs
+
+ROOM-AWARE PLACEMENT LOGIC:
+- Objects placed "inside" custom rooms are automatically positioned on the room floor
+- Room placement uses grid snapping for precise positioning
+- Objects are randomly distributed within room boundaries for natural placement
+- Use room names from scene description for accurate targeting
+- Room floor level is automatically calculated for proper Y positioning
+
+ROOM PLACEMENT EXAMPLES:
+"Put a red cube in the bedroom":
+[{"action": "create", "type": "cube", "color": "#ff6b6b"}, {"action": "place-on-floor", "objectId": "generated-cube-id", "relativeToObject": "bedroom", "snapToGrid": true}]
+
+"Move the chair into the living room":
+[{"action": "place-on-floor", "objectId": "chair-id", "relativeToObject": "living room", "snapToGrid": true}]
+
+"Place a table inside the kitchen":
+[{"action": "create", "type": "house-basic"}, {"action": "place-on-floor", "objectId": "generated-table-id", "relativeToObject": "kitchen", "snapToGrid": true}]
+
+PLACE-ON-FLOOR COMMAND DETAILS:
+- Use place-on-floor action for positioning objects inside rooms
+- Always set snapToGrid: true for room placement
+- Reference the room by name in relativeToObject
+- For new objects, use the generated object ID (you must predict the ID pattern)
+- For existing objects, use their current object ID
 
 CRITICAL REQUIREMENTS:
 1. ALWAYS identify the reference object from the scene when spatial relationships are mentioned
@@ -892,7 +1021,8 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
       { pattern: /beside|next to|near/, relation: 'beside' },
       { pattern: /in front of|front/, relation: 'in-front-of' },
       { pattern: /behind/, relation: 'behind' },
-      { pattern: /below|under/, relation: 'below' }
+      { pattern: /below|under/, relation: 'below' },
+      { pattern: /inside|into|in the|within/, relation: 'inside' }
     ];
 
     let detectedRelation: string | undefined;
@@ -910,20 +1040,35 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
       const colorMatches = lowerPrompt.match(/(red|blue|green|yellow|purple|orange|pink|cyan|brown|gray|tan)\s+(cube|sphere|cylinder|box|ball)/g);
       const typeMatches = lowerPrompt.match(/(cube|sphere|cylinder|box|ball|house|room|hallway)/g);
       
+      // Enhanced room name detection for 'inside' relationships
+      const roomNameMatches = lowerPrompt.match(/(?:in|into|inside)\s+(?:the\s+)?([a-zA-Z0-9\s]+?)(?:\s+room|\s|$)/g);
+      
       let referenceObject: SceneObject | undefined;
       
-      if (colorMatches && colorMatches.length > 0) {
+      // For 'inside' relationships, prioritize room detection
+      if (detectedRelation === 'inside' && roomNameMatches && roomNameMatches.length > 0) {
+        const roomMatch = roomNameMatches[0];
+        const roomName = roomMatch.replace(/(?:in|into|inside)\s+(?:the\s+)?/, '').replace(/\s+room.*$/, '').trim();
+        referenceObject = this.findObjectByDescription(roomName, sceneObjects);
+      }
+      
+      if (!referenceObject && colorMatches && colorMatches.length > 0) {
         const colorMatch = colorMatches[0];
         referenceObject = this.findObjectByDescription(colorMatch, sceneObjects);
-      } else if (typeMatches && typeMatches.length > 0) {
+      } else if (!referenceObject && typeMatches && typeMatches.length > 0) {
         const typeMatch = typeMatches[0];
         referenceObject = this.findObjectByDescription(typeMatch, sceneObjects);
       }
 
       if (referenceObject) {
         const refDimensions = this.getObjectDimensions(referenceObject);
+        const isRoom = referenceObject.type === 'custom-room';
+        const roomName = isRoom && referenceObject.roomName ? `"${referenceObject.roomName}"` : '';
         const colorName = this.getColorName(referenceObject.color);
-        description = `Reference object: ${colorName} ${referenceObject.type} at (${referenceObject.position.x.toFixed(1)}, ${referenceObject.position.y.toFixed(1)}, ${referenceObject.position.z.toFixed(1)}) with dimensions ${refDimensions.width.toFixed(1)}×${refDimensions.height.toFixed(1)}×${refDimensions.depth.toFixed(1)}`;
+        
+        description = isRoom 
+          ? `Reference room: ${roomName} room "${referenceObject.id}" at (${referenceObject.position.x.toFixed(1)}, ${referenceObject.position.z.toFixed(1)}) with dimensions ${refDimensions.width.toFixed(1)}×${refDimensions.depth.toFixed(1)}`
+          : `Reference object: ${colorName} ${referenceObject.type} at (${referenceObject.position.x.toFixed(1)}, ${referenceObject.position.y.toFixed(1)}, ${referenceObject.position.z.toFixed(1)}) with dimensions ${refDimensions.width.toFixed(1)}×${refDimensions.height.toFixed(1)}×${refDimensions.depth.toFixed(1)}`;
         
         return {
           spatialRelationDetected: true,
@@ -947,8 +1092,8 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
     const enhancedCommands: SceneCommand[] = [];
     
     commands.forEach(command => {
-      // Handle align commands - pass through without modification as they contain all needed info
-      if (command.action === 'align') {
+      // Handle align and place-on-floor commands - pass through without modification as they contain all needed info
+      if (command.action === 'align' || command.action === 'place-on-floor') {
         enhancedCommands.push(command);
         return;
       }
@@ -958,53 +1103,88 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
         const referenceObject = this.findObjectByDescription(command.relativeToObject, sceneObjects);
         
         if (referenceObject) {
-          // Create a temporary object to calculate dimensions
-          const tempObject: SceneObject = {
-            id: 'temp',
-            type: command.type || 'cube',
-            position: new Vector3(0, 0, 0),
-            scale: new Vector3(1, 1, 1),
-            rotation: new Vector3(0, 0, 0),
-            color: command.color || '#ffffff',
-            isNurbs: false
-          };
-
-          const placementResult = this.calculatePreciseSpatialPlacement(
-            tempObject,
-            referenceObject,
-            command.spatialRelation,
-            sceneObjects
-          );
-
-          // Create the primary command (create/move) with position and embedded scale
-          const primaryCommand: SceneCommand = {
-            ...command,
-            x: placementResult.position.x,
-            y: placementResult.position.y,
-            z: placementResult.position.z,
-            matchDimensions: placementResult.matchDimensions,
-            contactType: 'direct'
-          };
-
-          // If dimension matching is needed, embed scale in the create command
-          if (placementResult.scale && command.action === 'create') {
-            primaryCommand.scaleX = placementResult.scale.x;
-            primaryCommand.scaleY = placementResult.scale.y;
-            primaryCommand.scaleZ = placementResult.scale.z;
-          }
-
-          enhancedCommands.push(primaryCommand);
-
-          // For move commands, add a separate scale command if needed
-          if (placementResult.scale && command.action === 'move' && command.objectId) {
-            const scaleCommand: SceneCommand = {
-              action: 'scale',
-              objectId: command.objectId,
-              scaleX: placementResult.scale.x,
-              scaleY: placementResult.scale.y,
-              scaleZ: placementResult.scale.z
+          // Handle room placement with place-on-floor command
+          if (referenceObject.type === 'custom-room' && command.spatialRelation === 'inside') {
+            if (command.action === 'create') {
+              // Create object first, then place on floor
+              const createCommand: SceneCommand = {
+                action: 'create',
+                type: command.type,
+                color: command.color
+              };
+              
+              // Generate place-on-floor command
+              const placeCommand: SceneCommand = {
+                action: 'place-on-floor',
+                objectId: command.objectId || 'temp-id-needs-generation',
+                relativeToObject: referenceObject.roomName || referenceObject.id,
+                snapToGrid: true
+              };
+              
+              enhancedCommands.push(createCommand);
+              enhancedCommands.push(placeCommand);
+            } else if (command.action === 'move' && command.objectId) {
+              // Move existing object to room floor
+              const placeCommand: SceneCommand = {
+                action: 'place-on-floor',
+                objectId: command.objectId,
+                relativeToObject: referenceObject.roomName || referenceObject.id,
+                snapToGrid: true
+              };
+              
+              enhancedCommands.push(placeCommand);
+            } else {
+              enhancedCommands.push(command);
+            }
+          } else {
+            // Handle non-room spatial relationships with existing logic
+            const tempObject: SceneObject = {
+              id: 'temp',
+              type: command.type || 'cube',
+              position: new Vector3(0, 0, 0),
+              scale: new Vector3(1, 1, 1),
+              rotation: new Vector3(0, 0, 0),
+              color: command.color || '#ffffff',
+              isNurbs: false
             };
-            enhancedCommands.push(scaleCommand);
+
+            const placementResult = this.calculatePreciseSpatialPlacement(
+              tempObject,
+              referenceObject,
+              command.spatialRelation,
+              sceneObjects
+            );
+
+            // Create the primary command (create/move) with position and embedded scale
+            const primaryCommand: SceneCommand = {
+              ...command,
+              x: placementResult.position.x,
+              y: placementResult.position.y,
+              z: placementResult.position.z,
+              matchDimensions: placementResult.matchDimensions,
+              contactType: 'direct'
+            };
+
+            // If dimension matching is needed, embed scale in the create command
+            if (placementResult.scale && command.action === 'create') {
+              primaryCommand.scaleX = placementResult.scale.x;
+              primaryCommand.scaleY = placementResult.scale.y;
+              primaryCommand.scaleZ = placementResult.scale.z;
+            }
+
+            enhancedCommands.push(primaryCommand);
+
+            // For move commands, add a separate scale command if needed
+            if (placementResult.scale && command.action === 'move' && command.objectId) {
+              const scaleCommand: SceneCommand = {
+                action: 'scale',
+                objectId: command.objectId,
+                scaleX: placementResult.scale.x,
+                scaleY: placementResult.scale.y,
+                scaleZ: placementResult.scale.z
+              };
+              enhancedCommands.push(scaleCommand);
+            }
           }
         } else {
           // If reference object not found, use original command

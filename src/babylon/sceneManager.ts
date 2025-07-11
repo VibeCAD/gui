@@ -1126,4 +1126,53 @@ export class SceneManager {
     this.camera = null
     this.gizmoManager = null
   }
+
+  /**
+   * Positions an existing mesh so that its bottom face sits flush on the floor of the specified room.
+   * Optionally snaps the X/Z coordinates to the room grid.
+   */
+  private placeMeshOnFloor(objectMesh: Mesh, roomMesh: Mesh, snapToGrid: boolean = true): void {
+    // 1. Calculate room floor Y (bottom of room mesh minus one grid square)
+    let floorY = roomMesh.getBoundingInfo().boundingBox.minimumWorld.y
+    const gridInfo = (roomMesh.metadata as any)?.gridInfo
+    if (gridInfo) {
+      const gridWorldSize = gridInfo.gridSize * gridInfo.worldScale
+      // Grid lines are drawn on top of the floor ‑ subtract one full square so objects sit on the visible grid
+      floorY -= gridWorldSize
+    }
+
+    // 2. Compute delta needed to move object bottom onto floorY
+    const objBottomY = objectMesh.getBoundingInfo().boundingBox.minimumWorld.y
+    const deltaY = objBottomY - floorY
+    if (Math.abs(deltaY) > 1e-5) {
+      objectMesh.position.y -= deltaY
+    }
+
+    // 3. Optional grid snapping for X/Z
+    if (snapToGrid && gridInfo) {
+      const { snapToRoomGrid } = require('./gridTextureUtils') as typeof import('./gridTextureUtils')
+      const snapped = snapToRoomGrid({ x: objectMesh.position.x, z: objectMesh.position.z }, roomMesh)
+      objectMesh.position.x = snapped.x
+      objectMesh.position.z = snapped.z
+    }
+
+    // 4. Recompute world matrix to update bounding info
+    objectMesh.computeWorldMatrix(true)
+  }
+
+  /**
+   * Public helper to move an existing object flush onto the floor of the given room.
+   * Returns true when successful.
+   */
+  public placeObjectOnRoomFloor(objectId: string, roomId: string, snapToGrid: boolean = true): boolean {
+    const objectMesh = this.meshMap.get(objectId)
+    const roomMesh   = this.meshMap.get(roomId)
+    if (!objectMesh || !roomMesh) {
+      console.warn('SceneManager.placeObjectOnRoomFloor: mesh not found', { objectId, roomId })
+      return false
+    }
+
+    this.placeMeshOnFloor(objectMesh, roomMesh, snapToGrid)
+    return true
+  }
 }
