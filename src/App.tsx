@@ -275,6 +275,32 @@ function App() {
     setActiveDropdown(null);
   }
 
+  // Helper function to create a test room automatically
+  const createTestRoom = () => {
+    if (!sceneInitialized) return;
+    
+    console.log('🏠 Creating test room - 13x13 units');
+    
+    // Calculate SVG coordinates for a 13x13 unit room
+    // 13 units / 0.05 scale = 260 SVG units
+    // Center in 400x400 SVG space: (200, 200)
+    // Square from (70, 70) to (330, 330)
+    const testRoomData = {
+      points: [
+        { x: 70, y: 70 },    // Top-left
+        { x: 330, y: 70 },   // Top-right
+        { x: 330, y: 330 },  // Bottom-right
+        { x: 70, y: 330 }    // Bottom-left
+      ],
+      name: 'Test Room 13x13',
+      gridSize: 20,
+      drawingBounds: { width: 400, height: 400 }
+    };
+    
+    handleCreateCustomRoom(testRoomData);
+    console.log('✅ Test room created successfully');
+  }
+
   // Helper function to get parametric position of a point on a line segment
   const getParametricPosition = (lineStart: Vector3, lineEnd: Vector3, point: Vector3): number => {
     const lineDir = lineEnd.subtract(lineStart)
@@ -998,7 +1024,7 @@ function App() {
               {movementEnabled ? `WASD (${movementSpeed.toFixed(2)})` : 'OFF'}
             </span>
           </span>
-          {/* Quick test button */}
+          {/* Quick test buttons */}
           <button 
             className="test-button"
             onClick={() => createPrimitive('cube')}
@@ -1014,6 +1040,22 @@ function App() {
             }}
           >
             🧪 Add Test Cube
+          </button>
+          <button 
+            className="test-button"
+            onClick={() => createTestRoom()}
+            disabled={!sceneInitialized}
+            style={{
+              marginLeft: '5px',
+              padding: '4px 8px',
+              backgroundColor: '#e74c3c',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            🏠 Add Test Room
           </button>
         </div>
         
