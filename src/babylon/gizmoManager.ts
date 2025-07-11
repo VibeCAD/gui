@@ -153,7 +153,7 @@ export class GizmoController {
                 mesh,
                 desiredPosition,
                 roomInfo,
-                true,
+                false,
                 this.originalTransform.position
               )
               

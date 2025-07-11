@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo, useState } from 'react'
-import { Vector3, Color3, PickingInfo, Matrix } from 'babylonjs'
+import { Vector3, Color3, PickingInfo, Matrix, Quaternion } from 'babylonjs'
 import { SceneManager } from '../sceneManager'
 import { useSceneStore } from '../../state/sceneStore'
 import { useGizmoManager } from '../gizmoManager'
@@ -39,6 +39,7 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     multiSelectPivot,
     multiSelectInitialStates,
     sceneInitialized,
+    moveToMode,
     
     // Actions
     setSceneInitialized,
@@ -125,6 +126,69 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
           console.log('🔗 Setting up object hover callback')
           sceneManager.setObjectHoverCallback(handleObjectHover)
           
+          
+          console.log('🔗 Setting up move to callback')
+          sceneManager.setMoveToCallback((position: Vector3) => {
+            const { selectedObjectId, updateObject, setMoveToMode } = useSceneStore.getState()
+            if (selectedObjectId) {
+              const sceneManager = sceneManagerRef.current
+              const mesh = sceneManager?.getMeshById(selectedObjectId)
+
+              if (mesh) {
+                // --- 1. ROTATION LOGIC: Align object to be flush with the floor ---
+                mesh.computeWorldMatrix(true)
+
+                const localNormals = [
+                  new Vector3(0, 1, 0), new Vector3(0, -1, 0),
+                  new Vector3(1, 0, 0), new Vector3(-1, 0, 0),
+                  new Vector3(0, 0, 1), new Vector3(0, 0, -1),
+                ]
+                let mostDownNormal = new Vector3(0, -1, 0)
+                let lowestY = Infinity
+
+                localNormals.forEach(localNormal => {
+                  const worldNormal = Vector3.TransformNormal(localNormal, mesh.getWorldMatrix()).normalize()
+                  if (worldNormal.y < lowestY) {
+                    lowestY = worldNormal.y
+                    mostDownNormal = worldNormal
+                  }
+                })
+
+                const correctiveRotation = new Quaternion()
+                Quaternion.FromUnitVectorsToRef(mostDownNormal, new Vector3(0, -1, 0), correctiveRotation)
+                
+                const originalRotationQuaternion = mesh.rotationQuaternion 
+                    ? mesh.rotationQuaternion.clone() 
+                    : Quaternion.RotationYawPitchRoll(mesh.rotation.y, mesh.rotation.x, mesh.rotation.z)
+
+                const newRotationQuaternion = correctiveRotation.multiply(originalRotationQuaternion)
+                const finalRotation = newRotationQuaternion.toEulerAngles()
+
+                // --- 2. POSITION LOGIC: Move object to be flush with the floor ---
+                const originalQuat = mesh.rotationQuaternion?.clone()
+                mesh.rotationQuaternion = newRotationQuaternion
+                mesh.computeWorldMatrix(true)
+
+                const boundingBox = mesh.getBoundingInfo().boundingBox
+                const worldVertices = boundingBox.vectorsWorld
+                const lowestPointYAfterRotation = Math.min(...worldVertices.map(v => v.y))
+                const yOffset = mesh.position.y - lowestPointYAfterRotation
+                
+                const finalPosition = position.clone()
+                finalPosition.y += yOffset
+
+                // Restore mesh to its pre-calculation state to avoid flicker
+                mesh.rotationQuaternion = originalQuat ?? null
+                mesh.computeWorldMatrix(true)
+
+                updateObject(selectedObjectId, { position: finalPosition, rotation: finalRotation })
+              } else {
+                updateObject(selectedObjectId, { position })
+              }
+            }
+            setMoveToMode(false)
+          })
+
           // Set up texture asset callback
           console.log('🔗 Setting up texture asset callback')
           sceneManager.setTextureAssetCallback((textureId: string) => {
@@ -379,6 +443,12 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
       sceneManagerRef.current!.setMeshVisibility(objectId, visible)
     })
   }, [objectVisibility, sceneInitialized])
+
+  // Handle move-to mode changes
+  useEffect(() => {
+    if (!sceneManagerRef.current || !sceneInitialized) return
+    sceneManagerRef.current.setMoveToMode(moveToMode)
+  }, [moveToMode, sceneInitialized])
 
   // Handle visual grid changes
   useEffect(() => {

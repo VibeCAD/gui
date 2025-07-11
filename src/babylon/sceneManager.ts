@@ -21,6 +21,8 @@ import { createHousingMesh } from './housingFactory'
 import { TextureManager } from './textureManager'
 import { createFullGridTexture, calculateFullGridUVScale } from './gridTextureUtils'
 import { MovementController } from './movementController'
+import { useSceneStore } from '../state/sceneStore'
+import { findClosestPointOnPolygon } from './roomPhysicsUtils'
 
 
 export class SceneManager {
@@ -39,7 +41,11 @@ export class SceneManager {
   // Event callbacks
   private onObjectClickCallback?: (pickInfo: PickingInfo, isCtrlHeld: boolean) => void
   private onObjectHoverCallback?: (pickInfo: PickingInfo) => void
+  private onMoveToCallback?: (position: Vector3) => void
   private getTextureAssetCallback?: (textureId: string) => TextureAsset | undefined
+
+  private isMoveToMode: boolean = false
+  private moveTargetLine: Mesh | null = null
 
   constructor() {
     // Initialize empty - call initialize() after construction
@@ -77,6 +83,15 @@ export class SceneManager {
       // Create light
       const light = new HemisphericLight('light', new Vector3(0, 1, 0), this.scene)
       light.intensity = 0.7
+
+      // Create ground
+      const ground = MeshBuilder.CreateGround('ground', {width: 20, height: 20}, this.scene);
+      ground.isPickable = true;
+      const groundMaterial = new StandardMaterial('groundMaterial', this.scene);
+      groundMaterial.diffuseColor = Color3.FromHexString('#808080'); // Gray
+      groundMaterial.alpha = 0; // Make ground invisible
+      ground.material = groundMaterial;
+      this.meshMap.set('ground', ground);
       
       // Set up pointer events
       this.setupPointerEvents()
@@ -105,50 +120,87 @@ export class SceneManager {
   private setupPointerEvents(): void {
     if (!this.scene) return;
 
-    // Use POINTERPICK for reliable click-selection events (fires when a mesh is picked)
-    // and fall back to computing a fresh pick result if the provided pickInfo is undefined.
     this.scene.onPointerObservable.add((pointerInfo) => {
       switch (pointerInfo.type) {
         case PointerEventTypes.POINTERDOWN: {
           // Record initial pointer location for click-vs-drag test
-          this.pointerDownPosition = { x: this.scene!.pointerX, y: this.scene!.pointerY }
-          break
+          this.pointerDownPosition = { x: this.scene!.pointerX, y: this.scene!.pointerY };
+          if (this.isMoveToMode) {
+            // Prevent camera attachment while in move-to mode drag
+            this.camera?.detachControl();
+          }
+          break;
         }
-
         case PointerEventTypes.POINTERUP: {
-          // Treat as a click only if pointer hasn’t moved too far
-          const clickThreshold = 5 // pixels
-          if (this.pointerDownPosition) {
-            const deltaX = Math.abs(this.pointerDownPosition.x - this.scene!.pointerX)
-            const deltaY = Math.abs(this.pointerDownPosition.y - this.scene!.pointerY)
+          if (this.isMoveToMode) {
+            const pickInfo = this.scene?.pick(this.scene.pointerX, this.scene.pointerY, (mesh) => mesh.id === 'ground' || mesh.id.endsWith('-floor'));
+            if (pickInfo?.hit && pickInfo.pickedPoint) {
+              this.onMoveToCallback?.(pickInfo.pickedPoint);
+            }
+            // Re-attach camera control
+            if (this.engine) {
+              this.camera?.attachControl(this.engine.getRenderingCanvas() as HTMLCanvasElement, true);
+            }
+            if (this.moveTargetLine) {
+              this.moveTargetLine.dispose();
+              this.moveTargetLine = null;
+            }
+          } else {
+            // Treat as a click only if pointer hasn't moved too far
+            const clickThreshold = 5; // pixels
+            if (this.pointerDownPosition) {
+              const deltaX = Math.abs(this.pointerDownPosition.x - this.scene!.pointerX);
+              const deltaY = Math.abs(this.pointerDownPosition.y - this.scene!.pointerY);
 
-            if (deltaX < clickThreshold && deltaY < clickThreshold) {
-              const pickInfo = pointerInfo.pickInfo ?? this.scene?.pick(this.scene.pointerX, this.scene.pointerY)
-              const isGizmoClick = pickInfo?.pickedMesh?.name?.toLowerCase().includes('gizmo')
+              if (deltaX < clickThreshold && deltaY < clickThreshold) {
+                const pickInfo = pointerInfo.pickInfo ?? this.scene?.pick(this.scene.pointerX, this.scene.pointerY);
+                const isGizmoClick = pickInfo?.pickedMesh?.name?.toLowerCase().includes('gizmo');
 
-              if (pickInfo && pickInfo.hit && !isGizmoClick) {
-                const isCtrlHeld = (pointerInfo.event as PointerEvent).ctrlKey || (pointerInfo.event as PointerEvent).metaKey
-                this.onObjectClickCallback?.(pickInfo, isCtrlHeld)
-              } else if (!pickInfo?.hit) {
-                // Clicked empty space – still notify for deselection logic
-                this.onObjectClickCallback?.(pickInfo as any, false)
+                if (pickInfo && pickInfo.hit && !isGizmoClick) {
+                  const isCtrlHeld = (pointerInfo.event as PointerEvent).ctrlKey || (pointerInfo.event as PointerEvent).metaKey;
+                  this.onObjectClickCallback?.(pickInfo, isCtrlHeld);
+                } else if (!pickInfo?.hit) {
+                  // Clicked empty space – still notify for deselection logic
+                  this.onObjectClickCallback?.(pickInfo as any, false);
+                }
               }
             }
           }
           // reset tracker
-          this.pointerDownPosition = null
-          break
+          this.pointerDownPosition = null;
+          break;
         }
-        
-        case PointerEventTypes.POINTERMOVE:
-          // For hover events, we can use POINTERMOVE.
-          if (this.onObjectHoverCallback) {
+        case PointerEventTypes.POINTERMOVE: {
+          if (this.isMoveToMode && this.pointerDownPosition) {
+            if (!this.scene) break;
+            const pickInfo = this.scene.pick(this.scene.pointerX, this.scene.pointerY, (mesh) => mesh.id === 'ground' || mesh.id.endsWith('-floor'));
+            if (pickInfo?.hit && pickInfo.pickedPoint) {
+              const selectedObjectId = useSceneStore.getState().selectedObjectId;
+              const selectedObject = selectedObjectId ? this.meshMap.get(selectedObjectId) : null;
+              
+              if (selectedObject) {
+                if (this.moveTargetLine) {
+                  this.moveTargetLine.dispose();
+                }
+                const lineMaterial = new StandardMaterial("move-target-line-material", this.scene);
+                lineMaterial.diffuseColor = Color3.Green();
+
+                this.moveTargetLine = MeshBuilder.CreateLines("move-target-line", {
+                  points: [selectedObject.position, pickInfo.pickedPoint],
+                  updatable: true
+                });
+                this.moveTargetLine.material = lineMaterial;
+              }
+            }
+          } else if (this.onObjectHoverCallback) {
+            // Object hover logic should not run during a move-to drag
             const pickInfo = this.scene?.pick(this.scene.pointerX, this.scene.pointerY);
             if (pickInfo) {
               this.onObjectHoverCallback(pickInfo);
             }
           }
           break;
+        }
       }
     });
   }
@@ -187,19 +239,19 @@ export class SceneManager {
           case 'cone':
             mesh = MeshBuilder.CreateCylinder(sceneObject.id, { diameterTop: 0, diameterBottom: 2, height: 2 }, this.scene)
             break
-          case 'ground':
-            // Ground already exists, just update properties and ensure it's stored with the correct ID
-            const existingGround = this.meshMap.get('ground')
-            if (existingGround) {
-              // Update the ground mesh's name to match the scene object ID
-              existingGround.name = sceneObject.id
-              // If the ID is different, also store it with the new key
-              if (sceneObject.id !== 'ground') {
-                this.meshMap.set(sceneObject.id, existingGround)
-              }
-              this.updateMeshProperties(sceneObject.id, sceneObject)
+          case 'ground': {
+            const groundMesh = this.meshMap.get('ground');
+            if (groundMesh) {
+              // Ground mesh already exists from initialization, just update it
+              groundMesh.name = sceneObject.id; // ensure name is consistent
+              this.meshMap.set(sceneObject.id, groundMesh); // ensure it's in the map with the correct ID
+              this.updateMeshProperties(sceneObject.id, sceneObject);
+            } else {
+              // This case should not happen if initialize is called correctly
+              console.error("Ground mesh not found during addMesh. It should be created on initialization.");
             }
-            return true
+            return true;
+          }
           case 'imported-glb':
           case 'imported-stl':
           case 'imported-obj':
@@ -565,6 +617,22 @@ export class SceneManager {
         }
       }
       
+      // Update position if provided
+      if (sceneObject.position) {
+        mesh.position = sceneObject.position.clone()
+        
+        // Safety check: ensure object doesn't sink below floor
+        mesh.computeWorldMatrix(true)
+        const boundingInfo = mesh.getBoundingInfo()
+        const lowestY = boundingInfo.boundingBox.minimumWorld.y
+        
+        if (lowestY < 0) {
+          // Adjust position to keep object on floor
+          mesh.position.y -= lowestY
+          console.log(`⚠️ Adjusted ${id} position to prevent sinking below floor by ${-lowestY.toFixed(3)} units`)
+        }
+      }
+      
       return true
     } catch (error) {
       console.error(`❌ Error updating mesh ${id}:`, error)
@@ -573,22 +641,7 @@ export class SceneManager {
   }
 
   public getMeshById(id: string): Mesh | null {
-    // Direct lookup
-    const direct = this.meshMap.get(id)
-    if (direct) return direct
-
-    // Fallback: the id may belong to a child mesh: climb each stored mesh’s parent tree
-    for (const root of this.meshMap.values()) {
-      if (!root) continue
-      let current: Mesh | null = root
-      while (current) {
-        if (current.name === id || current.id === id) {
-          return root // return the top-level mesh we manage
-        }
-        current = current.parent as Mesh | null
-      }
-    }
-    return null
+    return this.meshMap.get(id) || null
   }
 
   /**
@@ -1138,6 +1191,124 @@ export class SceneManager {
 
   public getMovementEnabled(): boolean {
     return this.movementController?.getEnabled() || false
+  }
+
+  public setMoveToMode(enabled: boolean): void {
+    this.isMoveToMode = enabled
+    if (this.isMoveToMode) {
+      // Enter move-to mode: disable gizmos
+      if (this.gizmoManager) {
+        this.gizmoManager.attachToMesh(null)
+        this.gizmoManager.positionGizmoEnabled = false
+        this.gizmoManager.rotationGizmoEnabled = false
+        this.gizmoManager.scaleGizmoEnabled = false
+        this.gizmoManager.boundingBoxGizmoEnabled = false
+      }
+    } else {
+      // Exit move-to mode
+      if (this.moveTargetLine) {
+        this.moveTargetLine.dispose()
+        this.moveTargetLine = null
+      }
+      if (this.engine && this.camera) {
+        this.camera.attachControl(this.engine.getRenderingCanvas() as HTMLCanvasElement, true)
+      }
+    }
+  }
+
+  /**
+   * Sets the callback function for when an object is moved via 'move to'
+   */
+  public setMoveToCallback(callback: (position: Vector3) => void): void {
+    this.onMoveToCallback = callback
+  }
+
+  /**
+   * Aligns a mesh to a specific edge or wall of another mesh/room
+   */
+  public alignMesh(movingMeshId: string, relativeToId: string, edge: 'north' | 'south' | 'east' | 'west' | 'nearest-wall', offset?: number): void {
+    const movingMesh = this.meshMap.get(movingMeshId)
+    if (!movingMesh) return
+
+    let newPosition = movingMesh.position.clone()
+    let newRotation = movingMesh.rotation.clone()
+
+    if (edge === 'nearest-wall') {
+      const room = this.meshMap.get(relativeToId)
+      if (room && room.metadata?.floorPolygon) {
+        const result = findClosestPointOnPolygon(
+          { x: movingMesh.position.x, z: movingMesh.position.z }, 
+          room.metadata.floorPolygon
+        )
+        if (result) {
+          // Ensure mesh world matrix is up to date
+          movingMesh.computeWorldMatrix(true)
+          
+          // Get object's bounding box in world space
+          const boundingInfo = movingMesh.getBoundingInfo()
+          const worldMin = boundingInfo.boundingBox.minimumWorld
+          const worldMax = boundingInfo.boundingBox.maximumWorld
+          
+          // Calculate object dimensions
+          const objectWidth = worldMax.x - worldMin.x
+          const objectDepth = worldMax.z - worldMin.z
+          
+          // The distance from object center to its edge depends on wall normal direction
+          let distanceToEdge: number
+          if (Math.abs(result.normal.x) > Math.abs(result.normal.z)) {
+            // Wall is primarily along X axis, use half width
+            distanceToEdge = objectWidth / 2
+          } else {
+            // Wall is primarily along Z axis, use half depth
+            distanceToEdge = objectDepth / 2
+          }
+          
+          // Add wall thickness offset
+          const wallThickness = 0.5 // Increased from 0.2 for better clearance
+          const totalOffset = distanceToEdge + wallThickness + (offset || 0)
+          
+          // Position object away from wall by the calculated offset
+          newPosition = result.position.clone()
+          newPosition.y = movingMesh.position.y // Maintain current Y position
+          newPosition.addInPlace(result.normal.scale(totalOffset))
+          
+          // Rotate object to face away from the wall (back against wall)
+          const angle = Math.atan2(result.normal.x, result.normal.z)
+          newRotation = new Vector3(0, angle + Math.PI, 0)
+        }
+      }
+    } else {
+      const relativeToMesh = this.meshMap.get(relativeToId)
+      if (!relativeToMesh) return
+
+      const movingBounds = movingMesh.getBoundingInfo().boundingBox
+      const movingHalfX = (movingBounds.maximumWorld.x - movingBounds.minimumWorld.x) / 2
+      const movingHalfY = (movingBounds.maximumWorld.y - movingBounds.minimumWorld.y) / 2
+      const movingHalfZ = (movingBounds.maximumWorld.z - movingBounds.minimumWorld.z) / 2
+
+      const relativeBounds = relativeToMesh.getBoundingInfo().boundingBox
+
+      switch (edge) {
+        case 'north':
+          newPosition.z = relativeBounds.maximumWorld.z + movingHalfZ + (offset || 0)
+          newRotation.y = 0
+          break
+        case 'south':
+          newPosition.z = relativeBounds.minimumWorld.z - movingHalfZ - (offset || 0)
+          newRotation.y = Math.PI
+          break
+        case 'east':
+          newPosition.x = relativeBounds.maximumWorld.x + movingHalfX + (offset || 0)
+          newRotation.y = Math.PI / 2
+          break
+        case 'west':
+          newPosition.x = relativeBounds.minimumWorld.x - movingHalfX - (offset || 0)
+          newRotation.y = -Math.PI / 2
+          break
+      }
+    }
+
+    this.updateMeshProperties(movingMesh.id, { position: newPosition, rotation: newRotation })
   }
 
   public dispose(): void {

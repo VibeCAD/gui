@@ -22,21 +22,14 @@ export function findContainingRoom(position: Vector3, scene: any): RoomInfo | nu
   
   // Check if position is within any room's bounds
   for (const room of customRooms) {
-    const bounds = room.getBoundingInfo()
+    const floorPolygon = room.metadata?.floorPolygon
     
-    // Check XZ bounds (ignore Y for initial check)
-    const min = bounds.boundingBox.minimumWorld
-    const max = bounds.boundingBox.maximumWorld
-    
-    if (position.x >= min.x && position.x <= max.x &&
-        position.z >= min.z && position.z <= max.z) {
-      
-      // Get floor height from the room's floor mesh
+    // Use point-in-polygon check if floor polygon data is available
+    if (floorPolygon && isPointInPolygon({ x: position.x, z: position.z }, floorPolygon)) {
+      const bounds = room.getBoundingInfo()
       const floorMesh = room.getChildMeshes().find(child => child.name.includes('-floor'))
       const floorHeight = floorMesh ? floorMesh.getBoundingInfo().boundingBox.maximumWorld.y : 0
-      
-      // Standard wall height (from custom room creation)
-      const wallHeight = 2.0
+      const wallHeight = 2.0 // Standard wall height
       
       return {
         mesh: room,
@@ -82,33 +75,32 @@ export function checkWallCollision(
   newPosition: Vector3, 
   roomInfo: RoomInfo
 ): boolean {
-  // Get mesh bounds at new position
+  const floorPolygon = roomInfo.mesh.metadata?.floorPolygon
+  if (!floorPolygon || floorPolygon.length < 2) {
+    return false // Not a valid room shape for collision
+  }
+
+  // Get the 2D footprint of the mesh's bounding box
   const meshBounds = getMeshBoundsAtPosition(mesh, newPosition)
-  
-  // Get room walls (children that contain 'wall' in name)
-  const walls = roomInfo.mesh.getChildMeshes().filter(child => 
-    child.name.includes('-wall-') || child.name.includes('-interior-wall-')
-  )
-  
-  // Add small margin to prevent clipping
-  const COLLISION_MARGIN = 0.01
-  
-  // Check collision with each wall
-  for (const wall of walls) {
-    const wallBounds = wall.getBoundingInfo().boundingBox
-    
-    // Check if bounding boxes overlap in all three dimensions
-    const overlapX = meshBounds.max.x + COLLISION_MARGIN > wallBounds.minimumWorld.x && 
-                     meshBounds.min.x - COLLISION_MARGIN < wallBounds.maximumWorld.x
-    
-    const overlapY = meshBounds.max.y > wallBounds.minimumWorld.y && 
-                     meshBounds.min.y < wallBounds.maximumWorld.y
-    
-    const overlapZ = meshBounds.max.z + COLLISION_MARGIN > wallBounds.minimumWorld.z && 
-                     meshBounds.min.z - COLLISION_MARGIN < wallBounds.maximumWorld.z
-    
-    if (overlapX && overlapY && overlapZ) {
-      return true // Collision detected
+  const meshFootprint = [
+    { x: meshBounds.min.x, z: meshBounds.min.z },
+    { x: meshBounds.max.x, z: meshBounds.min.z },
+    { x: meshBounds.max.x, z: meshBounds.max.z },
+    { x: meshBounds.min.x, z: meshBounds.max.z }
+  ]
+
+  // Check if any edge of the mesh's footprint intersects with any wall segment
+  for (let i = 0; i < floorPolygon.length; i++) {
+    const wallP1 = floorPolygon[i]
+    const wallP2 = floorPolygon[(i + 1) % floorPolygon.length]
+
+    for (let j = 0; j < meshFootprint.length; j++) {
+      const meshP1 = meshFootprint[j]
+      const meshP2 = meshFootprint[(j + 1) % meshFootprint.length]
+      
+      if (lineSegmentsIntersect(wallP1, wallP2, meshP1, meshP2)) {
+        return true // Collision detected
+      }
     }
   }
   
@@ -235,4 +227,101 @@ export function isFloorLocked(mesh: Mesh): boolean {
 export function setFloorLocked(mesh: Mesh, locked: boolean): void {
   if (!mesh.metadata) mesh.metadata = {}
   mesh.metadata.isFloorLocked = locked
+}
+
+/**
+ * Checks if a 2D point is inside a 2D polygon using the ray-casting algorithm.
+ */
+function isPointInPolygon(point: { x: number; z: number }, polygon: { x: number; z: number }[]): boolean {
+  let isInside = false
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x, zi = polygon[i].z
+    const xj = polygon[j].x, zj = polygon[j].z
+
+    const intersect = ((zi > point.z) !== (zj > point.z))
+        && (point.x < (xj - xi) * (point.z - zi) / (zj - zi) + xi)
+    
+    if (intersect) {
+      isInside = !isInside
+    }
+  }
+  return isInside
+}
+
+/**
+ * Checks for intersection between two 2D line segments.
+ */
+function lineSegmentsIntersect(
+  p1: { x: number; z: number }, q1: { x: number; z: number },
+  p2: { x: number; z: number }, q2: { x: number; z: number }
+): boolean {
+  const orientation = (p: any, q: any, r: any) => {
+    const val = (q.z - p.z) * (r.x - q.x) - (q.x - p.x) * (r.z - q.z)
+    if (val === 0) return 0
+    return (val > 0) ? 1 : 2
+  }
+
+  const onSegment = (p: any, q: any, r: any) => {
+    return (q.x <= Math.max(p.x, r.x) && q.x >= Math.min(p.x, r.x) &&
+            q.z <= Math.max(p.z, r.z) && q.z >= Math.min(p.z, r.z))
+  }
+
+  const o1 = orientation(p1, q1, p2)
+  const o2 = orientation(p1, q1, q2)
+  const o3 = orientation(p2, q2, p1)
+  const o4 = orientation(p2, q2, q1)
+
+  if (o1 !== o2 && o3 !== o4) return true
+  if (o1 === 0 && onSegment(p1, p2, q1)) return true
+  if (o2 === 0 && onSegment(p1, q2, q1)) return true
+  if (o3 === 0 && onSegment(p2, p1, q2)) return true
+  if (o4 === 0 && onSegment(p2, q1, q2)) return true
+
+  return false
+}
+
+/**
+ * Finds the closest point on a polygon's perimeter to a given point.
+ * Also returns the normal of the wall segment that the closest point lies on.
+ */
+export function findClosestPointOnPolygon(
+  point: { x: number; z: number },
+  polygon: { x: number; z: number }[]
+): { position: Vector3; normal: Vector3 } | null {
+  if (!polygon || polygon.length < 2) return null
+
+  let closestPoint: Vector3 | null = null
+  let wallNormal: Vector3 | null = null
+  let minDistance = Infinity
+
+  for (let i = 0; i < polygon.length; i++) {
+    const p1 = polygon[i]
+    const p2 = polygon[(i + 1) % polygon.length]
+
+    const dx = p2.x - p1.x
+    const dz = p2.z - p1.z
+
+    if (dx === 0 && dz === 0) continue
+
+    const t = ((point.x - p1.x) * dx + (point.z - p1.z) * dz) / (dx * dx + dz * dz)
+    const clampedT = Math.max(0, Math.min(1, t))
+
+    const currentClosestX = p1.x + clampedT * dx
+    const currentClosestZ = p1.z + clampedT * dz
+
+    const distance = Math.sqrt(Math.pow(point.x - currentClosestX, 2) + Math.pow(point.z - currentClosestZ, 2))
+
+    if (distance < minDistance) {
+      minDistance = distance
+      closestPoint = new Vector3(currentClosestX, 0, currentClosestZ)
+      // Calculate the outward-facing normal of the wall segment
+      const normal = new Vector3(dz, 0, -dx).normalize()
+      wallNormal = normal
+    }
+  }
+
+  if (closestPoint && wallNormal) {
+    return { position: closestPoint, normal: wallNormal }
+  }
+  return null
 } 

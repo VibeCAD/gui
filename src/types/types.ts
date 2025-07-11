@@ -164,6 +164,7 @@ export interface SceneObject {
     color: string
     mesh?: Mesh
     isNurbs: boolean
+    frontFace?: Vector3  // Direction that represents "forward" for this object (default: +Z)
     verbData?: {
       controlPoints: number[][][]
       knotsU: number[]

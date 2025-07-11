@@ -1,7 +1,7 @@
 import React from 'react';
 import { Vector3 } from 'babylonjs';
 import { useSceneStore } from '../../state/sceneStore';
-import { createAIService, type SceneCommand, type AIProvider } from '../../ai/ai.service';
+import { createAIService, type SceneCommand } from '../../ai/ai.service';
 import type { SceneObject } from '../../types/types';
 import { SceneGraph } from './SceneGraph';
 import { PropertiesPanel } from './PropertiesPanel';
@@ -12,7 +12,6 @@ import { createSTLExporter } from '../../babylon/stlExporter';
 
 interface AISidebarProps {
   apiKey: string;
-  aiProvider: AIProvider;
   sceneInitialized: boolean;
   sceneAPI?: {
     getSceneManager: () => any;
@@ -36,7 +35,6 @@ const SceneDescriptionPanel = ({ description, onClose }: { description: string, 
 
 export const AISidebar: React.FC<AISidebarProps> = ({ 
   apiKey, 
-  aiProvider,
   sceneInitialized,
   sceneAPI,
   onOpenCustomRoomModal
@@ -528,7 +526,7 @@ export const AISidebar: React.FC<AISidebarProps> = ({
         'Table', 'TV', 'wooden bookshelf'
       ];
 
-      const aiService = createAIService(apiKey, aiProvider, glbObjectNames);
+      const aiService = createAIService(apiKey, glbObjectNames);
       const result = await aiService.getSceneCommands(textInput, currentSceneObjects, currentSelectedId, currentSelectedIds);
       
       if (result.success && result.commands) {
@@ -609,7 +607,7 @@ export const AISidebar: React.FC<AISidebarProps> = ({
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Try: 'move the cube to the right', 'make the cube blue', 'create a red sphere above the cube', 'apply wood texture', 'make it brick'"
+              placeholder="Try: 'Draw Room Panel', 'move the cube to the right', 'make the cube blue', 'create a red sphere above the cube', 'apply wood texture', 'make it brick'"
               className="ai-text-input"
               disabled={isLoading || !sceneInitialized}
             />

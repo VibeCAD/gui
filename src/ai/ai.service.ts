@@ -2,8 +2,6 @@ import OpenAI from 'openai';
 import type { SceneObject } from '../types/types';
 import { Vector3 } from 'babylonjs';
 
-export type AIProvider = 'openai' | 'gemini';
-
 export interface SceneCommand {
   action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'undo' | 'redo' | 'describe' | 'rename' | 'texture';
   objectId?: string;
@@ -24,15 +22,13 @@ export interface SceneCommand {
   spatialRelation?: 'on-top-of' | 'beside' | 'in-front-of' | 'behind' | 'above' | 'below' | 'inside';
   matchDimensions?: boolean;
   contactType?: 'direct' | 'gap' | 'overlap';
-  // New align-specific properties
   edge?: 'north' | 'south' | 'east' | 'west';
   offset?: number;
-  
-  // New texture-specific properties
   textureId?: string;
   textureType?: 'diffuse' | 'normal' | 'specular' | 'emissive';
-  textureName?: string; // For natural language texture descriptions
+  textureName?: string;
   description?: string;
+  isCompositePart?: boolean;
 }
 
 export interface AIServiceResult {
@@ -44,30 +40,53 @@ export interface AIServiceResult {
 }
 
 /**
- * AI Service for handling OpenAI and Gemini API interactions and scene command generation
+ * AI Service for handling OpenAI API interactions and scene command generation
  */
 export class AIService {
-  private openai: OpenAI | null = null;
-  private geminiApiKey: string | null = null;
-  private provider: AIProvider;
+  private openai: OpenAI;
   private availableTextures: Array<{ id: string; name: string; tags: string[] }> = [];
   private availableGlbObjects: string[] = [];
 
-  constructor(apiKey: string, provider: AIProvider = 'openai', glbObjectNames: string[] = []) {
-    this.provider = provider;
-    
-    if (provider === 'openai') {
-      this.openai = new OpenAI({ 
-        apiKey, 
-        dangerouslyAllowBrowser: true 
-      });
-    } else if (provider === 'gemini') {
-      this.geminiApiKey = apiKey;
-    }
+  // Static list of base dimensions for all object types
+  private static readonly baseDimensions: { [key: string]: { width: number; height: number; depth: number } } = {
+    'cube': { width: 2, height: 2, depth: 2 },
+    'sphere': { width: 2, height: 2, depth: 2 },
+    'cylinder': { width: 2, height: 2, depth: 2 },
+    'plane': { width: 2, height: 0.1, depth: 2 },
+    'torus': { width: 2, height: 0.5, depth: 2 },
+    'cone': { width: 2, height: 2, depth: 2 },
+    'house-basic': { width: 2, height: 2, depth: 1.5 },
+    'house-room': { width: 2, height: 1.5, depth: 2 },
+    'house-hallway': { width: 1, height: 1.5, depth: 3 },
+    'house-roof-flat': { width: 2, height: 0.1, depth: 1.5 },
+    'house-roof-pitched': { width: 2, height: 0.8, depth: 1.5 },
+    'house-room-modular': { width: 4, height: 2.5, depth: 4 },
+    'house-wall': { width: 4, height: 1.5, depth: 0.2 },
+    'house-ceiling': { width: 4, height: 0.1, depth: 4 },
+    'house-floor': { width: 4, height: 0.1, depth: 4 },
+    'house-door-single': { width: 0.9, height: 2, depth: 0.05 },
+    'house-door-double': { width: 1.8, height: 2, depth: 0.05 },
+    'house-door-sliding': { width: 1.2, height: 2, depth: 0.05 },
+    'house-door-french': { width: 1.2, height: 2, depth: 0.05 },
+    'house-door-garage': { width: 2.4, height: 2, depth: 0.05 },
+    'house-window-single': { width: 0.6, height: 0.8, depth: 0.05 },
+    'house-window-double': { width: 1.2, height: 0.8, depth: 0.05 },
+    'house-window-bay': { width: 1.5, height: 0.8, depth: 0.3 },
+    'house-window-casement': { width: 0.8, height: 1, depth: 0.05 },
+    'house-window-sliding': { width: 1.2, height: 0.8, depth: 0.05 },
+    'house-window-skylight': { width: 0.8, height: 0.8, depth: 0.05 },
+    'ground': { width: 10, height: 1, depth: 10 }
+  };
+
+  constructor(apiKey: string, glbObjectNames: string[] = []) {
+    this.openai = new OpenAI({ 
+      apiKey, 
+      dangerouslyAllowBrowser: true 
+    });
     
     this.availableGlbObjects = glbObjectNames;
 
-    // Initialize available textures
+    // Initialize available textures 
     this.availableTextures = [
       {
         id: 'default-wood-floor-01',
@@ -91,38 +110,7 @@ export class AIService {
    * Calculate the effective size of an object based on its type and scale
    */
   private getObjectDimensions(obj: SceneObject): { width: number; height: number; depth: number } {
-    // Base dimensions for different object types (as used in sceneManager.ts)
-    const baseDimensions: { [key: string]: { width: number; height: number; depth: number } } = {
-      'cube': { width: 2, height: 2, depth: 2 },
-      'sphere': { width: 2, height: 2, depth: 2 },
-      'cylinder': { width: 2, height: 2, depth: 2 },
-      'plane': { width: 2, height: 0.1, depth: 2 },
-      'torus': { width: 2, height: 0.5, depth: 2 },
-      'cone': { width: 2, height: 2, depth: 2 },
-      'house-basic': { width: 2, height: 2, depth: 1.5 },
-      'house-room': { width: 2, height: 1.5, depth: 2 },
-      'house-hallway': { width: 1, height: 1.5, depth: 3 },
-      'house-roof-flat': { width: 2, height: 0.1, depth: 1.5 },
-      'house-roof-pitched': { width: 2, height: 0.8, depth: 1.5 },
-      'house-room-modular': { width: 4, height: 2.5, depth: 4 },
-      'house-wall': { width: 4, height: 1.5, depth: 0.2 },
-      'house-ceiling': { width: 4, height: 0.1, depth: 4 },
-      'house-floor': { width: 4, height: 0.1, depth: 4 },
-      'house-door-single': { width: 0.9, height: 2, depth: 0.05 },
-      'house-door-double': { width: 1.8, height: 2, depth: 0.05 },
-      'house-door-sliding': { width: 1.2, height: 2, depth: 0.05 },
-      'house-door-french': { width: 1.2, height: 2, depth: 0.05 },
-      'house-door-garage': { width: 2.4, height: 2, depth: 0.05 },
-      'house-window-single': { width: 0.6, height: 0.8, depth: 0.05 },
-      'house-window-double': { width: 1.2, height: 0.8, depth: 0.05 },
-      'house-window-bay': { width: 1.5, height: 0.8, depth: 0.3 },
-      'house-window-casement': { width: 0.8, height: 1, depth: 0.05 },
-      'house-window-sliding': { width: 1.2, height: 0.8, depth: 0.05 },
-      'house-window-skylight': { width: 0.8, height: 0.8, depth: 0.05 },
-      'ground': { width: 10, height: 1, depth: 10 }
-    };
-
-    const base = baseDimensions[obj.type] || { width: 1, height: 1, depth: 1 };
+    const base = AIService.baseDimensions[obj.type] || { width: 1, height: 1, depth: 1 };
     
     // Apply scale factors
     return {
@@ -512,36 +500,7 @@ export class AIService {
    * Get base dimensions for object type
    */
   private getBaseDimensionsForType(type: string): { width: number; height: number; depth: number } {
-    const baseDimensions: { [key: string]: { width: number; height: number; depth: number } } = {
-      'cube': { width: 2, height: 2, depth: 2 },
-      'sphere': { width: 2, height: 2, depth: 2 },
-      'cylinder': { width: 2, height: 2, depth: 2 },
-      'plane': { width: 2, height: 0.1, depth: 2 },
-      'torus': { width: 2, height: 0.5, depth: 2 },
-      'cone': { width: 2, height: 2, depth: 2 },
-      'house-basic': { width: 2, height: 2, depth: 1.5 },
-      'house-room': { width: 2, height: 1.5, depth: 2 },
-      'house-hallway': { width: 1, height: 1.5, depth: 3 },
-      'house-roof-flat': { width: 2, height: 0.1, depth: 1.5 },
-      'house-roof-pitched': { width: 2, height: 0.8, depth: 1.5 },
-      'house-room-modular': { width: 4, height: 2.5, depth: 4 },
-      'house-wall': { width: 4, height: 1.5, depth: 0.2 },
-      'house-ceiling': { width: 4, height: 0.1, depth: 4 },
-      'house-floor': { width: 4, height: 0.1, depth: 4 },
-      'house-door-single': { width: 0.9, height: 2, depth: 0.05 },
-      'house-door-double': { width: 1.8, height: 2, depth: 0.05 },
-      'house-door-sliding': { width: 1.2, height: 2, depth: 0.05 },
-      'house-door-french': { width: 1.2, height: 2, depth: 0.05 },
-      'house-door-garage': { width: 2.4, height: 2, depth: 0.05 },
-      'house-window-single': { width: 0.6, height: 0.8, depth: 0.05 },
-      'house-window-double': { width: 1.2, height: 0.8, depth: 0.05 },
-      'house-window-bay': { width: 1.5, height: 0.8, depth: 0.3 },
-      'house-window-casement': { width: 0.8, height: 1, depth: 0.05 },
-      'house-window-sliding': { width: 1.2, height: 0.8, depth: 0.05 },
-      'house-window-skylight': { width: 0.8, height: 0.8, depth: 0.05 }
-    };
-    
-    return baseDimensions[type] || { width: 1, height: 1, depth: 1 };
+    return AIService.baseDimensions[type] || { width: 1, height: 1, depth: 1 };
   }
 
   /**
@@ -648,6 +607,10 @@ export class AIService {
     const glbObjectsList = this.availableGlbObjects.length > 0
       ? `GLB Library Objects: ${this.availableGlbObjects.join(', ')}`
       : 'No GLB library objects available.';
+      
+    const objectDimensionsList = Object.entries(AIService.baseDimensions)
+      .map(([type, dim]) => `- ${type}: ${dim.width}x${dim.height}x${dim.depth}`)
+      .join('\n');
 
     return `You are a 3D scene assistant with advanced spatial reasoning and precise positioning capabilities. You can modify a Babylon.js scene with millimeter-accurate positioning and automatic dimension matching.
 
@@ -658,7 +621,7 @@ ${selectionDescription}
 IMPORTANT: When the user refers to "it", "the object", "selected object", or uses commands without specifying an object, apply the action to the currently selected object(s).
 
 Available actions:
-1. move: Move an object to x,y,z coordinates
+1. move: Move an object to x,y,z coordinates. IMPORTANT: You must prevent the moved object from colliding with any other objects.
 2. color: Change object color (use hex colors like #ff6b6b, #4ecdc4, #95e1d3, etc.)
 3. scale: Scale an object by scaleX, scaleY, scaleZ factors
 4. create: Create new objects with intelligent positioning and automatic scaling
@@ -681,6 +644,9 @@ Basic: cube, sphere, cylinder, plane, torus, cone
 Housing: house-basic, house-room, house-hallway, house-roof-flat, house-roof-pitched
 ${glbObjectsList}
 
+OBJECT DIMENSIONS (width x height x depth):
+${objectDimensionsList}
+
 PRECISION SPATIAL INTELLIGENCE:
 - Objects have exact dimensions and bounding boxes
 - Automatic dimension matching for "on top of" relationships
@@ -702,10 +668,24 @@ POSITIONING PRECISION:
 - "above" = Small gap above, centered alignment
 - "below" = Direct contact below, centered alignment
 
+COLLISION AVOIDANCE:
+- When moving an object, you are responsible for preventing collisions. You MUST verify that the object's new position does not cause it to overlap with any other object in the scene.
+- The scene description provides the position and dimensions for every object. Use this data to calculate each object's bounding box and check for intersections.
+- If a user's move command would result in a collision, you MUST adjust the final coordinates to be as close as possible to the target destination without overlapping. For example, if asked to move an object to a coordinate that is inside another object, place it flush against the surface of that object instead.
+
+OBJECT COMPOSITION:
+- Sometimes, a user will ask to build a single, complex entity out of multiple primitive objects (e.g., "build a snowman", "create R2D2", "make a simple car out of cubes").
+- In these cases, the primitive objects are acting as parts of a larger whole and ARE ALLOWED to overlap or intersect to create the desired shape.
+- To signal this, you MUST add the property \"isCompositePart\": true to each 'create' command that is part of the composite object.
+- This is an exception to the general rule of not overlapping objects during creation.
+- When creating a composite object, you should still place the parts relative to each other to form a recognizable shape.
+
 QUANTITY HANDLING:
 - If the prompt specifies a quantity (for example, "two", "three", "5") or uses a plural noun (such as "cubes"), you MUST create exactly that number of objects.
 - Do NOT introduce a 'count' or 'quantity' property. Instead, output that many individual 'create' commands inside the JSON array.
-- When the user does not specify how the objects should be arranged, position them sensibly (e.g. in a straight line) **with at least one unit of empty space between their bounding boxes**.  For standard 2×2×2 cubes this means keeping their centres ≥ 2.2 units apart (e.g. –1.5 and 1.5 on the X axis).  Always provide explicit 'x', 'y', and 'z' that do not overlap with other objects.
+- When the user does not specify how the objects should be arranged, position them sensibly (e.g., in a straight line on the X-axis) with at least one unit of empty space between their bounding boxes.
+- To calculate spacing, use the object dimensions provided under OBJECT DIMENSIONS. For example, to place two cubes (width 2) side-by-side with a 1-unit gap, their centers should be 3 units apart on the X-axis (e.g., at x=-1.5 and x=1.5).
+- Always provide explicit 'x', 'y', and 'z' that do not overlap with other existing or newly created objects.
 
 ROTATION PRECISION:
 - Rotation values are in radians (not degrees)
@@ -830,7 +810,7 @@ HOUSING OBJECT LOGIC:
 
 CRITICAL REQUIREMENTS:
 1. ALWAYS identify the reference object from the scene when spatial relationships are mentioned
-2. ALWAYS calculate precise x, y, z coordinates based on exact object dimensions
+2. ALWAYS calculate precise x, y, z coordinates based on exact object dimensions and ensure the final placement avoids collisions with other objects, unless building a composite object (see OBJECT COMPOSITION).
 3. ALWAYS include calculated coordinates in your JSON response
 4. For "on top of" positioning: place bottom of target object touching top of reference object
 5. For dimension matching: automatically calculate scaleX, scaleY, scaleZ factors
@@ -932,43 +912,16 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
         ? `${prompt}\n\nSpatial context: ${spatialContext.description}`
         : prompt;
 
-             let aiResponse: string | undefined;
-       
-       if (this.provider === 'openai') {
-         const response = await this.openai!.chat.completions.create({
-           model: 'gpt-4o',
-           messages: [
-             { role: 'system', content: systemPrompt },
-             { role: 'user', content: enhancedPrompt }
-           ],
-           temperature: 0.1
-         });
-         aiResponse = response.choices[0]?.message?.content || undefined;
-       } else if (this.provider === 'gemini') {
-         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`, {
-           method: 'POST',
-           headers: {
-             'Content-Type': 'application/json',
-             'x-goog-api-key': this.geminiApiKey!,
-           },
-           body: JSON.stringify({
-             contents: [{
-               parts: [{
-                 text: `${systemPrompt}\n\n${enhancedPrompt}`
-               }]
-             }],
-           })
-         });
-         
-         if (!response.ok) {
-           const errorBody = await response.text();
-           console.error('Gemini API Error Body:', errorBody);
-           throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
-         }
-         
-         const result = await response.json();
-         aiResponse = result.candidates?.[0]?.content?.parts?.[0]?.text || undefined;
-       }
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: enhancedPrompt }
+        ],
+        temperature: 0.1
+      });
+
+      const aiResponse = response.choices[0]?.message?.content;
       
       if (!aiResponse) {
         return {
@@ -1183,7 +1136,12 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
       }
       
       // Handle spatial relationships for creation, movement, and rotation
-      if ((command.action === 'create' || command.action === 'move' || command.action === 'rotate') && command.relativeToObject && command.spatialRelation) {
+      if (
+        (command.action === 'create' || command.action === 'move' || command.action === 'rotate') &&
+        command.relativeToObject &&
+        command.spatialRelation &&
+        !command.isCompositePart
+      ) {
         const referenceObject = this.findObjectByDescription(command.relativeToObject, sceneObjects);
         
         if (referenceObject) {
@@ -1339,13 +1297,13 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
    * Validate if the service is properly initialized
    */
   public isReady(): boolean {
-    return !!this.openai || !!this.geminiApiKey;
+    return !!this.openai;
   }
 }
 
 /**
  * Factory function to create AI service instance
  */
-export const createAIService = (apiKey: string, provider: AIProvider = 'openai', glbObjectNames: string[]): AIService => {
-  return new AIService(apiKey, provider, glbObjectNames);
+export const createAIService = (apiKey: string, glbObjectNames: string[]): AIService => {
+  return new AIService(apiKey, glbObjectNames);
 };
