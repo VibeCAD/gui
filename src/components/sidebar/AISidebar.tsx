@@ -326,6 +326,7 @@ export const AISidebar: React.FC<AISidebarProps> = ({
       const sceneObject = await importer.importModel(file);
       
       // Add the imported object to the scene
+      // The store's addObject will handle collision resolution if enabled
       addObject(sceneObject);
       
       // Success!

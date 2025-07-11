@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import { Vector3, Mesh } from 'babylonjs'
+import { DEFAULT_COLLISION_CONFIG } from '../config/collisionConfig'
 import type { 
     TransformMode, 
     PrimitiveType, 
@@ -15,7 +16,8 @@ import type {
     Wall,
     ImportError,
     TextureAsset,
-    TextureType
+    TextureType,
+    CollisionResolutionConfig
 } from '../types/types'
 
 // Store State Interface
@@ -42,6 +44,11 @@ interface SceneState {
     gridSize: number
     gridMesh: Mesh | null
     collisionDetectionEnabled: boolean
+    
+    // Collision resolution
+    collisionResolutionEnabled: boolean
+    collisionResolutionConfig: CollisionResolutionConfig
+    userOverrideCollision: boolean  // Shift key override
     
     // Movement controls
     movementEnabled: boolean
@@ -94,7 +101,7 @@ interface SceneState {
 // Store Actions Interface
 interface SceneActions {
     // Scene object actions
-    addObject: (object: SceneObject) => void
+    addObject: (object: SceneObject, skipCollisionCheck?: boolean) => void
     removeObject: (objectId: string) => void
     updateObject: (objectId: string, updates: Partial<SceneObject>) => void
     setSceneObjects: (objects: SceneObject[]) => void
@@ -124,6 +131,11 @@ interface SceneActions {
     setGridSize: (size: number) => void
     setGridMesh: (mesh: Mesh | null) => void
     setCollisionDetectionEnabled: (enabled: boolean) => void
+    
+    // Collision resolution actions
+    setCollisionResolutionEnabled: (enabled: boolean) => void
+    setCollisionResolutionConfig: (config: Partial<CollisionResolutionConfig>) => void
+    setUserOverrideCollision: (override: boolean) => void
     
     // Movement control actions
     setMovementEnabled: (enabled: boolean) => void
@@ -241,6 +253,11 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             gridMesh: null,
             collisionDetectionEnabled: false,
             
+            // Collision resolution initial state
+            collisionResolutionEnabled: true,
+            collisionResolutionConfig: { ...DEFAULT_COLLISION_CONFIG },
+            userOverrideCollision: false,
+            
             // Movement controls initial state (load from localStorage if available)
             movementEnabled: (() => {
                 try {
@@ -301,9 +318,29 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             housingEditMode: 'none',
             
             // Actions
-            addObject: (object) => set((state) => ({
-                sceneObjects: [...state.sceneObjects, object]
-            })),
+            addObject: (object, skipCollisionCheck = false) => {
+                const state = get();
+                
+                // Check if collision resolution should be applied
+                const shouldResolveCollisions = !skipCollisionCheck &&
+                                               state.collisionResolutionEnabled && 
+                                               !state.userOverrideCollision &&
+                                               object.type !== 'ground' && // Never resolve ground plane
+                                               !state.objectLocked[object.id]; // Don't resolve locked objects
+                
+                // Add object to store
+                set((state) => ({
+                    sceneObjects: [...state.sceneObjects, object]
+                }));
+                
+                // Log collision resolution status
+                if (shouldResolveCollisions) {
+                    get().addToResponseLog(`Object '${object.type}' created - collision check required`);
+                } else if (state.collisionResolutionEnabled && skipCollisionCheck) {
+                    // Object was already resolved
+                    get().addToResponseLog(`Object '${object.type}' created at resolved position`);
+                }
+            },
             
             removeObject: (objectId) => set((state) => ({
                 sceneObjects: state.sceneObjects.filter(obj => obj.id !== objectId),
@@ -311,17 +348,41 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 selectedObjectIds: state.selectedObjectIds.filter(id => id !== objectId)
             })),
             
-            updateObject: (objectId, updates) => set((state) => ({
-                sceneObjects: state.sceneObjects.map(obj => 
-                    obj.id === objectId ? (() => { 
-                        const updated = { ...obj, ...updates };
-                        if (updates.rotation) {
-                          console.log(`📝 sceneStore: Updated rotation for ${objectId} to (${updates.rotation.x.toFixed(3)}, ${updates.rotation.y.toFixed(3)}, ${updates.rotation.z.toFixed(3)})`);
-                        }
-                        return updated;
-                    })() : obj
-                )
-            })),
+            updateObject: (objectId, updates) => {
+                const state = get();
+                const currentObject = state.sceneObjects.find(obj => obj.id === objectId);
+                
+                if (!currentObject) {
+                    console.warn(`Cannot update non-existent object: ${objectId}`);
+                    return;
+                }
+                
+                // Check if this is a position update that needs collision resolution
+                const isPositionUpdate = updates.position !== undefined;
+                const shouldResolveCollisions = isPositionUpdate &&
+                                               state.collisionResolutionEnabled &&
+                                               !state.userOverrideCollision &&
+                                               currentObject.type !== 'ground' &&
+                                               !state.objectLocked[objectId];
+                
+                // Update the object in store
+                set((state) => ({
+                    sceneObjects: state.sceneObjects.map(obj => 
+                        obj.id === objectId ? (() => { 
+                            const updated = { ...obj, ...updates };
+                            if (updates.rotation) {
+                                console.log(`📝 sceneStore: Updated rotation for ${objectId} to (${updates.rotation.x.toFixed(3)}, ${updates.rotation.y.toFixed(3)}, ${updates.rotation.z.toFixed(3)})`);
+                            }
+                            return updated;
+                        })() : obj
+                    )
+                }));
+                
+                // Log collision resolution status for position updates
+                if (isPositionUpdate && shouldResolveCollisions) {
+                    get().addToResponseLog(`Object '${currentObject.type}' moved - collision check required`);
+                } // Logging for resolved positions is handled in useBabylonScene
+            },
             
             setSceneObjects: (objects) => set({ sceneObjects: objects }),
             
@@ -386,6 +447,15 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             setGridMesh: (mesh) => set({ gridMesh: mesh }),
             
             setCollisionDetectionEnabled: (enabled) => set({ collisionDetectionEnabled: enabled }),
+            
+            // Collision resolution actions
+            setCollisionResolutionEnabled: (enabled) => set({ collisionResolutionEnabled: enabled }),
+            
+            setCollisionResolutionConfig: (config) => set((state) => ({
+                collisionResolutionConfig: { ...state.collisionResolutionConfig, ...config }
+            })),
+            
+            setUserOverrideCollision: (override) => set({ userOverrideCollision: override }),
             
             // Movement control actions
             setMovementEnabled: (enabled) => {

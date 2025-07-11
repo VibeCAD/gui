@@ -1,8 +1,8 @@
 import type { TextureAsset } from '../types/types';
 
 /**
- * Default texture configurations that ship with the application
- * These textures are stored in the public/textures directory and are available to all users
+ * Default texture configurations for VibeCad Pro
+ * This file contains texture presets and default texture settings
  */
 
 export interface DefaultTextureConfig {

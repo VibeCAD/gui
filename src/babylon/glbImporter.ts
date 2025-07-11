@@ -131,9 +131,10 @@ export class ModelImporter {
    * Imports a 3D model file and converts it to a SceneObject
    * @param file The 3D model file to import (GLB, STL, or OBJ)
    * @param autoScale Whether to automatically scale the model to fit reference cube (default: true)
+   * @param initialPosition Optional initial position for the imported object (default: origin)
    * @returns The imported mesh as a SceneObject
    */
-  async importModel(file: File, autoScale: boolean = true): Promise<SceneObject> {
+  async importModel(file: File, autoScale: boolean = true, initialPosition?: Vector3): Promise<SceneObject> {
     // Validate file size (5MB limit)
     const maxSize = 5 * 1024 * 1024; // 5MB in bytes
     if (file.size > maxSize) {
@@ -214,7 +215,7 @@ export class ModelImporter {
       // Note: We don't pass scale when auto-scaling is enabled because we've already applied it to the mesh
       const integrationOptions: any = {
         name: objectId,
-        position: new Vector3(0, 0, 0),
+        position: initialPosition || new Vector3(0, 0, 0),
         rotation: new Vector3(0, 0, 0),
         color: '#808080'
       };
@@ -231,7 +232,7 @@ export class ModelImporter {
       const sceneObject: SceneObject = {
         id: objectId,
         type: `imported-${modelType}` as PrimitiveType,
-        position: mergedMesh.position.clone(),
+        position: mergedMesh.position.clone(), // This will be the initialPosition if provided
         rotation: mergedMesh.rotation.clone(), 
         scale: mergedMesh.scaling.clone(),
         color: '#808080',

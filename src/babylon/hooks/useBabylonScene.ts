@@ -1,8 +1,9 @@
 import { useEffect, useRef, useMemo, useState } from 'react'
-import { Vector3, Color3, PickingInfo, Matrix } from 'babylonjs'
+import { Vector3, Color3, PickingInfo } from 'babylonjs'
 import { SceneManager } from '../sceneManager'
 import { useSceneStore } from '../../state/sceneStore'
 import { useGizmoManager } from '../gizmoManager'
+import { CollisionResolver } from '../collisionResolver'
 import type { SceneObject } from '../../types/types'
 
 // Custom hook to get the previous value of a prop or state
@@ -16,6 +17,7 @@ function usePrevious<T>(value: T): T | undefined {
 
 export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | null>) => {
   const sceneManagerRef = useRef<SceneManager | null>(null)
+  const collisionResolverRef = useRef<CollisionResolver | null>(null)
   const sceneObjectsRef = useRef<SceneObject[]>([])
   const isInitializedRef = useRef(false)
   const [canvasAvailable, setCanvasAvailable] = useState(false)
@@ -110,11 +112,21 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
         if (sceneManager.initialize(canvas)) {
           sceneManagerRef.current = sceneManager
           
+          // Initialize collision resolver with the scene
+          const scene = sceneManager.getScene()
+          if (scene) {
+            const collisionResolver = new CollisionResolver(scene)
+            collisionResolverRef.current = collisionResolver
+            console.log('✅ CollisionResolver initialized')
+          }
+          
           // Expose for DevTools debugging
           if (typeof window !== 'undefined') {
             // @ts-ignore
             window.VibeCadSceneManager = sceneManager
-            console.log('🐞 VibeCadSceneManager is available on window for debugging')
+            // @ts-ignore
+            window.VibeCadCollisionResolver = collisionResolverRef.current
+            console.log('🐞 VibeCadSceneManager and VibeCadCollisionResolver are available on window for debugging')
           }
           
           console.log('✅ SceneManager initialized, setting up callbacks...')
@@ -168,6 +180,10 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
       if (sceneManagerRef.current) {
         sceneManagerRef.current.dispose()
         sceneManagerRef.current = null
+      }
+      if (collisionResolverRef.current) {
+        collisionResolverRef.current.clearCache()
+        collisionResolverRef.current = null
       }
       isInitializedRef.current = false
       setSceneInitialized(false)
@@ -301,6 +317,8 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
     if (!sceneManagerRef.current || !sceneInitialized) return
 
     const sceneManager = sceneManagerRef.current
+    const collisionResolver = collisionResolverRef.current
+    const state = useSceneStore.getState()
     const currentObjectsMap = new Map(sceneObjects.map(obj => [obj.id, obj]))
     const prevObjectsMap = new Map(prevSceneObjects?.map(obj => [obj.id, obj]) || [])
 
@@ -312,6 +330,70 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
         // New object added
         console.log(`➕ Adding new mesh: ${id} (${currentObj.type})`)
         sceneManager.addMesh(currentObj)
+        
+        // Handle collision resolution for newly added objects
+        if (collisionResolver && 
+            state.collisionResolutionEnabled && 
+            !state.userOverrideCollision &&
+            currentObj.type !== 'ground' &&
+            !state.objectLocked[id]) {
+          
+          // Get the mesh we just added
+          const mesh = sceneManager.getMeshById(id)
+          if (mesh) {
+            console.log(`🔍 Checking collisions for newly added object: ${id}`)
+            
+            // Apply collision resolution configuration
+            if (state.collisionResolutionConfig) {
+              collisionResolver.updateConfig(state.collisionResolutionConfig)
+            }
+            
+            // Collision resolution loop - keep trying until no collisions remain
+            const maxIterations = 10
+            let iterations = 0
+            let hasCollisions = true
+            let lastPosition = mesh.position.clone()
+            
+            while (hasCollisions && iterations < maxIterations) {
+              iterations++
+              
+              // Detect collisions at current position
+              const collisions = collisionResolver.detectCollisions(id)
+              hasCollisions = collisions.hasCollision
+              
+              if (hasCollisions) {
+                console.log(`⚠️ Iteration ${iterations}: Collision detected for ${id}, resolving...`)
+                
+                // Find a safe position
+                const resolution = collisionResolver.resolveCollisions(id)
+                
+                if (resolution.resolved && !resolution.newPosition.equals(lastPosition)) {
+                  console.log(`🔄 Iteration ${iterations}: Moving ${id} to position: ${resolution.newPosition}`)
+                  
+                  // Update mesh position directly for immediate effect
+                  mesh.position = resolution.newPosition.clone()
+                  mesh.computeWorldMatrix(true)
+                  
+                  // Invalidate cache for this mesh
+                  collisionResolver.invalidateCache(id)
+                  
+                  lastPosition = resolution.newPosition.clone()
+                } else {
+                  console.warn(`❌ Iteration ${iterations}: Could not find better position for ${id}`)
+                  break
+                }
+              }
+            }
+            
+            // Update the store with the final position
+            if (!mesh.position.equals(currentObj.position)) {
+              console.log(`✅ Collision resolution complete for ${id} after ${iterations} iterations`)
+              updateObject(id, { position: mesh.position.clone() })
+            } else if (hasCollisions) {
+              console.warn(`⚠️ Failed to fully resolve collisions for ${id} after ${iterations} iterations`)
+            }
+          }
+        }
       } else if (currentObj !== prevObj) {
         // Existing object updated, calculate a diff
         console.log(`🔄 Updating existing mesh: ${id}`)
@@ -319,6 +401,83 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
         
         if (currentObj.position !== prevObj.position && !currentObj.position.equals(prevObj.position)) {
           diff.position = currentObj.position
+          
+          // Handle collision resolution for position updates
+          if (collisionResolver && 
+              state.collisionResolutionEnabled && 
+              !state.userOverrideCollision &&
+              currentObj.type !== 'ground' &&
+              !state.objectLocked[id]) {
+            
+            console.log(`🔍 Checking collisions for position update: ${id}`)
+            
+            // Apply collision resolution configuration
+            if (state.collisionResolutionConfig) {
+              collisionResolver.updateConfig(state.collisionResolutionConfig)
+            }
+            
+            // First update mesh to new position
+            const mesh = sceneManager.getMeshById(id)
+            if (mesh) {
+              mesh.position = currentObj.position.clone()
+              mesh.computeWorldMatrix(true)
+              
+              // Collision resolution loop
+              const maxIterations = 10
+              let iterations = 0
+              let hasCollisions = true
+              let lastPosition = mesh.position.clone()
+              
+              while (hasCollisions && iterations < maxIterations) {
+                iterations++
+                
+                // Detect collisions at current position
+                const collisions = collisionResolver.detectCollisions(id)
+                hasCollisions = collisions.hasCollision
+                
+                if (hasCollisions) {
+                  console.log(`⚠️ Iteration ${iterations}: Collision detected for ${id}, resolving...`)
+                  
+                  // Find a safe position
+                  const resolution = collisionResolver.resolveCollisions(id)
+                  
+                  if (resolution.resolved && !resolution.newPosition.equals(lastPosition)) {
+                    console.log(`🔄 Iteration ${iterations}: Moving ${id} to position: ${resolution.newPosition}`)
+                    
+                    // Update mesh position directly
+                    mesh.position = resolution.newPosition.clone()
+                    mesh.computeWorldMatrix(true)
+                    
+                    // Invalidate cache
+                    collisionResolver.invalidateCache(id)
+                    
+                    lastPosition = resolution.newPosition.clone()
+                  } else {
+                    console.warn(`❌ Iteration ${iterations}: Could not find better position for ${id}`)
+                    break
+                  }
+                }
+              }
+              
+              // Update diff with final position
+              diff.position = mesh.position.clone()
+              
+              // If position changed from what was requested, update store
+              if (!mesh.position.equals(currentObj.position)) {
+                console.log(`✅ Collision resolution complete for ${id} after ${iterations} iterations`)
+                setTimeout(() => {
+                  updateObject(id, { position: mesh.position.clone() })
+                }, 0)
+              } else if (hasCollisions) {
+                console.warn(`⚠️ Failed to fully resolve collisions for ${id} after ${iterations} iterations, reverting`)
+                // Revert to previous position if we couldn't resolve
+                diff.position = prevObj.position
+                setTimeout(() => {
+                  updateObject(id, { position: prevObj.position })
+                }, 0)
+              }
+            }
+          }
         }
         if (currentObj.rotation !== prevObj.rotation && !currentObj.rotation.equals(prevObj.rotation)) {
           diff.rotation = currentObj.rotation
@@ -352,6 +511,11 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
         
         if (Object.keys(diff).length > 0) {
           sceneManager.updateMeshProperties(id, diff)
+          
+          // Invalidate collision cache for this object if properties changed
+          if (collisionResolver && (diff.scale || diff.rotation)) {
+            collisionResolver.invalidateCache(id)
+          }
         }
       }
     })
@@ -361,6 +525,11 @@ export const useBabylonScene = (canvasRef: React.RefObject<HTMLCanvasElement | n
       if (!currentObjectsMap.has(id)) {
         console.log(`➖ Removing mesh: ${id}`)
         sceneManager.removeMeshById(id)
+        
+        // Invalidate collision cache for removed object
+        if (collisionResolver) {
+          collisionResolver.invalidateCache(id)
+        }
       }
     })
   }, [sceneObjects, sceneInitialized, prevSceneObjects])

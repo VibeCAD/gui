@@ -129,7 +129,6 @@ export interface ModularHousingObject extends SceneObject {
     floorThickness: number
     foundationHeight: number
     buildingConnections: string[]  // IDs of other housing objects this connects to
-    roomType?: 'bedroom' | 'kitchen' | 'bathroom' | 'living-room' | 'dining-room' | 'office' | 'hallway' | 'garage'
     
     // Enhanced ceiling properties
     ceilingType?: 'flat' | 'vaulted' | 'coffered' | 'tray' | 'cathedral' | 'beam'
@@ -298,4 +297,93 @@ export interface RoomData {
   allSegments?: { start: { x: number; y: number }; end: { x: number; y: number }; isOpening?: boolean }[]
   gridSize?: number  // Grid size used during drawing (in pixels)
   drawingBounds?: { width: number; height: number }  // SVG canvas dimensions
+}
+
+// Collision Detection and Resolution Types
+export interface CollisionDetectionResult {
+  /** Whether a collision was detected */
+  hasCollision: boolean
+  /** IDs of objects that are colliding with the test object */
+  collidingObjectIds: string[]
+  /** Details about each collision */
+  collisions: CollisionDetail[]
+}
+
+export interface CollisionDetail {
+  /** ID of the colliding object */
+  objectId: string
+  /** Type of the colliding object */
+  objectType: string
+  /** Estimated intersection volume (for prioritization) */
+  intersectionVolume?: number
+  /** Distance between object centers */
+  centerDistance: number
+}
+
+export interface CollisionResolutionConfig {
+  /** Enable/disable automatic collision resolution */
+  enabled: boolean
+  /** Step size for search pattern (default: 0.5 units) */
+  searchStepSize: number
+  /** Maximum search distance from original position (default: 10 units) */
+  maxSearchDistance: number
+  /** Search pattern type */
+  searchPattern: 'spiral' | 'grid' | 'radial'
+  /** Whether to search vertically after exhausting horizontal options */
+  searchVertical: boolean
+  /** Vertical search increment */
+  verticalStepSize: number
+  /** Priority for resolution direction */
+  resolutionPriority: 'horizontal' | 'vertical' | 'nearest'
+  /** Exclude certain object types from collision checks */
+  excludeTypes: string[]
+  /** Respect grid snapping during resolution */
+  respectGridSnap: boolean
+  /** Animation duration for repositioning (ms) */
+  animationDuration: number
+}
+
+export interface CollisionResolutionResult {
+  /** Whether a valid position was found */
+  resolved: boolean
+  /** Original position before resolution */
+  originalPosition: Vector3
+  /** New position after resolution (same as original if not resolved) */
+  newPosition: Vector3
+  /** Distance moved from original position */
+  distanceMoved: number
+  /** Number of positions tested */
+  positionsTested: number
+  /** Time taken for resolution (ms) */
+  resolutionTime: number
+  /** Direction of movement for visual feedback */
+  movementDirection?: Vector3
+}
+
+export interface CollisionEvent {
+  /** Timestamp of the event */
+  timestamp: number
+  /** Type of operation that triggered collision check */
+  operation: 'create' | 'move' | 'import' | 'scale' | 'rotate'
+  /** ID of the object being checked */
+  objectId: string
+  /** Result of collision detection */
+  detection: CollisionDetectionResult
+  /** Result of collision resolution (if attempted) */
+  resolution?: CollisionResolutionResult
+  /** Whether user override was active (e.g., holding Shift) */
+  userOverride: boolean
+}
+
+export interface BoundingBoxCache {
+  /** Object ID */
+  objectId: string
+  /** Cached bounding box min point */
+  min: Vector3
+  /** Cached bounding box max point */
+  max: Vector3
+  /** Last update timestamp */
+  lastUpdated: number
+  /** Whether the cache is valid */
+  isValid: boolean
 }
