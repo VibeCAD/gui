@@ -563,6 +563,19 @@ export const AISidebar: React.FC<AISidebarProps> = ({
     }
   };
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Check for Cmd+Enter on macOS or Ctrl+Enter on other systems
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      // Prevent the default action of adding a new line
+      event.preventDefault();
+      
+      // Check if the submit button would be active, and if so, submit the prompt
+      if (!isLoading && textInput.trim() && sceneInitialized) {
+        handleSubmitPrompt();
+      }
+    }
+  };
+
   return (
     <div className={`ai-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
       <div className="ai-sidebar-header">
@@ -593,6 +606,7 @@ export const AISidebar: React.FC<AISidebarProps> = ({
               id="ai-prompt"
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
+              onKeyDown={handleKeyDown}
               placeholder="Try: 'move the cube to the right', 'make the cube blue', 'create a red sphere above the cube', 'apply wood texture', 'make it brick'"
               className="ai-text-input"
               disabled={isLoading || !sceneInitialized}
