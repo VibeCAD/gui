@@ -1,11 +1,6 @@
 import OpenAI from 'openai';
-import type { SceneObject as BabylonSceneObject } from '../types/types';
+import type { SceneObject } from '../types/types';
 import { Vector3 } from 'babylonjs';
-
-// Extend SceneObject to include metadata for this service's use
-type SceneObject = BabylonSceneObject & {
-  metadata?: any;
-};
 
 export interface SceneCommand {
   action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'undo' | 'redo' | 'describe' | 'rename' | 'texture';
@@ -27,15 +22,13 @@ export interface SceneCommand {
   spatialRelation?: 'on-top-of' | 'beside' | 'in-front-of' | 'behind' | 'above' | 'below' | 'inside';
   matchDimensions?: boolean;
   contactType?: 'direct' | 'gap' | 'overlap';
-  // New align-specific properties
-  edge?: 'north' | 'south' | 'east' | 'west' | 'nearest-wall';
+  edge?: 'north' | 'south' | 'east' | 'west';
   offset?: number;
-  
-  // New texture-specific properties
   textureId?: string;
   textureType?: 'diffuse' | 'normal' | 'specular' | 'emissive';
-  textureName?: string; // For natural language texture descriptions
+  textureName?: string;
   description?: string;
+  isCompositePart?: boolean;
 }
 
 export interface AIServiceResult {
@@ -54,54 +47,35 @@ export class AIService {
   private availableTextures: Array<{ id: string; name: string; tags: string[] }> = [];
   private availableGlbObjects: string[] = [];
 
-  // Default front face directions for different object types
-  private defaultFrontFaces: { [key: string]: Vector3 } = {
-    // Basic primitives - most face +Z by default
-    'cube': new Vector3(0, 0, 1),
-    'sphere': new Vector3(0, 0, 1),
-    'cylinder': new Vector3(0, 0, 1),
-    'plane': new Vector3(0, 1, 0), // Planes face up by default
-    'torus': new Vector3(0, 0, 1),
-    'cone': new Vector3(0, 0, 1),
-    
-    // Housing objects
-    'house-basic': new Vector3(0, 0, 1),
-    'house-room': new Vector3(0, 0, 1),
-    'house-hallway': new Vector3(1, 0, 0), // Hallways typically run along X axis
-    'house-door-single': new Vector3(0, 0, 1),
-    'house-door-double': new Vector3(0, 0, 1),
-    'house-door-sliding': new Vector3(0, 0, 1),
-    'house-door-french': new Vector3(0, 0, 1),
-    'house-door-garage': new Vector3(0, 0, 1),
-    'house-window-single': new Vector3(0, 0, 1),
-    'house-window-double': new Vector3(0, 0, 1),
-    'house-window-bay': new Vector3(0, 0, 1),
-    'house-window-casement': new Vector3(0, 0, 1),
-    'house-window-sliding': new Vector3(0, 0, 1),
-    'house-window-skylight': new Vector3(0, 1, 0), // Skylights face up
-    'house-wall': new Vector3(0, 0, 1),
-    'house-ceiling': new Vector3(0, -1, 0), // Ceilings face down
-    'house-floor': new Vector3(0, 1, 0), // Floors face up
-    'house-roof-flat': new Vector3(0, 1, 0), // Flat roofs face up
-    'house-roof-pitched': new Vector3(0, 0, 1),
-    
-    // GLB objects - common furniture orientations
-    'Chair': new Vector3(0, 0, 1), // Chairs typically face forward
-    'Desk': new Vector3(0, 0, -1), // Desks face backward (user sits on opposite side)
-    'TV': new Vector3(0, 0, -1), // TV screens face backward (toward viewer)
-    'Sofa': new Vector3(0, 0, 1), // Sofas face forward
-    'Couch Small': new Vector3(0, 0, 1),
-    'Bed Single': new Vector3(0, 0, 1), // Beds face forward (foot of bed)
-    'Bed Double': new Vector3(0, 0, 1),
-    'Table': new Vector3(0, 0, 1), // Tables are omnidirectional but we'll use +Z
-    'Simple table': new Vector3(0, 0, 1),
-    'Bookcase': new Vector3(0, 0, -1), // Bookcases face backward (books face out)
-    'wooden bookshelf': new Vector3(0, 0, -1),
-    'Kitchen Fridge': new Vector3(0, 0, -1), // Fridge doors face backward
-    'Oven': new Vector3(0, 0, -1), // Oven doors face backward
-    'Simple computer': new Vector3(0, 0, -1), // Computer screens face backward
-    'Standing Desk': new Vector3(0, 0, -1),
-    'Adjustable Desk': new Vector3(0, 0, -1)
+  // Static list of base dimensions for all object types
+  private static readonly baseDimensions: { [key: string]: { width: number; height: number; depth: number } } = {
+    'cube': { width: 2, height: 2, depth: 2 },
+    'sphere': { width: 2, height: 2, depth: 2 },
+    'cylinder': { width: 2, height: 2, depth: 2 },
+    'plane': { width: 2, height: 0.1, depth: 2 },
+    'torus': { width: 2, height: 0.5, depth: 2 },
+    'cone': { width: 2, height: 2, depth: 2 },
+    'house-basic': { width: 2, height: 2, depth: 1.5 },
+    'house-room': { width: 2, height: 1.5, depth: 2 },
+    'house-hallway': { width: 1, height: 1.5, depth: 3 },
+    'house-roof-flat': { width: 2, height: 0.1, depth: 1.5 },
+    'house-roof-pitched': { width: 2, height: 0.8, depth: 1.5 },
+    'house-room-modular': { width: 4, height: 2.5, depth: 4 },
+    'house-wall': { width: 4, height: 1.5, depth: 0.2 },
+    'house-ceiling': { width: 4, height: 0.1, depth: 4 },
+    'house-floor': { width: 4, height: 0.1, depth: 4 },
+    'house-door-single': { width: 0.9, height: 2, depth: 0.05 },
+    'house-door-double': { width: 1.8, height: 2, depth: 0.05 },
+    'house-door-sliding': { width: 1.2, height: 2, depth: 0.05 },
+    'house-door-french': { width: 1.2, height: 2, depth: 0.05 },
+    'house-door-garage': { width: 2.4, height: 2, depth: 0.05 },
+    'house-window-single': { width: 0.6, height: 0.8, depth: 0.05 },
+    'house-window-double': { width: 1.2, height: 0.8, depth: 0.05 },
+    'house-window-bay': { width: 1.5, height: 0.8, depth: 0.3 },
+    'house-window-casement': { width: 0.8, height: 1, depth: 0.05 },
+    'house-window-sliding': { width: 1.2, height: 0.8, depth: 0.05 },
+    'house-window-skylight': { width: 0.8, height: 0.8, depth: 0.05 },
+    'ground': { width: 10, height: 1, depth: 10 }
   };
 
   constructor(apiKey: string, glbObjectNames: string[] = []) {
@@ -112,7 +86,7 @@ export class AIService {
     
     this.availableGlbObjects = glbObjectNames;
 
-    // Initialize available textures
+    // Initialize available textures 
     this.availableTextures = [
       {
         id: 'default-wood-floor-01',
@@ -136,43 +110,7 @@ export class AIService {
    * Calculate the effective size of an object based on its type and scale
    */
   private getObjectDimensions(obj: SceneObject): { width: number; height: number; depth: number } {
-    // If actual dimensions are provided (from bounding box), use those
-    if ((obj as any).actualDimensions) {
-      return (obj as any).actualDimensions;
-    }
-    
-    // Otherwise fall back to base dimensions for known types
-    const baseDimensions: { [key: string]: { width: number; height: number; depth: number } } = {
-      'cube': { width: 2, height: 2, depth: 2 },
-      'sphere': { width: 2, height: 2, depth: 2 },
-      'cylinder': { width: 2, height: 2, depth: 2 },
-      'plane': { width: 2, height: 0.1, depth: 2 },
-      'torus': { width: 2, height: 0.5, depth: 2 },
-      'cone': { width: 2, height: 2, depth: 2 },
-      'house-basic': { width: 2, height: 2, depth: 1.5 },
-      'house-room': { width: 2, height: 1.5, depth: 2 },
-      'house-hallway': { width: 1, height: 1.5, depth: 3 },
-      'house-roof-flat': { width: 2, height: 0.1, depth: 1.5 },
-      'house-roof-pitched': { width: 2, height: 0.8, depth: 1.5 },
-      'house-room-modular': { width: 4, height: 2.5, depth: 4 },
-      'house-wall': { width: 4, height: 1.5, depth: 0.2 },
-      'house-ceiling': { width: 4, height: 0.1, depth: 4 },
-      'house-floor': { width: 4, height: 0.1, depth: 4 },
-      'house-door-single': { width: 0.9, height: 2, depth: 0.05 },
-      'house-door-double': { width: 1.8, height: 2, depth: 0.05 },
-      'house-door-sliding': { width: 1.2, height: 2, depth: 0.05 },
-      'house-door-french': { width: 1.2, height: 2, depth: 0.05 },
-      'house-door-garage': { width: 2.4, height: 2, depth: 0.05 },
-      'house-window-single': { width: 0.6, height: 0.8, depth: 0.05 },
-      'house-window-double': { width: 1.2, height: 0.8, depth: 0.05 },
-      'house-window-bay': { width: 1.5, height: 0.8, depth: 0.3 },
-      'house-window-casement': { width: 0.8, height: 1, depth: 0.05 },
-      'house-window-sliding': { width: 1.2, height: 0.8, depth: 0.05 },
-      'house-window-skylight': { width: 0.8, height: 0.8, depth: 0.05 },
-      'ground': { width: 10, height: 1, depth: 10 }
-    };
-
-    const base = baseDimensions[obj.type] || { width: 1, height: 1, depth: 1 };
+    const base = AIService.baseDimensions[obj.type] || { width: 1, height: 1, depth: 1 };
     
     // Apply scale factors
     return {
@@ -562,36 +500,7 @@ export class AIService {
    * Get base dimensions for object type
    */
   private getBaseDimensionsForType(type: string): { width: number; height: number; depth: number } {
-    const baseDimensions: { [key: string]: { width: number; height: number; depth: number } } = {
-      'cube': { width: 2, height: 2, depth: 2 },
-      'sphere': { width: 2, height: 2, depth: 2 },
-      'cylinder': { width: 2, height: 2, depth: 2 },
-      'plane': { width: 2, height: 0.1, depth: 2 },
-      'torus': { width: 2, height: 0.5, depth: 2 },
-      'cone': { width: 2, height: 2, depth: 2 },
-      'house-basic': { width: 2, height: 2, depth: 1.5 },
-      'house-room': { width: 2, height: 1.5, depth: 2 },
-      'house-hallway': { width: 1, height: 1.5, depth: 3 },
-      'house-roof-flat': { width: 2, height: 0.1, depth: 1.5 },
-      'house-roof-pitched': { width: 2, height: 0.8, depth: 1.5 },
-      'house-room-modular': { width: 4, height: 2.5, depth: 4 },
-      'house-wall': { width: 4, height: 1.5, depth: 0.2 },
-      'house-ceiling': { width: 4, height: 0.1, depth: 4 },
-      'house-floor': { width: 4, height: 0.1, depth: 4 },
-      'house-door-single': { width: 0.9, height: 2, depth: 0.05 },
-      'house-door-double': { width: 1.8, height: 2, depth: 0.05 },
-      'house-door-sliding': { width: 1.2, height: 2, depth: 0.05 },
-      'house-door-french': { width: 1.2, height: 2, depth: 0.05 },
-      'house-door-garage': { width: 2.4, height: 2, depth: 0.05 },
-      'house-window-single': { width: 0.6, height: 0.8, depth: 0.05 },
-      'house-window-double': { width: 1.2, height: 0.8, depth: 0.05 },
-      'house-window-bay': { width: 1.5, height: 0.8, depth: 0.3 },
-      'house-window-casement': { width: 0.8, height: 1, depth: 0.05 },
-      'house-window-sliding': { width: 1.2, height: 0.8, depth: 0.05 },
-      'house-window-skylight': { width: 0.8, height: 0.8, depth: 0.05 }
-    };
-    
-    return baseDimensions[type] || { width: 1, height: 1, depth: 1 };
+    return AIService.baseDimensions[type] || { width: 1, height: 1, depth: 1 };
   }
 
   /**
@@ -614,26 +523,14 @@ export class AIService {
       description += `Ground plane at (0, 0, 0). `;
     }
     
-    // Process custom rooms first to provide spatial context
-    const customRooms = sceneObjects.filter(obj => obj.type === 'custom-room');
-    if (customRooms.length > 0) {
-      const roomDescriptions = customRooms.map(room => {
-        let roomDesc = `Custom room "${room.id}" at (${room.position.x.toFixed(1)}, ${room.position.y.toFixed(1)}, ${room.position.z.toFixed(1)})`;
-        if (room.metadata?.floorPolygon) {
-          const points = room.metadata.floorPolygon.map((p: { x: number, z: number }) => `(${p.x.toFixed(1)}, ${p.z.toFixed(1)})`).join(', ');
-          roomDesc += ` with floor corners at [${points}]. The walls are the segments connecting these corners.`;
-        }
-        return roomDesc;
-      }).join(' ');
-      description += `Rooms: ${roomDescriptions}. `;
-    }
-
     if (primitiveObjects.length > 0) {
       const primitiveDescription = primitiveObjects
         .map(obj => {
           const dimensions = this.getObjectDimensions(obj);
           const colorName = this.getColorName(obj.color);
-          const sizeDesc = `${dimensions.width.toFixed(1)}×${dimensions.height.toFixed(1)}×${dimensions.depth.toFixed(1)}`;
+          const sizeDesc = dimensions.width !== dimensions.height || dimensions.height !== dimensions.depth 
+            ? `${dimensions.width.toFixed(1)}×${dimensions.height.toFixed(1)}×${dimensions.depth.toFixed(1)}` 
+            : `${dimensions.width.toFixed(1)} units`;
           
           // Include rotation information if object is rotated
           const rotationDesc = (obj.rotation.x !== 0 || obj.rotation.y !== 0 || obj.rotation.z !== 0) 
@@ -710,6 +607,10 @@ export class AIService {
     const glbObjectsList = this.availableGlbObjects.length > 0
       ? `GLB Library Objects: ${this.availableGlbObjects.join(', ')}`
       : 'No GLB library objects available.';
+      
+    const objectDimensionsList = Object.entries(AIService.baseDimensions)
+      .map(([type, dim]) => `- ${type}: ${dim.width}x${dim.height}x${dim.depth}`)
+      .join('\n');
 
     return `You are a 3D scene assistant with advanced spatial reasoning and precise positioning capabilities. You can modify a Babylon.js scene with millimeter-accurate positioning and automatic dimension matching.
 
@@ -720,12 +621,12 @@ ${selectionDescription}
 IMPORTANT: When the user refers to "it", "the object", "selected object", or uses commands without specifying an object, apply the action to the currently selected object(s).
 
 Available actions:
-1. move: Move an object to x,y,z coordinates
+1. move: Move an object to x,y,z coordinates. IMPORTANT: You must prevent the moved object from colliding with any other objects.
 2. color: Change object color (use hex colors like #ff6b6b, #4ecdc4, #95e1d3, etc.)
 3. scale: Scale an object by scaleX, scaleY, scaleZ factors
 4. create: Create new objects with intelligent positioning and automatic scaling
 5. delete: Remove an object
-6. rotate: Rotate an object by rotationX, rotationY, rotationZ angles in radians. 
+6. rotate: Rotate an object by rotationX, rotationY, rotationZ angles in radians
 7. align: Align an object to a specific edge of another object with perfect perpendicularity and flush contact
 8. describe: Provide a detailed text description of the current scene. The description should be generated by you based on the scene information provided.
 9. undo: Undo the last action performed on the scene
@@ -742,6 +643,9 @@ OBJECT TYPES:
 Basic: cube, sphere, cylinder, plane, torus, cone
 Housing: house-basic, house-room, house-hallway, house-roof-flat, house-roof-pitched
 ${glbObjectsList}
+
+OBJECT DIMENSIONS (width x height x depth):
+${objectDimensionsList}
 
 PRECISION SPATIAL INTELLIGENCE:
 - Objects have exact dimensions and bounding boxes
@@ -764,30 +668,33 @@ POSITIONING PRECISION:
 - "above" = Small gap above, centered alignment
 - "below" = Direct contact below, centered alignment
 
+COLLISION AVOIDANCE:
+- When moving an object, you are responsible for preventing collisions. You MUST verify that the object's new position does not cause it to overlap with any other object in the scene.
+- The scene description provides the position and dimensions for every object. Use this data to calculate each object's bounding box and check for intersections.
+- If a user's move command would result in a collision, you MUST adjust the final coordinates to be as close as possible to the target destination without overlapping. For example, if asked to move an object to a coordinate that is inside another object, place it flush against the surface of that object instead.
+
+OBJECT COMPOSITION:
+- Sometimes, a user will ask to build a single, complex entity out of multiple primitive objects (e.g., "build a snowman", "create R2D2", "make a simple car out of cubes").
+- In these cases, the primitive objects are acting as parts of a larger whole and ARE ALLOWED to overlap or intersect to create the desired shape.
+- To signal this, you MUST add the property \"isCompositePart\": true to each 'create' command that is part of the composite object.
+- This is an exception to the general rule of not overlapping objects during creation.
+- When creating a composite object, you should still place the parts relative to each other to form a recognizable shape.
+
 QUANTITY HANDLING:
 - If the prompt specifies a quantity (for example, "two", "three", "5") or uses a plural noun (such as "cubes"), you MUST create exactly that number of objects.
 - Do NOT introduce a 'count' or 'quantity' property. Instead, output that many individual 'create' commands inside the JSON array.
-- When the user does not specify how the objects should be arranged, position them sensibly (e.g. in a straight line) **with at least one unit of empty space between their bounding boxes**.  For standard 2×2×2 cubes this means keeping their centres ≥ 2.2 units apart (e.g. –1.5 and 1.5 on the X axis).  Always provide explicit 'x', 'y', and 'z' that do not overlap with other objects.
+- When the user does not specify how the objects should be arranged, position them sensibly (e.g., in a straight line on the X-axis) with at least one unit of empty space between their bounding boxes.
+- To calculate spacing, use the object dimensions provided under OBJECT DIMENSIONS. For example, to place two cubes (width 2) side-by-side with a 1-unit gap, their centers should be 3 units apart on the X-axis (e.g., at x=-1.5 and x=1.5).
+- Always provide explicit 'x', 'y', and 'z' that do not overlap with other existing or newly created objects.
 
 ROTATION PRECISION:
 - Rotation values are in radians (not degrees)
 - rotationX: Rotation around X-axis (pitch)
 - rotationY: Rotation around Y-axis (yaw)
 - rotationZ: Rotation around Z-axis (roll)
+- Common values: 0 = no rotation, π/2 ≈ 1.57 = 90°, π ≈ 3.14 = 180°, 3π/2 ≈ 4.71 = 270°
 - For 45° rotation: π/4 ≈ 0.785 radians
 - For 30° rotation: π/6 ≈ 0.524 radians
-- For 90° rotation: π/2 ≈ 1.571 radians
-- For 180° rotation: π ≈ 3.142 radians
-
-FACING LOGIC:
-- When asked to make an object "face" another object, the system automatically calculates the proper Y-axis rotation
-- Different object types have different "front" directions:
-  - Most objects face +Z (north) by default
-  - TVs, desks, computers, fridges face -Z (south) by default
-  - Planes, floors face +Y (up) by default
-  - Ceilings face -Y (down) by default
-- The facing calculation preserves X and Z rotations, only adjusting Y rotation
-- For "face" commands, you can return rotation values of 0,0,0 - the system will calculate the correct values
 
 ALIGNMENT BEHAVIOR:
 - The align action creates perfect perpendicular alignment (90 degrees)
@@ -832,29 +739,13 @@ ROTATION COMMAND EXAMPLES:
 [{"action": "rotate", "objectId": "sphere-id", "rotationX": 0.524, "rotationY": 0, "rotationZ": 0}]
 
 "Spin the green cylinder 90 degrees around its vertical axis":
-[{"action": "rotate", "objectId": "cylinder-id", "rotationX": 0, "rotationY": 1.571, "rotationZ": 0}]
+[{"action": "rotate", "objectId": "cylinder-id", "rotationX": 0, "rotationY": 1.57, "rotationZ": 0}]
 
 "Flip the cube upside down":
-[{"action": "rotate", "objectId": "cube-id", "rotationX": 3.142, "rotationY": 0, "rotationZ": 0}]
+[{"action": "rotate", "objectId": "cube-id", "rotationX": 3.14, "rotationY": 0, "rotationZ": 0}]
 
 "Rotate the house 180 degrees to face the opposite direction":
-[{"action": "rotate", "objectId": "house-id", "rotationX": 0, "rotationY": 3.142, "rotationZ": 0}]
-
-FACING COMMAND EXAMPLES (let the system calculate the exact rotation):
-"Rotate the tv to face the cube":
-[{"action": "rotate", "objectId": "tv-id", "rotationX": 0, "rotationY": 0, "rotationZ": 0, "description": "rotate the tv to face the cube"}]
-
-"Make the chair face the table":
-[{"action": "rotate", "objectId": "chair-id", "rotationX": 0, "rotationY": 0, "rotationZ": 0, "description": "make the chair face the table"}]
-
-"Turn the sofa toward the TV":
-[{"action": "rotate", "objectId": "sofa-id", "rotationX": 0, "rotationY": 0, "rotationZ": 0, "description": "turn the sofa toward the TV"}]
-
-"Point the desk at the window":
-[{"action": "rotate", "objectId": "desk-id", "rotationX": 0, "rotationY": 0, "rotationZ": 0, "description": "point the desk at the window"}]
-
-"Orient the bookshelf toward the reading chair":
-[{"action": "rotate", "objectId": "bookshelf-id", "rotationX": 0, "rotationY": 0, "rotationZ": 0, "description": "orient the bookshelf toward the reading chair"}]
+[{"action": "rotate", "objectId": "house-id", "rotationX": 0, "rotationY": 3.14, "rotationZ": 0}]
 
 ALIGNMENT COMMAND EXAMPLES:
 "Align the wall to the north edge of the floor":
@@ -871,9 +762,6 @@ ALIGNMENT COMMAND EXAMPLES:
 
 "Align the wall to the north edge of the floor with 0.1 offset":
 [{"action": "align", "objectId": "wall-id", "relativeToObject": "floor-id", "edge": "north", "offset": 0.1}]
-
-"Align the bookcase to the nearest wall of the room":
-[{"action": "align", "objectId": "bookcase-id", "relativeToObject": "room-id", "edge": "nearest-wall"}]
 
 UNDO/REDO COMMAND EXAMPLES:
 "Undo the last action":
@@ -893,48 +781,6 @@ UNDO/REDO COMMAND EXAMPLES:
 
 "Restore the last undone action":
 [{"action": "redo"}]
-
-ROOM GEOMETRY COMMANDS:
-- "against the wall" or "against a wall": Use the 'align' command with 'edge' set to 'nearest-wall' and the room ID as 'relativeToObject'.
-  Example: [{"action": "align", "objectId": "chair-1", "relativeToObject": "custom-room-1", "edge": "nearest-wall"}]
-  The align command will automatically position the object with its bounding box flush against the wall.
-
-- "in the corner" or "in a corner": To place an object in a corner, calculate the position with proper offsets:
-  1. Find the corner coordinates from the room's floor corners
-  2. Calculate the object's half-dimensions (width/2, depth/2) from its bounding box
-  3. Offset the object from the corner by these half-dimensions plus wall thickness (0.5 units)
-  Example: If room has corner at (0,0) and object is 2x2 units, position at (1.5, 0, 1.5) to account for object size and wall thickness
-  For "northeast corner": corner with max x,z → position at (cornerX - objectWidth/2 - 0.5, y, cornerZ - objectDepth/2 - 0.5)
-  For "southwest corner": corner with min x,z → position at (cornerX + objectWidth/2 + 0.5, y, cornerZ + objectDepth/2 + 0.5)
-  For "northwest corner": min x, max z → position at (cornerX + objectWidth/2 + 0.5, y, cornerZ - objectDepth/2 - 0.5)
-  For "southeast corner": max x, min z → position at (cornerX - objectWidth/2 - 0.5, y, cornerZ + objectDepth/2 + 0.5)
-
-- "outside the room" or "out of the room": Calculate a position outside the room's polygon.
-  Find the nearest wall and place the object beyond it by at least the object's half-dimension plus a margin.
-  Example: [{"action": "move", "objectId": "chair-1", "x": 6, "y": 0, "z": 0}] (assuming room extends to x=4)
-
-When working with custom rooms:
-- Room corners define the INNER boundaries of the room (where walls meet)
-- Standard wall thickness is approximately 0.5 units
-- When placing objects in corners, ensure they don't overlap with either wall
-- When placing objects against walls, ensure only one face touches the wall
-- Always account for the object's own dimensions when calculating positions
-- For objects on the floor: ALWAYS use y=0 for the position (objects have pivot at bottom)
-- The scene will automatically prevent objects from sinking below the floor
-
-CORNER PLACEMENT EXAMPLES:
-Given a room with corners at [(0,0), (5,0), (5,5), (0,5)] and a chair that is 1×1×1 units:
-- "Put the chair in the southwest corner": 
-  Southwest = min x, min z = (0,0)
-  Position = (0 + 0.5 + 0.5, 0, 0 + 0.5 + 0.5) = (1.0, 0, 1.0)
-  Note: Y=0 because objects sit on the floor (pivot at bottom)
-  Result: [{"action": "move", "objectId": "chair-1", "x": 1.0, "y": 0, "z": 1.0}]
-
-- "Put a 2×2×2 table in the northeast corner":
-  Northeast = max x, max z = (5,5)
-  Position = (5 - 1 - 0.5, 0, 5 - 1 - 0.5) = (3.5, 0, 3.5)
-  Note: Y=0 because objects sit on the floor (pivot at bottom)
-  Result: [{"action": "move", "objectId": "table-1", "x": 3.5, "y": 0, "z": 3.5}]
 
 TEXTURE COMMAND EXAMPLES:
 "Apply wood texture to the cube":
@@ -964,7 +810,7 @@ HOUSING OBJECT LOGIC:
 
 CRITICAL REQUIREMENTS:
 1. ALWAYS identify the reference object from the scene when spatial relationships are mentioned
-2. ALWAYS calculate precise x, y, z coordinates based on exact object dimensions
+2. ALWAYS calculate precise x, y, z coordinates based on exact object dimensions and ensure the final placement avoids collisions with other objects, unless building a composite object (see OBJECT COMPOSITION).
 3. ALWAYS include calculated coordinates in your JSON response
 4. For "on top of" positioning: place bottom of target object touching top of reference object
 5. For dimension matching: automatically calculate scaleX, scaleY, scaleZ factors
@@ -975,10 +821,6 @@ CRITICAL REQUIREMENTS:
 10. For texture commands: If no object is specified but there's a selected object in the scene, apply texture to the selected object
 11. When applying textures, always use textureId (not textureName) in the final command
 12. Default to "diffuse" texture type if not specified
-13. For corner placement: ALWAYS use the actual dimensions (width×height×depth) shown in the scene description, NOT default values
-14. For wall alignment: Account for object dimensions to ensure only one face touches the wall
-15. For imported objects (GLB/STL/OBJ): Their pivot is at bottom center, so position.y represents the floor contact point
-16. When moving objects, ensure they don't sink below y=0 (the floor level)
 
 DIMENSION MATCHING RULES:
 - Objects placed "on top of" automatically match the footprint (width × depth) of the reference object
@@ -1181,142 +1023,6 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
   }
 
   /**
-   * Find the best structure to place a roof on
-   */
-  private findBestStructureForRoof(sceneObjects: SceneObject[]): SceneObject | null {
-    // Look for rooms first, then basic houses
-    const structures = sceneObjects.filter(obj => 
-      obj.type.startsWith('house-') && 
-      !obj.type.includes('roof') &&
-      obj.type !== 'ground'
-    );
-    
-    // Prioritize rooms over basic houses
-    const room = structures.find(obj => obj.type === 'house-room');
-    if (room) return room;
-    
-    const basicHouse = structures.find(obj => obj.type === 'house-basic');
-    if (basicHouse) return basicHouse;
-    
-    // Return first available structure
-    return structures[0] || null;
-  }
-
-  /**
-   * Get the front face direction for an object type
-   */
-  private getFrontFace(objectType: string): Vector3 {
-    // Check if we have a defined front face for this type
-    if (this.defaultFrontFaces[objectType]) {
-      return this.defaultFrontFaces[objectType].clone();
-    }
-    
-    // For imported models, try to match by partial name
-    const lowerType = objectType.toLowerCase();
-    for (const [key, value] of Object.entries(this.defaultFrontFaces)) {
-      if (lowerType.includes(key.toLowerCase()) || key.toLowerCase().includes(lowerType)) {
-        return value.clone();
-      }
-    }
-    
-    // Default to +Z for unknown types
-    return new Vector3(0, 0, 1);
-  }
-
-  /**
-   * Calculate the rotation needed for objectA to face objectB
-   * @param objectA The object that needs to rotate
-   * @param objectB The target object to face
-   * @param currentRotation The current rotation of objectA
-   * @returns The new rotation values in radians
-   */
-  private calculateFacingRotation(
-    objectA: SceneObject,
-    objectB: SceneObject,
-    currentRotation: Vector3
-  ): { x: number; y: number; z: number } {
-    // Get the direction vector from A to B
-    const direction = objectB.position.subtract(objectA.position);
-    direction.y = 0; // Keep rotation on horizontal plane only
-    direction.normalize();
-    
-    // Get the front face direction for objectA
-    const frontFace = objectA.frontFace || this.getFrontFace(objectA.type);
-    
-    // Calculate the angle between the front face and the direction to target
-    // We'll use Y-axis rotation (yaw) for facing
-    let targetAngle = Math.atan2(direction.x, direction.z);
-    
-    console.log(`🎯 Facing calc: ${objectA.id} → ${objectB.id}`);
-    console.log(`   Direction: (${direction.x.toFixed(2)}, ${direction.z.toFixed(2)})`);
-    console.log(`   Front face: (${frontFace.x}, ${frontFace.y}, ${frontFace.z})`);
-    
-    // Adjust based on the object's default front face
-    if (frontFace.z === -1) {
-      // Object faces backward by default, add 180 degrees
-      targetAngle += Math.PI;
-      console.log(`   Adjusted: +180° (faces backward)`);
-    } else if (frontFace.x === 1) {
-      // Object faces right by default, adjust by 90 degrees
-      targetAngle -= Math.PI / 2;
-      console.log(`   Adjusted: -90° (faces right)`);
-    } else if (frontFace.x === -1) {
-      // Object faces left by default, adjust by 90 degrees
-      targetAngle += Math.PI / 2;
-      console.log(`   Adjusted: +90° (faces left)`);
-    }
-    
-    // For objects that face up/down (planes, floors, ceilings), we might need different logic
-    if (Math.abs(frontFace.y) > 0.9) {
-      console.log(`⚠️ Object ${objectA.id} has vertical front face, facing on horizontal plane may not work as expected`);
-    }
-    
-    console.log(`   Final Y rotation: ${this.radiansToDegrees(targetAngle).toFixed(1)}°`);
-    
-    // Return the new rotation, preserving X and Z rotations
-    return {
-      x: currentRotation.x,
-      y: targetAngle,
-      z: currentRotation.z
-    };
-  }
-
-  /**
-   * Detect if a command is asking to face another object
-   */
-  private detectFacingCommand(prompt: string): { 
-    isFacing: boolean; 
-    sourceDesc?: string; 
-    targetDesc?: string;
-  } {
-    const lowerPrompt = prompt.toLowerCase();
-    
-    // Patterns for facing commands
-    const facingPatterns = [
-      /make (?:the )?(.+?) face (?:the )?(.+)/,
-      /rotate (?:the )?(.+?) to face (?:the )?(.+)/,
-      /turn (?:the )?(.+?) toward(?:s)? (?:the )?(.+)/,
-      /point (?:the )?(.+?) at (?:the )?(.+)/,
-      /orient (?:the )?(.+?) toward(?:s)? (?:the )?(.+)/,
-      /(.+?) face(?:s)? (?:the )?(.+)/
-    ];
-    
-    for (const pattern of facingPatterns) {
-      const match = lowerPrompt.match(pattern);
-      if (match) {
-        console.log(`🔍 Facing pattern matched: "${match[1]}" → "${match[2]}"`);
-        return {
-          isFacing: true,
-          sourceDesc: match[1].trim(),
-          targetDesc: match[2].trim()
-        };
-      }
-    }
-    
-    return { isFacing: false };
-  }
-
-  /**
    * Extract spatial context from user prompt
    */
   private extractSpatialContext(prompt: string, sceneObjects: SceneObject[]): { 
@@ -1388,30 +1094,6 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
     const enhancedCommands: SceneCommand[] = [];
     
     commands.forEach(command => {
-      // Handle rotation commands with facing logic
-      if (command.action === 'rotate') {
-        // Check if this is a facing command by looking for target object reference
-        const facingCommand = this.detectFacingInRotationCommand(command, sceneObjects);
-        
-        if (facingCommand.isFacing && facingCommand.sourceObject && facingCommand.targetObject) {
-          // Calculate the rotation needed to face the target
-          const newRotation = this.calculateFacingRotation(
-            facingCommand.sourceObject,
-            facingCommand.targetObject,
-            facingCommand.sourceObject.rotation
-          );
-          
-          // Update the command with calculated rotation values
-          command.objectId = facingCommand.sourceObject.id;
-          command.rotationX = newRotation.x;
-          command.rotationY = newRotation.y;
-          command.rotationZ = newRotation.z;
-          
-          enhancedCommands.push(command);
-          return;
-        }
-      }
-      
       // Handle texture commands - resolve texture names to IDs
       if (command.action === 'texture') {
         // If no object is specified but there's a selection, use the selected object
@@ -1454,7 +1136,12 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
       }
       
       // Handle spatial relationships for creation, movement, and rotation
-      if ((command.action === 'create' || command.action === 'move' || command.action === 'rotate') && command.relativeToObject && command.spatialRelation) {
+      if (
+        (command.action === 'create' || command.action === 'move' || command.action === 'rotate') &&
+        command.relativeToObject &&
+        command.spatialRelation &&
+        !command.isCompositePart
+      ) {
         const referenceObject = this.findObjectByDescription(command.relativeToObject, sceneObjects);
         
         if (referenceObject) {
@@ -1585,65 +1272,25 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
   }
 
   /**
-   * Detect if a rotation command is asking to face another object
+   * Find the best structure to place a roof on
    */
-  private detectFacingInRotationCommand(command: SceneCommand, sceneObjects: SceneObject[]): {
-    isFacing: boolean;
-    sourceObject?: SceneObject;
-    targetObject?: SceneObject;
-  } {
-    // If rotation values are all 0 and there's a description, it might be a facing command
-    if (command.action === 'rotate' && 
-        command.rotationX === 0 && 
-        command.rotationY === 0 && 
-        command.rotationZ === 0 &&
-        command.description) {
-      
-      console.log(`🔄 Checking rotation command for facing: "${command.description}"`);
-      const facingInfo = this.detectFacingCommand(command.description);
-      if (facingInfo.isFacing && facingInfo.sourceDesc && facingInfo.targetDesc) {
-        const sourceObject = this.findObjectByDescription(facingInfo.sourceDesc, sceneObjects);
-        const targetObject = this.findObjectByDescription(facingInfo.targetDesc, sceneObjects);
-        
-        if (sourceObject && targetObject) {
-          return {
-            isFacing: true,
-            sourceObject,
-            targetObject
-          };
-        }
-      }
-    }
+  private findBestStructureForRoof(sceneObjects: SceneObject[]): SceneObject | null {
+    // Look for rooms first, then basic houses
+    const structures = sceneObjects.filter(obj => 
+      obj.type.startsWith('house-') && 
+      !obj.type.includes('roof') &&
+      obj.type !== 'ground'
+    );
     
-    // Also check if the command has objectId but targets another object in description
-    if (command.objectId && command.description) {
-      const sourceObject = sceneObjects.find(obj => obj.id === command.objectId);
-      if (sourceObject) {
-        // Look for "to face X" or "face X" patterns in description
-        const patterns = [
-          /to face (?:the )?(.+)/i,
-          /face (?:the )?(.+)/i,
-          /toward(?:s)? (?:the )?(.+)/i
-        ];
-        
-        for (const pattern of patterns) {
-          const match = command.description.match(pattern);
-          if (match) {
-            const targetDesc = match[1].trim();
-            const targetObject = this.findObjectByDescription(targetDesc, sceneObjects);
-            if (targetObject) {
-              return {
-                isFacing: true,
-                sourceObject,
-                targetObject
-              };
-            }
-          }
-        }
-      }
-    }
+    // Prioritize rooms over basic houses
+    const room = structures.find(obj => obj.type === 'house-room');
+    if (room) return room;
     
-    return { isFacing: false };
+    const basicHouse = structures.find(obj => obj.type === 'house-basic');
+    if (basicHouse) return basicHouse;
+    
+    // Return first available structure
+    return structures[0] || null;
   }
 
   /**
