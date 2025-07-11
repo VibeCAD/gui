@@ -22,14 +22,11 @@ export interface SceneCommand {
   spatialRelation?: 'on-top-of' | 'beside' | 'in-front-of' | 'behind' | 'above' | 'below' | 'inside';
   matchDimensions?: boolean;
   contactType?: 'direct' | 'gap' | 'overlap';
-  // New align-specific properties
   edge?: 'north' | 'south' | 'east' | 'west';
   offset?: number;
-  
-  // New texture-specific properties
   textureId?: string;
   textureType?: 'diffuse' | 'normal' | 'specular' | 'emissive';
-  textureName?: string; // For natural language texture descriptions
+  textureName?: string;
   description?: string;
   isCompositePart?: boolean;
 }

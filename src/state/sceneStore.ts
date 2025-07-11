@@ -412,7 +412,15 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 }
 
                 pushUndoAction(createRenameAction(newId, oldId, objectToRename))
-                get()._renameObject(oldId, newId)
+                
+                // Perform the actual rename
+                set((state) => ({
+                    sceneObjects: state.sceneObjects.map(obj => 
+                        obj.id === oldId ? { ...obj, id: newId } : obj
+                    ),
+                    selectedObjectId: state.selectedObjectId === oldId ? newId : state.selectedObjectId,
+                    selectedObjectIds: state.selectedObjectIds.map(id => id === oldId ? newId : id)
+                }))
             },
             
             setSceneObjects: (objects) => set({ sceneObjects: objects }),
@@ -1083,8 +1091,14 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 console.log('🔄 Undoing action:', lastAction.type, 'Payload:', lastAction.payload)
                 console.log('🔄 Full undo history:', state.undoHistory.map(a => a.type))
                 
-                // Execute the inverse action
+                // Execute the inverse action WITHOUT tracking it for undo (to avoid recursion)
+                const tempPushUndoAction = get().pushUndoAction
+                get().pushUndoAction = () => {} // Temporarily disable undo tracking
+                
                 get().executeUndoAction(lastAction.inverse)
+                
+                // Restore undo tracking
+                get().pushUndoAction = tempPushUndoAction
                 
                 // Update undo/redo state
                 set({
@@ -1105,8 +1119,14 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 
                 console.log('🔄 Redoing action:', lastUndoneAction.type)
                 
-                // Re-execute the original action
+                // Re-execute the original action WITHOUT tracking it for undo (to avoid recursion)
+                const tempPushUndoAction = get().pushUndoAction
+                get().pushUndoAction = () => {} // Temporarily disable undo tracking
+                
                 get().executeUndoAction(lastUndoneAction)
+                
+                // Restore undo tracking
+                get().pushUndoAction = tempPushUndoAction
                 
                 // Update undo/redo state
                 set({
@@ -1139,19 +1159,22 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                         get().addObject(action.payload.object)
                         break
                     case 'UPDATE_OBJECT':
-                        get().updateObject(action.payload.objectId, action.payload.oldState)
+                        get().updateObject(action.payload.objectId, action.payload.updates)
                         break
-                    case 'RENAME_OBJECT':
-                        get().renameObject(action.payload.newId, action.payload.oldId)
+                    case 'RENAME':
+                        get().renameObject(action.payload.oldId, action.payload.newId)
                         break
                     case 'SET_OBJECT_LOCKED':
-                        get().setObjectLocked(action.payload.objectId, action.payload.oldLocked)
+                        get().setObjectLocked(action.payload.objectId, action.payload.locked)
                         break
                     case 'SET_OBJECT_VISIBILITY':
-                        get().setObjectVisibility(action.payload.objectId, action.payload.oldVisible)
+                        get().setObjectVisibility(action.payload.objectId, action.payload.visible)
                         break
                     case 'BATCH_DELETE':
-                        action.payload.objects.forEach(obj => get().addObject(obj))
+                        action.payload.objects.forEach((obj: SceneObject) => get().addObject(obj))
+                        break
+                    case 'BATCH_ADD':
+                        action.payload.objects.forEach((obj: SceneObject) => get().removeObject(obj.id))
                         break
                 }
             }

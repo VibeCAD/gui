@@ -607,7 +607,7 @@ export const AISidebar: React.FC<AISidebarProps> = ({
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Try: 'move the cube to the right', 'make the cube blue', 'create a red sphere above the cube', 'apply wood texture', 'make it brick'"
+              placeholder="Try: 'Draw Room Panel', 'move the cube to the right', 'make the cube blue', 'create a red sphere above the cube', 'apply wood texture', 'make it brick'"
               className="ai-text-input"
               disabled={isLoading || !sceneInitialized}
             />
