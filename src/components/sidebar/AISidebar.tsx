@@ -405,15 +405,46 @@ export const AISidebar: React.FC<AISidebarProps> = ({
       
       // Enrich scene objects with mesh metadata for custom rooms
       const enrichedSceneObjects = currentSceneObjects.map(obj => {
-        if (obj.type === 'custom-room' && sceneAPI) {
+        if (sceneAPI) {
           const sceneManager = sceneAPI.getSceneManager();
           const mesh = sceneManager?.getMeshById(obj.id);
-          if (mesh && mesh.metadata) {
-            // Add metadata to the object for AI processing
-            return {
+          if (mesh) {
+            // Ensure world matrix is up to date
+            mesh.computeWorldMatrix(true);
+            
+            // Force refresh of bounding info to ensure accuracy
+            mesh.refreshBoundingInfo(true);
+            
+            // Get actual bounding box dimensions
+            const boundingInfo = mesh.getBoundingInfo();
+            const worldMin = boundingInfo.boundingBox.minimumWorld;
+            const worldMax = boundingInfo.boundingBox.maximumWorld;
+            
+            // Calculate actual dimensions from world bounding box
+            const actualWidth = worldMax.x - worldMin.x;
+            const actualHeight = worldMax.y - worldMin.y;
+            const actualDepth = worldMax.z - worldMin.z;
+            
+            const enrichedObj: any = {
               ...obj,
-              metadata: mesh.metadata
+              actualDimensions: {
+                width: actualWidth,
+                height: actualHeight,
+                depth: actualDepth
+              },
+              // Store the world bounding box for debugging
+              worldBounds: {
+                min: { x: worldMin.x, y: worldMin.y, z: worldMin.z },
+                max: { x: worldMax.x, y: worldMax.y, z: worldMax.z }
+              }
             };
+            
+            // Add room-specific metadata
+            if (obj.type === 'custom-room' && mesh.metadata) {
+              enrichedObj.metadata = mesh.metadata;
+            }
+            
+            return enrichedObj;
           }
         }
         return obj;

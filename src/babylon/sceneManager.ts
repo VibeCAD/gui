@@ -617,6 +617,22 @@ export class SceneManager {
         }
       }
       
+      // Update position if provided
+      if (sceneObject.position) {
+        mesh.position = sceneObject.position.clone()
+        
+        // Safety check: ensure object doesn't sink below floor
+        mesh.computeWorldMatrix(true)
+        const boundingInfo = mesh.getBoundingInfo()
+        const lowestY = boundingInfo.boundingBox.minimumWorld.y
+        
+        if (lowestY < 0) {
+          // Adjust position to keep object on floor
+          mesh.position.y -= lowestY
+          console.log(`⚠️ Adjusted ${id} position to prevent sinking below floor by ${-lowestY.toFixed(3)} units`)
+        }
+      }
+      
       return true
     } catch (error) {
       console.error(`❌ Error updating mesh ${id}:`, error)
@@ -1225,18 +1241,36 @@ export class SceneManager {
           room.metadata.floorPolygon
         )
         if (result) {
-          // Get object's bounding box dimensions
-          const boundingBox = movingMesh.getBoundingInfo().boundingBox
-          const objectSize = boundingBox.maximumWorld.subtract(boundingBox.minimumWorld)
+          // Ensure mesh world matrix is up to date
+          movingMesh.computeWorldMatrix(true)
           
-          // Calculate offset based on object's size
-          const offsetValue = offset || 0.1
-          const halfObjectDepth = Math.max(objectSize.x, objectSize.z) / 2
+          // Get object's bounding box in world space
+          const boundingInfo = movingMesh.getBoundingInfo()
+          const worldMin = boundingInfo.boundingBox.minimumWorld
+          const worldMax = boundingInfo.boundingBox.maximumWorld
           
-          // Position object with its back against the wall
+          // Calculate object dimensions
+          const objectWidth = worldMax.x - worldMin.x
+          const objectDepth = worldMax.z - worldMin.z
+          
+          // The distance from object center to its edge depends on wall normal direction
+          let distanceToEdge: number
+          if (Math.abs(result.normal.x) > Math.abs(result.normal.z)) {
+            // Wall is primarily along X axis, use half width
+            distanceToEdge = objectWidth / 2
+          } else {
+            // Wall is primarily along Z axis, use half depth
+            distanceToEdge = objectDepth / 2
+          }
+          
+          // Add wall thickness offset
+          const wallThickness = 0.5 // Increased from 0.2 for better clearance
+          const totalOffset = distanceToEdge + wallThickness + (offset || 0)
+          
+          // Position object away from wall by the calculated offset
           newPosition = result.position.clone()
           newPosition.y = movingMesh.position.y // Maintain current Y position
-          newPosition.addInPlace(result.normal.scale(halfObjectDepth + offsetValue))
+          newPosition.addInPlace(result.normal.scale(totalOffset))
           
           // Rotate object to face away from the wall (back against wall)
           const angle = Math.atan2(result.normal.x, result.normal.z)

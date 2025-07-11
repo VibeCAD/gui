@@ -86,7 +86,12 @@ export class AIService {
    * Calculate the effective size of an object based on its type and scale
    */
   private getObjectDimensions(obj: SceneObject): { width: number; height: number; depth: number } {
-    // Base dimensions for different object types (as used in sceneManager.ts)
+    // If actual dimensions are provided (from bounding box), use those
+    if ((obj as any).actualDimensions) {
+      return (obj as any).actualDimensions;
+    }
+    
+    // Otherwise fall back to base dimensions for known types
     const baseDimensions: { [key: string]: { width: number; height: number; depth: number } } = {
       'cube': { width: 2, height: 2, depth: 2 },
       'sphere': { width: 2, height: 2, depth: 2 },
@@ -578,9 +583,7 @@ export class AIService {
         .map(obj => {
           const dimensions = this.getObjectDimensions(obj);
           const colorName = this.getColorName(obj.color);
-          const sizeDesc = dimensions.width !== dimensions.height || dimensions.height !== dimensions.depth 
-            ? `${dimensions.width.toFixed(1)}×${dimensions.height.toFixed(1)}×${dimensions.depth.toFixed(1)}` 
-            : `${dimensions.width.toFixed(1)} units`;
+          const sizeDesc = `${dimensions.width.toFixed(1)}×${dimensions.height.toFixed(1)}×${dimensions.depth.toFixed(1)}`;
           
           // Include rotation information if object is rotated
           const rotationDesc = (obj.rotation.x !== 0 || obj.rotation.y !== 0 || obj.rotation.z !== 0) 
@@ -817,19 +820,44 @@ UNDO/REDO COMMAND EXAMPLES:
 ROOM GEOMETRY COMMANDS:
 - "against the wall" or "against a wall": Use the 'align' command with 'edge' set to 'nearest-wall' and the room ID as 'relativeToObject'.
   Example: [{"action": "align", "objectId": "chair-1", "relativeToObject": "custom-room-1", "edge": "nearest-wall"}]
-- "in the corner" or "in a corner": Find the corner coordinates from the room's floor corners and use a 'move' command to place the object there.
-  Example: If room has corners at [(0,0), (4,0), (4,4), (0,4)], use [{"action": "move", "objectId": "lamp-1", "x": 0, "y": 0, "z": 0}]
-  For "in the corner", choose the corner closest to the object's current position.
-  For "in the northeast corner", use the corner with maximum x and z values.
-  For "in the southwest corner", use the corner with minimum x and z values.
-- "outside the room" or "out of the room": Calculate a position outside the room's polygon and use a 'move' command.
+  The align command will automatically position the object with its bounding box flush against the wall.
+
+- "in the corner" or "in a corner": To place an object in a corner, calculate the position with proper offsets:
+  1. Find the corner coordinates from the room's floor corners
+  2. Calculate the object's half-dimensions (width/2, depth/2) from its bounding box
+  3. Offset the object from the corner by these half-dimensions plus wall thickness (0.5 units)
+  Example: If room has corner at (0,0) and object is 2x2 units, position at (1.5, 0, 1.5) to account for object size and wall thickness
+  For "northeast corner": corner with max x,z → position at (cornerX - objectWidth/2 - 0.5, y, cornerZ - objectDepth/2 - 0.5)
+  For "southwest corner": corner with min x,z → position at (cornerX + objectWidth/2 + 0.5, y, cornerZ + objectDepth/2 + 0.5)
+  For "northwest corner": min x, max z → position at (cornerX + objectWidth/2 + 0.5, y, cornerZ - objectDepth/2 - 0.5)
+  For "southeast corner": max x, min z → position at (cornerX - objectWidth/2 - 0.5, y, cornerZ + objectDepth/2 + 0.5)
+
+- "outside the room" or "out of the room": Calculate a position outside the room's polygon.
+  Find the nearest wall and place the object beyond it by at least the object's half-dimension plus a margin.
   Example: [{"action": "move", "objectId": "chair-1", "x": 6, "y": 0, "z": 0}] (assuming room extends to x=4)
 
 When working with custom rooms:
-- The room's floor corners are provided in the scene description as coordinates like [(x1,z1), (x2,z2), ...]
-- To place an object in a corner, choose one of these corner coordinates
-- To place an object outside, choose coordinates that are NOT within the polygon formed by these corners
-- Always use the custom room's ID (like "custom-room-1") as the relativeToObject when using align with nearest-wall
+- Room corners define the INNER boundaries of the room (where walls meet)
+- Standard wall thickness is approximately 0.5 units
+- When placing objects in corners, ensure they don't overlap with either wall
+- When placing objects against walls, ensure only one face touches the wall
+- Always account for the object's own dimensions when calculating positions
+- For objects on the floor: ALWAYS use y=0 for the position (objects have pivot at bottom)
+- The scene will automatically prevent objects from sinking below the floor
+
+CORNER PLACEMENT EXAMPLES:
+Given a room with corners at [(0,0), (5,0), (5,5), (0,5)] and a chair that is 1×1×1 units:
+- "Put the chair in the southwest corner": 
+  Southwest = min x, min z = (0,0)
+  Position = (0 + 0.5 + 0.5, 0, 0 + 0.5 + 0.5) = (1.0, 0, 1.0)
+  Note: Y=0 because objects sit on the floor (pivot at bottom)
+  Result: [{"action": "move", "objectId": "chair-1", "x": 1.0, "y": 0, "z": 1.0}]
+
+- "Put a 2×2×2 table in the northeast corner":
+  Northeast = max x, max z = (5,5)
+  Position = (5 - 1 - 0.5, 0, 5 - 1 - 0.5) = (3.5, 0, 3.5)
+  Note: Y=0 because objects sit on the floor (pivot at bottom)
+  Result: [{"action": "move", "objectId": "table-1", "x": 3.5, "y": 0, "z": 3.5}]
 
 TEXTURE COMMAND EXAMPLES:
 "Apply wood texture to the cube":
@@ -870,6 +898,10 @@ CRITICAL REQUIREMENTS:
 10. For texture commands: If no object is specified but there's a selected object in the scene, apply texture to the selected object
 11. When applying textures, always use textureId (not textureName) in the final command
 12. Default to "diffuse" texture type if not specified
+13. For corner placement: ALWAYS use the actual dimensions (width×height×depth) shown in the scene description, NOT default values
+14. For wall alignment: Account for object dimensions to ensure only one face touches the wall
+15. For imported objects (GLB/STL/OBJ): Their pivot is at bottom center, so position.y represents the floor contact point
+16. When moving objects, ensure they don't sink below y=0 (the floor level)
 
 DIMENSION MATCHING RULES:
 - Objects placed "on top of" automatically match the footprint (width × depth) of the reference object
