@@ -86,7 +86,7 @@ export class AIService {
     
     this.availableGlbObjects = glbObjectNames;
 
-    // Initialize available textures
+    // Initialize available textures 
     this.availableTextures = [
       {
         id: 'default-wood-floor-01',
@@ -144,6 +144,22 @@ export class AIService {
   }
 
   /**
+   * Check if two bounding boxes intersect in 3D space
+   */
+  private checkBoundingBoxIntersection(
+    box1: { min: Vector3; max: Vector3 }, 
+    box2: { min: Vector3; max: Vector3 }
+  ): boolean {
+    // Check if boxes overlap on all three axes
+    // Boxes intersect if they overlap on X AND Y AND Z axes
+    const overlapX = box1.min.x <= box2.max.x && box1.max.x >= box2.min.x;
+    const overlapY = box1.min.y <= box2.max.y && box1.max.y >= box2.min.y;
+    const overlapZ = box1.min.z <= box2.max.z && box1.max.z >= box2.min.z;
+    
+    return overlapX && overlapY && overlapZ;
+  }
+
+  /**
    * Find an object by color or name from the scene
    */
   private findObjectByDescription(description: string, sceneObjects: SceneObject[]): SceneObject | undefined {
@@ -180,6 +196,46 @@ export class AIService {
   }
 
   /**
+   * Find all objects that would collide with an object at the given position
+   */
+  private findCollidingObjects(
+    position: Vector3,
+    dimensions: { width: number; height: number; depth: number },
+    sceneObjects: SceneObject[],
+    excludeId?: string
+  ): SceneObject[] {
+    // Calculate bounding box for the object at the target position
+    const halfWidth = dimensions.width / 2;
+    const halfHeight = dimensions.height / 2;
+    const halfDepth = dimensions.depth / 2;
+    
+    const targetBox = {
+      min: new Vector3(
+        position.x - halfWidth,
+        position.y - halfHeight,
+        position.z - halfDepth
+      ),
+      max: new Vector3(
+        position.x + halfWidth,
+        position.y + halfHeight,
+        position.z + halfDepth
+      )
+    };
+    
+    // Find all objects that intersect with this bounding box
+    return sceneObjects.filter(obj => {
+      // Skip the object itself if excludeId is provided
+      if (excludeId && obj.id === excludeId) return false;
+      
+      // Skip ground plane from collision detection
+      if (obj.type === 'ground') return false;
+      
+      const objBox = this.getBoundingBox(obj);
+      return this.checkBoundingBoxIntersection(targetBox, objBox);
+    });
+  }
+
+  /**
    * Convert degrees to radians for rotation calculations
    */
   private degreesToRadians(degrees: number): number {
@@ -191,6 +247,118 @@ export class AIService {
    */
   private radiansToDegrees(radians: number): number {
     return radians * (180 / Math.PI);
+  }
+
+  /**
+   * Find the nearest collision-free position to the target position
+   */
+  private findNearestCollisionFreePosition(
+    targetPos: Vector3,
+    dimensions: { width: number; height: number; depth: number },
+    sceneObjects: SceneObject[],
+    excludeId?: string,
+    referenceObject?: SceneObject
+  ): Vector3 {
+    // Check if target position has collisions
+    const collisions = this.findCollidingObjects(targetPos, dimensions, sceneObjects, excludeId);
+    
+    // If no collisions, return target position
+    if (collisions.length === 0) {
+      return targetPos;
+    }
+    
+    // If we have a reference object (for spatial relations), adjust position to be flush against it
+    if (referenceObject && collisions.length === 1 && collisions[0].id === referenceObject.id) {
+      // This is expected - we're placing against the reference object
+      return targetPos;
+    }
+    
+    // Find the closest collision-free position
+    const stepSize = 0.1; // Search granularity
+    const maxDistance = 5; // Maximum search distance
+    let bestPosition = targetPos;
+    let minDistance = Infinity;
+    
+    // Search in a spiral pattern around the target position
+    for (let distance = stepSize; distance <= maxDistance; distance += stepSize) {
+      // Check positions in a circle at this distance
+      const angleStep = Math.PI / 8; // 16 positions per circle
+      
+      for (let angle = 0; angle < 2 * Math.PI; angle += angleStep) {
+        // Try different heights
+        for (let heightOffset of [0, dimensions.height / 2, -dimensions.height / 2]) {
+          const testPos = new Vector3(
+            targetPos.x + distance * Math.cos(angle),
+            targetPos.y + heightOffset,
+            targetPos.z + distance * Math.sin(angle)
+          );
+          
+          const testCollisions = this.findCollidingObjects(testPos, dimensions, sceneObjects, excludeId);
+          
+          if (testCollisions.length === 0) {
+            const dist = Vector3.Distance(targetPos, testPos);
+            if (dist < minDistance) {
+              minDistance = dist;
+              bestPosition = testPos;
+            }
+          }
+        }
+      }
+      
+      // If we found a collision-free position, return it
+      if (minDistance < Infinity) {
+        return bestPosition;
+      }
+    }
+    
+    // If no collision-free position found, try to place flush against the nearest obstacle
+    if (collisions.length > 0) {
+      const nearestObstacle = collisions[0];
+      const obstacleBox = this.getBoundingBox(nearestObstacle);
+      
+      // Calculate position flush against the obstacle
+      const dx = targetPos.x - nearestObstacle.position.x;
+      const dz = targetPos.z - nearestObstacle.position.z;
+      
+      // Determine which side to place the object on
+      if (Math.abs(dx) > Math.abs(dz)) {
+        // Place on east or west side
+        if (dx > 0) {
+          // Place on east side
+          bestPosition = new Vector3(
+            obstacleBox.max.x + dimensions.width / 2,
+            targetPos.y,
+            nearestObstacle.position.z
+          );
+        } else {
+          // Place on west side
+          bestPosition = new Vector3(
+            obstacleBox.min.x - dimensions.width / 2,
+            targetPos.y,
+            nearestObstacle.position.z
+          );
+        }
+      } else {
+        // Place on north or south side
+        if (dz > 0) {
+          // Place on north side
+          bestPosition = new Vector3(
+            nearestObstacle.position.x,
+            targetPos.y,
+            obstacleBox.max.z + dimensions.depth / 2
+          );
+        } else {
+          // Place on south side
+          bestPosition = new Vector3(
+            nearestObstacle.position.x,
+            targetPos.y,
+            obstacleBox.min.z - dimensions.depth / 2
+          );
+        }
+      }
+    }
+    
+    return bestPosition;
   }
 
   /**
@@ -278,9 +446,7 @@ export class AIService {
     scale?: { x: number; y: number; z: number };
     matchDimensions: boolean;
   } {
-    const refDimensions = this.getObjectDimensions(referenceObject);
     const targetDimensions = this.getObjectDimensions(targetObject);
-    const refBox = this.getBoundingBox(referenceObject);
     
     // Determine if we should match dimensions based on relationship and object types
     const shouldMatchDimensions = this.shouldMatchDimensions(targetObject, referenceObject, relation);
@@ -305,6 +471,22 @@ export class AIService {
         scaledTargetDimensions, 
         relation
       );
+      
+      // Check for collisions and adjust if necessary
+      const targetPos = new Vector3(position.x, position.y, position.z);
+      const collisionFreePos = this.findNearestCollisionFreePosition(
+        targetPos,
+        scaledTargetDimensions,
+        sceneObjects,
+        targetObject.id,
+        referenceObject
+      );
+      
+      position = {
+        x: collisionFreePos.x,
+        y: collisionFreePos.y,
+        z: collisionFreePos.z
+      };
     } else {
       // Use original dimensions for positioning
       position = this.calculatePreciseContactPosition(
@@ -312,6 +494,22 @@ export class AIService {
         targetDimensions, 
         relation
       );
+      
+      // Check for collisions and adjust if necessary
+      const targetPos = new Vector3(position.x, position.y, position.z);
+      const collisionFreePos = this.findNearestCollisionFreePosition(
+        targetPos,
+        targetDimensions,
+        sceneObjects,
+        targetObject.id,
+        referenceObject
+      );
+      
+      position = {
+        x: collisionFreePos.x,
+        y: collisionFreePos.y,
+        z: collisionFreePos.z
+      };
     }
     
     return {
@@ -396,7 +594,6 @@ export class AIService {
     targetDimensions: { width: number; height: number; depth: number },
     relation: string
   ): { x: number; y: number; z: number } {
-    const refDimensions = this.getObjectDimensions(referenceObject);
     const refBox = this.getBoundingBox(referenceObject);
     
     switch (relation) {
@@ -464,8 +661,7 @@ export class AIService {
    */
   private calculateRoofPlacement(
     roofType: string,
-    targetStructure: SceneObject,
-    sceneObjects: SceneObject[]
+    targetStructure: SceneObject
   ): { 
     position: { x: number; y: number; z: number };
     scale: { x: number; y: number; z: number };
@@ -1207,8 +1403,7 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
               if (targetStructure) {
                 const roofPlacement = this.calculateRoofPlacement(
                   command.type,
-                  targetStructure,
-                  sceneObjects
+                  targetStructure
                 );
                 
                 const roofCommand: SceneCommand = {
@@ -1243,8 +1438,38 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
               }
             }
           } else {
-            // Non-housing objects
-            enhancedCommands.push(command);
+            // Non-housing objects with explicit coordinates
+            if (command.x !== undefined && command.y !== undefined && command.z !== undefined && !command.isCompositePart) {
+              // Check for collisions and adjust position if necessary
+              const targetPos = new Vector3(command.x, command.y, command.z);
+              const objectType = command.type || 'cube';
+              const baseDims = this.getBaseDimensionsForType(objectType);
+              
+              // Apply scale if provided
+              const dimensions = {
+                width: baseDims.width * (command.scaleX || 1),
+                height: baseDims.height * (command.scaleY || 1),
+                depth: baseDims.depth * (command.scaleZ || 1)
+              };
+              
+              const collisionFreePos = this.findNearestCollisionFreePosition(
+                targetPos,
+                dimensions,
+                sceneObjects
+              );
+              
+              // Update command with collision-free position
+              const enhancedCommand = {
+                ...command,
+                x: collisionFreePos.x,
+                y: collisionFreePos.y,
+                z: collisionFreePos.z
+              };
+              
+              enhancedCommands.push(enhancedCommand);
+            } else {
+              enhancedCommands.push(command);
+            }
           }
           
           // Set default colors for housing objects if not specified
@@ -1261,8 +1486,48 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
               lastCommand.color = colorMap[command.type] || '#8B4513';
             }
           }
+        } else if (command.action === 'move' && command.objectId && !command.isCompositePart) {
+          // Handle move commands with collision detection
+          if (command.x !== undefined && command.y !== undefined && command.z !== undefined) {
+            // Find the object being moved
+            const movingObject = sceneObjects.find(obj => obj.id === command.objectId);
+            if (movingObject) {
+              const targetPos = new Vector3(command.x, command.y, command.z);
+              const dimensions = this.getObjectDimensions(movingObject);
+              
+              const collisionFreePos = this.findNearestCollisionFreePosition(
+                targetPos,
+                dimensions,
+                sceneObjects,
+                movingObject.id // Exclude the object itself from collision detection
+              );
+              
+              // Update command with collision-free position
+              const enhancedCommand = {
+                ...command,
+                x: collisionFreePos.x,
+                y: collisionFreePos.y,
+                z: collisionFreePos.z
+              };
+              
+              // Log if position was adjusted
+              if (collisionFreePos.x !== targetPos.x || 
+                  collisionFreePos.y !== targetPos.y || 
+                  collisionFreePos.z !== targetPos.z) {
+                console.log(`🚧 Adjusted position to avoid collision: (${targetPos.x.toFixed(2)}, ${targetPos.y.toFixed(2)}, ${targetPos.z.toFixed(2)}) → (${collisionFreePos.x.toFixed(2)}, ${collisionFreePos.y.toFixed(2)}, ${collisionFreePos.z.toFixed(2)})`);
+              }
+              
+              enhancedCommands.push(enhancedCommand);
+            } else {
+              // Object not found, use original command
+              enhancedCommands.push(command);
+            }
+          } else {
+            // No explicit coordinates, use original command
+            enhancedCommands.push(command);
+          }
         } else {
-          // Non-create actions
+          // Other non-create actions
           enhancedCommands.push(command);
         }
       }
