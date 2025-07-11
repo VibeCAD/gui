@@ -2,6 +2,8 @@ import OpenAI from 'openai';
 import type { SceneObject } from '../types/types';
 import { Vector3 } from 'babylonjs';
 
+export type AIProvider = 'openai' | 'gemini';
+
 export interface SceneCommand {
   action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'undo' | 'redo' | 'describe' | 'rename' | 'texture';
   objectId?: string;
@@ -42,18 +44,26 @@ export interface AIServiceResult {
 }
 
 /**
- * AI Service for handling OpenAI API interactions and scene command generation
+ * AI Service for handling OpenAI and Gemini API interactions and scene command generation
  */
 export class AIService {
-  private openai: OpenAI;
+  private openai: OpenAI | null = null;
+  private geminiApiKey: string | null = null;
+  private provider: AIProvider;
   private availableTextures: Array<{ id: string; name: string; tags: string[] }> = [];
   private availableGlbObjects: string[] = [];
 
-  constructor(apiKey: string, glbObjectNames: string[] = []) {
-    this.openai = new OpenAI({ 
-      apiKey, 
-      dangerouslyAllowBrowser: true 
-    });
+  constructor(apiKey: string, provider: AIProvider = 'openai', glbObjectNames: string[] = []) {
+    this.provider = provider;
+    
+    if (provider === 'openai') {
+      this.openai = new OpenAI({ 
+        apiKey, 
+        dangerouslyAllowBrowser: true 
+      });
+    } else if (provider === 'gemini') {
+      this.geminiApiKey = apiKey;
+    }
     
     this.availableGlbObjects = glbObjectNames;
 
@@ -922,16 +932,43 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
         ? `${prompt}\n\nSpatial context: ${spatialContext.description}`
         : prompt;
 
-      const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: enhancedPrompt }
-        ],
-        temperature: 0.1
-      });
-
-      const aiResponse = response.choices[0]?.message?.content;
+             let aiResponse: string | undefined;
+       
+       if (this.provider === 'openai') {
+         const response = await this.openai!.chat.completions.create({
+           model: 'gpt-4o',
+           messages: [
+             { role: 'system', content: systemPrompt },
+             { role: 'user', content: enhancedPrompt }
+           ],
+           temperature: 0.1
+         });
+         aiResponse = response.choices[0]?.message?.content || undefined;
+       } else if (this.provider === 'gemini') {
+         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`, {
+           method: 'POST',
+           headers: {
+             'Content-Type': 'application/json',
+             'x-goog-api-key': this.geminiApiKey!,
+           },
+           body: JSON.stringify({
+             contents: [{
+               parts: [{
+                 text: `${systemPrompt}\n\n${enhancedPrompt}`
+               }]
+             }],
+           })
+         });
+         
+         if (!response.ok) {
+           const errorBody = await response.text();
+           console.error('Gemini API Error Body:', errorBody);
+           throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
+         }
+         
+         const result = await response.json();
+         aiResponse = result.candidates?.[0]?.content?.parts?.[0]?.text || undefined;
+       }
       
       if (!aiResponse) {
         return {
@@ -1302,13 +1339,13 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
    * Validate if the service is properly initialized
    */
   public isReady(): boolean {
-    return !!this.openai;
+    return !!this.openai || !!this.geminiApiKey;
   }
 }
 
 /**
  * Factory function to create AI service instance
  */
-export const createAIService = (apiKey: string, glbObjectNames: string[]): AIService => {
-  return new AIService(apiKey, glbObjectNames);
+export const createAIService = (apiKey: string, provider: AIProvider = 'openai', glbObjectNames: string[]): AIService => {
+  return new AIService(apiKey, provider, glbObjectNames);
 };

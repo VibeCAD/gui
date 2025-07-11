@@ -74,6 +74,7 @@ interface SceneState {
     // AI and loading
     isLoading: boolean
     apiKey: string
+    aiProvider: 'openai' | 'gemini'
     showApiKeyInput: boolean
     responseLog: string[]
     sceneInitialized: boolean
@@ -167,6 +168,7 @@ interface SceneActions {
     // AI and loading actions
     setIsLoading: (loading: boolean) => void
     setApiKey: (key: string) => void
+    setAiProvider: (provider: 'openai' | 'gemini') => void
     setShowApiKeyInput: (show: boolean) => void
     addToResponseLog: (message: string) => void
     setResponseLog: (log: string[]) => void
@@ -238,6 +240,13 @@ interface SceneActions {
     pushUndoAction: (action: UndoAction) => void
     clearUndoHistory: () => void
     executeUndoAction: (action: UndoAction) => void
+    
+    // Private state setters for undo/redo
+    _addObject: (object: SceneObject) => void
+    _removeObject: (objectId: string) => void
+    _updateObject: (objectId: string, updates: Partial<SceneObject>) => void
+    _renameObject: (oldId: string, newId: string) => void
+    _setObjectLocked: (objectId: string, locked: boolean) => void
 }
 
 // Create the store
@@ -299,6 +308,7 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             
             isLoading: false,
             apiKey: '',
+            aiProvider: 'openai',
             showApiKeyInput: true,
             responseLog: [],
             sceneInitialized: false,
@@ -561,6 +571,8 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             setIsLoading: (loading) => set({ isLoading: loading }),
             
             setApiKey: (key) => set({ apiKey: key }),
+            
+            setAiProvider: (provider) => set({ aiProvider: provider }),
             
             setShowApiKeyInput: (show) => set({ showApiKeyInput: show }),
             
@@ -1210,13 +1222,13 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             },
 
             // Private state setters for undo/redo
-            _addObject: (object) => set(state => ({ sceneObjects: [...state.sceneObjects, object] })),
-            _removeObject: (objectId) => set(state => ({ sceneObjects: state.sceneObjects.filter(o => o.id !== objectId) })),
-            _updateObject: (objectId, updates) =>
+            _addObject: (object: SceneObject) => set(state => ({ sceneObjects: [...state.sceneObjects, object] })),
+            _removeObject: (objectId: string) => set(state => ({ sceneObjects: state.sceneObjects.filter(o => o.id !== objectId) })),
+            _updateObject: (objectId: string, updates: Partial<SceneObject>) =>
                 set(state => ({
                     sceneObjects: state.sceneObjects.map(o => (o.id === objectId ? { ...o, ...updates } : o))
                 })),
-            _renameObject: (oldId, newId) =>
+            _renameObject: (oldId: string, newId: string) =>
                 set(state => ({
                     sceneObjects: state.sceneObjects.map(o => (o.id === oldId ? { ...o, id: newId } : o)),
                     selectedObjectId: state.selectedObjectId === oldId ? newId : state.selectedObjectId,
@@ -1224,7 +1236,7 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                     objectVisibility: Object.fromEntries(Object.entries(state.objectVisibility).map(([key, value]) => [key === oldId ? newId : key, value])),
                     objectLocked: Object.fromEntries(Object.entries(state.objectLocked).map(([key, value]) => [key === oldId ? newId : key, value])),
                 })),
-            _setObjectLocked: (objectId, locked) => 
+            _setObjectLocked: (objectId: string, locked: boolean) => 
                 set(state => ({
                     objectLocked: { ...state.objectLocked, [objectId]: locked }
                 }))
