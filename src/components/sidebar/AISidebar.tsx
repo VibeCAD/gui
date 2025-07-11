@@ -340,7 +340,14 @@ export const AISidebar: React.FC<AISidebarProps> = ({
 
         case 'describe':
           if (command.description) {
+            // Use the AI's natural language description
             setSceneDescription(command.description);
+            setShowDescriptionPanel(true);
+          } else {
+            // Fallback to simple description if AI didn't provide one
+            const aiService = createAIService(apiKey, []);
+            const simpleDescription = aiService.describeSceneSimple(sceneObjects);
+            setSceneDescription(simpleDescription);
             setShowDescriptionPanel(true);
           }
           break;
