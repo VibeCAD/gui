@@ -13,7 +13,8 @@ import {
   PickingInfo,
   Matrix,
   Quaternion,
-  Texture
+  Texture,
+  SceneLoader
 } from 'babylonjs'
 import type { SceneObject, PrimitiveType, TransformMode, ConnectionPoint, TextureAsset, TextureType } from '../types/types'
 import { createHousingMesh } from './housingFactory'
@@ -223,8 +224,54 @@ export class SceneManager {
             mesh = roomMesh
             break
           default:
-            console.warn(`Unknown primitive type: ${sceneObject.type}`)
-            return false
+            // Fallback for unknown types: try to load as a GLB model
+            console.log(`[SceneManager] Type "${sceneObject.type}" not a primitive, attempting to load as GLB model...`)
+            
+            // Construct the URL to the GLB file.
+            // This assumes a flat structure in the HOUSE_ITEMS directory for now.
+            const modelUrl = `/objectLib/HOUSE_ITEMS/${sceneObject.type}.glb`;
+
+            SceneLoader.ImportMesh(
+              "", // Load all meshes from the file
+              modelUrl,
+              "",
+              this.scene,
+              (meshes) => {
+                if (meshes.length > 0) {
+                  const rootMesh = meshes[0] as Mesh;
+                  
+                  // Assign the object's ID and name to the root mesh for consistency
+                  rootMesh.id = sceneObject.id;
+                  rootMesh.name = sceneObject.id;
+
+                  // Apply initial transformations from the sceneObject
+                  rootMesh.position = sceneObject.position.clone();
+                  rootMesh.rotation = sceneObject.rotation.clone();
+                  rootMesh.scaling = sceneObject.scale.clone();
+                  
+                  // Make it pickable and handle collisions
+                  rootMesh.isPickable = true;
+                  rootMesh.checkCollisions = this.collisionDetectionEnabled;
+
+                  // Add all child meshes to be pickable as well
+                  rootMesh.getChildMeshes().forEach(child => {
+                    child.isPickable = true;
+                  });
+
+                  // Store the root mesh in the map
+                  this.meshMap.set(sceneObject.id, rootMesh);
+                  
+                  console.log(`✅ Successfully loaded and added GLB model: ${sceneObject.id}`);
+                }
+              },
+              null,
+              (scene, message, exception) => {
+                console.error(`❌ Failed to load GLB model ${sceneObject.type} from ${modelUrl}:`, message, exception);
+              }
+            );
+            
+            // Return true to indicate we've started the loading process
+            return true;
         }
       }
       

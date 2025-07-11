@@ -6,11 +6,7 @@ export interface SceneCommand {
   action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'undo' | 'redo' | 'describe' | 'rename' | 'texture';
   objectId?: string;
   name?: string;
-  type?: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 
-    'house-basic' | 'house-room' | 'house-hallway' | 'house-roof-flat' | 'house-roof-pitched' |
-    'house-room-modular' | 'house-wall' | 'house-ceiling' | 'house-floor' |
-    'house-door-single' | 'house-door-double' | 'house-door-sliding' | 'house-door-french' | 'house-door-garage' |
-    'house-window-single' | 'house-window-double' | 'house-window-bay' | 'house-window-casement' | 'house-window-sliding' | 'house-window-skylight';
+  type?: string;
   x?: number;
   y?: number;
   z?: number;
@@ -51,13 +47,16 @@ export interface AIServiceResult {
 export class AIService {
   private openai: OpenAI;
   private availableTextures: Array<{ id: string; name: string; tags: string[] }> = [];
+  private availableGlbObjects: string[] = [];
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, glbObjectNames: string[] = []) {
     this.openai = new OpenAI({ 
       apiKey, 
       dangerouslyAllowBrowser: true 
     });
     
+    this.availableGlbObjects = glbObjectNames;
+
     // Initialize available textures
     this.availableTextures = [
       {
@@ -636,6 +635,10 @@ export class AIService {
       selectionDescription = 'No objects are currently selected. ';
     }
 
+    const glbObjectsList = this.availableGlbObjects.length > 0
+      ? `GLB Library Objects: ${this.availableGlbObjects.join(', ')}`
+      : 'No GLB library objects available.';
+
     return `You are a 3D scene assistant with advanced spatial reasoning and precise positioning capabilities. You can modify a Babylon.js scene with millimeter-accurate positioning and automatic dimension matching.
 
 ${sceneDescription}
@@ -666,6 +669,7 @@ AVAILABLE TEXTURES:
 OBJECT TYPES:
 Basic: cube, sphere, cylinder, plane, torus, cone
 Housing: house-basic, house-room, house-hallway, house-roof-flat, house-roof-pitched
+${glbObjectsList}
 
 PRECISION SPATIAL INTELLIGENCE:
 - Objects have exact dimensions and bounding boxes
@@ -1305,6 +1309,6 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
 /**
  * Factory function to create AI service instance
  */
-export const createAIService = (apiKey: string): AIService => {
-  return new AIService(apiKey);
+export const createAIService = (apiKey: string, glbObjectNames: string[]): AIService => {
+  return new AIService(apiKey, glbObjectNames);
 };

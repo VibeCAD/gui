@@ -518,7 +518,15 @@ export const AISidebar: React.FC<AISidebarProps> = ({
         console.log(`🎯 Currently selected objects: ${currentSelectedIds.join(', ')}`);
       }
 
-      const aiService = createAIService(apiKey);
+      // In a real application, this list would ideally be fetched dynamically
+      // or generated at build time to avoid maintaining a static list here.
+      const glbObjectNames = [
+        'Adjustable Desk', 'Bed Double', 'Bed Single', 'Bookcase', 'Chair', 
+        'Couch Small', 'Desk', 'Simple table', 'Sofa', 'Standing Desk', 
+        'Table', 'TV', 'wooden bookshelf'
+      ];
+
+      const aiService = createAIService(apiKey, glbObjectNames);
       const result = await aiService.getSceneCommands(textInput, currentSceneObjects, currentSelectedId, currentSelectedIds);
       
       if (result.success && result.commands) {
