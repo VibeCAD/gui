@@ -22,6 +22,7 @@ import { TextureManager } from './textureManager'
 import { createFullGridTexture, calculateFullGridUVScale } from './gridTextureUtils'
 import { MovementController } from './movementController'
 import { useSceneStore } from '../state/sceneStore'
+import { findClosestPointOnPolygon } from './roomPhysicsUtils'
 
 
 export class SceneManager {
@@ -145,7 +146,7 @@ export class SceneManager {
               this.moveTargetLine = null;
             }
           } else {
-            // Treat as a click only if pointer hasn’t moved too far
+            // Treat as a click only if pointer hasn't moved too far
             const clickThreshold = 5; // pixels
             if (this.pointerDownPosition) {
               const deltaX = Math.abs(this.pointerDownPosition.x - this.scene!.pointerX);
@@ -624,22 +625,7 @@ export class SceneManager {
   }
 
   public getMeshById(id: string): Mesh | null {
-    // Direct lookup
-    const direct = this.meshMap.get(id)
-    if (direct) return direct
-
-    // Fallback: the id may belong to a child mesh: climb each stored mesh’s parent tree
-    for (const root of this.meshMap.values()) {
-      if (!root) continue
-      let current: Mesh | null = root
-      while (current) {
-        if (current.name === id || current.id === id) {
-          return root // return the top-level mesh we manage
-        }
-        current = current.parent as Mesh | null
-      }
-    }
-    return null
+    return this.meshMap.get(id) || null
   }
 
   /**
@@ -1219,6 +1205,76 @@ export class SceneManager {
    */
   public setMoveToCallback(callback: (position: Vector3) => void): void {
     this.onMoveToCallback = callback
+  }
+
+  /**
+   * Aligns a mesh to a specific edge or wall of another mesh/room
+   */
+  public alignMesh(movingMeshId: string, relativeToId: string, edge: 'north' | 'south' | 'east' | 'west' | 'nearest-wall', offset?: number): void {
+    const movingMesh = this.meshMap.get(movingMeshId)
+    if (!movingMesh) return
+
+    let newPosition = movingMesh.position.clone()
+    let newRotation = movingMesh.rotation.clone()
+
+    if (edge === 'nearest-wall') {
+      const room = this.meshMap.get(relativeToId)
+      if (room && room.metadata?.floorPolygon) {
+        const result = findClosestPointOnPolygon(
+          { x: movingMesh.position.x, z: movingMesh.position.z }, 
+          room.metadata.floorPolygon
+        )
+        if (result) {
+          // Get object's bounding box dimensions
+          const boundingBox = movingMesh.getBoundingInfo().boundingBox
+          const objectSize = boundingBox.maximumWorld.subtract(boundingBox.minimumWorld)
+          
+          // Calculate offset based on object's size
+          const offsetValue = offset || 0.1
+          const halfObjectDepth = Math.max(objectSize.x, objectSize.z) / 2
+          
+          // Position object with its back against the wall
+          newPosition = result.position.clone()
+          newPosition.y = movingMesh.position.y // Maintain current Y position
+          newPosition.addInPlace(result.normal.scale(halfObjectDepth + offsetValue))
+          
+          // Rotate object to face away from the wall (back against wall)
+          const angle = Math.atan2(result.normal.x, result.normal.z)
+          newRotation = new Vector3(0, angle + Math.PI, 0)
+        }
+      }
+    } else {
+      const relativeToMesh = this.meshMap.get(relativeToId)
+      if (!relativeToMesh) return
+
+      const movingBounds = movingMesh.getBoundingInfo().boundingBox
+      const movingHalfX = (movingBounds.maximumWorld.x - movingBounds.minimumWorld.x) / 2
+      const movingHalfY = (movingBounds.maximumWorld.y - movingBounds.minimumWorld.y) / 2
+      const movingHalfZ = (movingBounds.maximumWorld.z - movingBounds.minimumWorld.z) / 2
+
+      const relativeBounds = relativeToMesh.getBoundingInfo().boundingBox
+
+      switch (edge) {
+        case 'north':
+          newPosition.z = relativeBounds.maximumWorld.z + movingHalfZ + (offset || 0)
+          newRotation.y = 0
+          break
+        case 'south':
+          newPosition.z = relativeBounds.minimumWorld.z - movingHalfZ - (offset || 0)
+          newRotation.y = Math.PI
+          break
+        case 'east':
+          newPosition.x = relativeBounds.maximumWorld.x + movingHalfX + (offset || 0)
+          newRotation.y = Math.PI / 2
+          break
+        case 'west':
+          newPosition.x = relativeBounds.minimumWorld.x - movingHalfX - (offset || 0)
+          newRotation.y = -Math.PI / 2
+          break
+      }
+    }
+
+    this.updateMeshProperties(movingMesh.id, { position: newPosition, rotation: newRotation })
   }
 
   public dispose(): void {
