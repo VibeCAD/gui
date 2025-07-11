@@ -2769,3 +2769,52 @@ body {
 }
 
 /* Additional styling */
+
+.app-container .main-content {
+  flex-grow: 1;
+  position: relative;
+}
+
+/* Scene Description Panel Styles */
+.scene-description-panel {
+  background-color: #2c2c2e;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  border: 1px solid #444;
+}
+
+.scene-description-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.scene-description-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #a0e9ff;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  color: #aaa;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 5px;
+}
+
+.close-button:hover {
+  color: #fff;
+}
+
+.scene-description-text {
+  line-height: 1.5;
+  color: #f0f0f0;
+  font-size: 0.9rem;
+  margin: 0;
+}

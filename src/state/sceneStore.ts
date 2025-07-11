@@ -22,6 +22,7 @@ import {
     createAddObjectAction,
     createRemoveObjectAction,
     createUpdateObjectAction,
+    createRenameAction,
     createSetObjectLockedAction,
     createSetObjectVisibilityAction,
     createBatchDeleteAction
@@ -112,6 +113,7 @@ interface SceneActions {
     addObject: (object: SceneObject) => void
     removeObject: (objectId: string) => void
     updateObject: (objectId: string, updates: Partial<SceneObject>) => void
+    renameObject: (oldId: string, newId: string) => void
     setSceneObjects: (objects: SceneObject[]) => void
     clearAllObjects: () => void
     
@@ -396,6 +398,18 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                     get().pushUndoAction(createUpdateObjectAction(objectId, clonedUpdates, previousValues))
                     console.log(`🔄 Undo: Tracked object update for ${objectId}:`, Object.keys(clonedUpdates))
                 }
+            },
+            
+            renameObject: (oldId: string, newId: string) => {
+                const { sceneObjects, pushUndoAction } = get()
+                const objectToRename = sceneObjects.find(obj => obj.id === oldId)
+                if (!objectToRename || sceneObjects.some(obj => obj.id === newId)) {
+                    console.warn(`Cannot rename: oldId ${oldId} not found or newId ${newId} already exists.`)
+                    return
+                }
+
+                pushUndoAction(createRenameAction(newId, oldId, objectToRename))
+                get()._renameObject(oldId, newId)
             },
             
             setSceneObjects: (objects) => set({ sceneObjects: objects }),
@@ -1186,10 +1200,34 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                         }))
                         break
                         
+                    case 'RENAME':
+                        get()._renameObject(action.payload.oldId, action.payload.newId)
+                        break
+                        
                     default:
                         console.warn('Unknown undo action type:', type)
                 }
-            }
+            },
+
+            // Private state setters for undo/redo
+            _addObject: (object) => set(state => ({ sceneObjects: [...state.sceneObjects, object] })),
+            _removeObject: (objectId) => set(state => ({ sceneObjects: state.sceneObjects.filter(o => o.id !== objectId) })),
+            _updateObject: (objectId, updates) =>
+                set(state => ({
+                    sceneObjects: state.sceneObjects.map(o => (o.id === objectId ? { ...o, ...updates } : o))
+                })),
+            _renameObject: (oldId, newId) =>
+                set(state => ({
+                    sceneObjects: state.sceneObjects.map(o => (o.id === oldId ? { ...o, id: newId } : o)),
+                    selectedObjectId: state.selectedObjectId === oldId ? newId : state.selectedObjectId,
+                    selectedObjectIds: state.selectedObjectIds.map(id => id === oldId ? newId : id),
+                    objectVisibility: Object.fromEntries(Object.entries(state.objectVisibility).map(([key, value]) => [key === oldId ? newId : key, value])),
+                    objectLocked: Object.fromEntries(Object.entries(state.objectLocked).map(([key, value]) => [key === oldId ? newId : key, value])),
+                })),
+            _setObjectLocked: (objectId, locked) => 
+                set(state => ({
+                    objectLocked: { ...state.objectLocked, [objectId]: locked }
+                }))
         }),
         {
             name: 'scene-store',
