@@ -507,7 +507,14 @@ export class AIService {
    * Generate a simple, high-level description of the current scene for user display
    */
   public describeSceneSimple(sceneObjects: SceneObject[]): string {
-    const housingObjects = sceneObjects.filter(obj => obj.type.startsWith('house-'));
+    const roomAnalysis = this.analyzeRoomStructure(sceneObjects);
+    
+    // If we have architectural elements, use intelligent room description
+    if (roomAnalysis.rooms.length > 0 || roomAnalysis.walls.length > 0 || roomAnalysis.furniture.length > 0) {
+      return this.generateIntelligentRoomDescription(sceneObjects);
+    }
+    
+    // Fallback to basic object counting for simple scenes
     const primitiveObjects = sceneObjects.filter(obj => !obj.type.startsWith('house-') && obj.type !== 'ground');
     const groundObject = sceneObjects.find(obj => obj.type === 'ground');
     
@@ -542,45 +549,7 @@ export class AIService {
         const lastItem = objectDescriptions.pop();
         description = `The scene contains ${objectDescriptions.join(', ')}, and ${lastItem}.`;
       }
-    }
-
-    // Add housing objects if present (skip unknown colors)
-    if (housingObjects.length > 0) {
-      const housingGroups = housingObjects.reduce((acc, obj) => {
-        const friendlyType = obj.type.replace('house-', '').replace('-', ' ');
-        const colorName = this.getColorName(obj.color);
-        const key = colorName === 'unknown' ? friendlyType : `${colorName} ${friendlyType}`;
-        if (!acc[key]) {
-          acc[key] = [];
-        }
-        acc[key].push(obj);
-        return acc;
-      }, {} as Record<string, SceneObject[]>);
-
-      const housingDescriptions = Object.entries(housingGroups).map(([key, objects]) => {
-        if (objects.length === 1) {
-          return `a ${key}`;
-        } else {
-          return `${objects.length} ${key}s`;
-        }
-      });
-
-      if (housingDescriptions.length > 0) {
-        const housingText = housingDescriptions.length === 1 
-          ? housingDescriptions[0]
-          : housingDescriptions.length === 2
-            ? `${housingDescriptions[0]} and ${housingDescriptions[1]}`
-            : `${housingDescriptions.slice(0, -1).join(', ')}, and ${housingDescriptions[housingDescriptions.length - 1]}`;
-        
-        if (description) {
-          description += ` There are also ${housingText}.`;
-        } else {
-          description = `The scene contains ${housingText}.`;
-        }
-      }
-    }
-
-    if (!description) {
+    } else {
       description = groundObject 
         ? 'The scene contains only a ground plane.'
         : 'The scene is empty.';
@@ -996,23 +965,183 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
   }
 
   /**
+   * Analyze the scene to identify room structures and architectural relationships
+   */
+  private analyzeRoomStructure(sceneObjects: SceneObject[]): {
+    rooms: SceneObject[],
+    walls: SceneObject[],
+    doors: SceneObject[],
+    windows: SceneObject[],
+    roofs: SceneObject[],
+    furniture: SceneObject[],
+    layout: string
+  } {
+    const rooms = sceneObjects.filter(obj => obj.type.includes('room') || obj.type === 'house-basic');
+    const walls = sceneObjects.filter(obj => obj.type.includes('wall'));
+    const doors = sceneObjects.filter(obj => obj.type.includes('door'));
+    const windows = sceneObjects.filter(obj => obj.type.includes('window'));
+    const roofs = sceneObjects.filter(obj => obj.type.includes('roof'));
+    const furniture = sceneObjects.filter(obj => 
+      this.availableGlbObjects.some(glb => obj.type === glb.toLowerCase().replace(/\s+/g, '-')) ||
+      (obj.type.includes('desk') || obj.type.includes('chair') || obj.type.includes('table') || 
+       obj.type.includes('bed') || obj.type.includes('sofa') || obj.type.includes('bookcase'))
+    );
+
+    // Analyze spatial layout
+    let layout = 'scattered';
+    if (rooms.length > 0) {
+      if (rooms.length === 1) {
+        layout = 'single room';
+      } else if (rooms.length <= 3) {
+        layout = 'small building';
+      } else {
+        layout = 'large complex';
+      }
+    } else if (walls.length > 0) {
+      layout = 'architectural framework';
+    }
+
+    return { rooms, walls, doors, windows, roofs, furniture, layout };
+  }
+
+  /**
+   * Generate intelligent room description based on architectural analysis
+   */
+  private generateIntelligentRoomDescription(sceneObjects: SceneObject[]): string {
+    const analysis = this.analyzeRoomStructure(sceneObjects);
+    const primitives = sceneObjects.filter(obj => 
+      !obj.type.startsWith('house-') && 
+      obj.type !== 'ground' &&
+      !this.availableGlbObjects.some(glb => obj.type === glb.toLowerCase().replace(/\s+/g, '-'))
+    );
+
+    let description = '';
+
+    // Describe the overall structure
+    if (analysis.rooms.length > 0) {
+      if (analysis.rooms.length === 1) {
+        const room = analysis.rooms[0];
+        const colorName = this.getColorName(room.color);
+        const roomType = room.type.includes('modular') ? 'spacious room' : 'room';
+        description += `This is ${colorName !== 'unknown' ? `a ${colorName} ` : 'a '}${roomType}`;
+      } else {
+        description += `This is a ${analysis.layout} with ${analysis.rooms.length} rooms`;
+      }
+    } else if (analysis.walls.length > 0) {
+      description += `This appears to be an ${analysis.layout} with ${analysis.walls.length} wall${analysis.walls.length > 1 ? 's' : ''}`;
+    } else if (primitives.length > 0 || analysis.furniture.length > 0) {
+      description += 'This is an open space';
+    } else {
+      description += 'This is an empty space';
+    }
+
+    // Describe architectural features
+    const features = [];
+    if (analysis.doors.length > 0) {
+      features.push(`${analysis.doors.length} door${analysis.doors.length > 1 ? 's' : ''}`);
+    }
+    if (analysis.windows.length > 0) {
+      features.push(`${analysis.windows.length} window${analysis.windows.length > 1 ? 's' : ''}`);
+    }
+    if (analysis.roofs.length > 0) {
+      const roofTypes = [...new Set(analysis.roofs.map(r => r.type.includes('pitched') ? 'pitched roof' : 'flat roof'))];
+      features.push(roofTypes.join(' and '));
+    }
+
+    if (features.length > 0) {
+      description += ` featuring ${features.join(', ')}`;
+    }
+
+    // Describe furniture and contents
+    if (analysis.furniture.length > 0) {
+      const furnitureGroups = analysis.furniture.reduce((acc, obj) => {
+        const type = obj.type.replace(/-/g, ' ');
+        if (!acc[type]) acc[type] = 0;
+        acc[type]++;
+        return acc;
+      }, {} as Record<string, number>);
+
+      const furnitureDesc = Object.entries(furnitureGroups).map(([type, count]) => 
+        count === 1 ? `a ${type}` : `${count} ${type}s`
+      );
+
+      if (furnitureDesc.length > 0) {
+        description += `. The space is furnished with ${furnitureDesc.join(', ')}`;
+      }
+    }
+
+    // Describe other objects if present
+    if (primitives.length > 0) {
+      const objectGroups = primitives.reduce((acc, obj) => {
+        const colorName = this.getColorName(obj.color);
+        const key = colorName === 'unknown' ? obj.type : `${colorName} ${obj.type}`;
+        if (!acc[key]) acc[key] = 0;
+        acc[key]++;
+        return acc;
+      }, {} as Record<string, number>);
+
+      const objectDesc = Object.entries(objectGroups).map(([key, count]) => 
+        count === 1 ? `a ${key}` : `${count} ${key}s`
+      );
+
+      if (objectDesc.length > 0) {
+        const verb = analysis.furniture.length > 0 || analysis.rooms.length > 0 ? 'also contains' : 'contains';
+        description += `. The space ${verb} ${objectDesc.join(', ')}`;
+      }
+    }
+
+    // Add spatial context for interesting arrangements
+    if (primitives.length > 2 || analysis.furniture.length > 1) {
+      // Analyze if objects are arranged in patterns
+      const positions = [...primitives, ...analysis.furniture].map(obj => obj.position);
+      const avgX = positions.reduce((sum, pos) => sum + pos.x, 0) / positions.length;
+      const avgZ = positions.reduce((sum, pos) => sum + pos.z, 0) / positions.length;
+      
+      const spreads = positions.map(pos => Math.sqrt(Math.pow(pos.x - avgX, 2) + Math.pow(pos.z - avgZ, 2)));
+      const maxSpread = Math.max(...spreads);
+      
+      if (maxSpread > 5) {
+        description += ', spread across the space';
+      } else if (maxSpread < 2) {
+        description += ', arranged in a compact cluster';
+      } else {
+        description += ', thoughtfully arranged throughout the area';
+      }
+    }
+
+    description += '.';
+    return description;
+  }
+
+  /**
    * Generate a system prompt for description requests that allows natural language responses
    */
-  private generateDescriptionSystemPrompt(sceneDescription: string): string {
-    return `You are a 3D scene assistant. Your task is to provide a natural, conversational description of the current scene based on the technical scene information provided below.
+  private generateDescriptionSystemPrompt(sceneDescription: string, sceneObjects: SceneObject[]): string {
+    const intelligentAnalysis = this.generateIntelligentRoomDescription(sceneObjects);
+    const roomAnalysis = this.analyzeRoomStructure(sceneObjects);
+    
+    let contextualInfo = '';
+    if (roomAnalysis.rooms.length > 0 || roomAnalysis.walls.length > 0 || roomAnalysis.furniture.length > 0) {
+      contextualInfo = `\n\nINTELLIGENT ANALYSIS: ${intelligentAnalysis}\n\nThis analysis identifies the space as a "${roomAnalysis.layout}" with ${roomAnalysis.rooms.length} room(s), ${roomAnalysis.walls.length} wall(s), ${roomAnalysis.doors.length} door(s), ${roomAnalysis.windows.length} window(s), ${roomAnalysis.roofs.length} roof(s), and ${roomAnalysis.furniture.length} piece(s) of furniture.`;
+    }
 
-${sceneDescription}
+    return `You are an intelligent 3D architectural assistant. Your task is to provide a natural, conversational description of the current scene with special attention to room layouts, architectural features, and spatial relationships.
+
+TECHNICAL SCENE DATA:
+${sceneDescription}${contextualInfo}
 
 Your response should be:
-- Written in natural, conversational language
-- Easy to understand for non-technical users
-- Focused on what objects are present and their general arrangement
+- Written in natural, conversational language that sounds like an architect or interior designer
+- Intelligent about room layouts, building structures, and spatial arrangements
+- Focused on the overall composition and how elements work together
+- Able to identify room types, architectural styles, and functional arrangements
 - Free of technical details like coordinates, dimensions, or object IDs
-- Engaging and descriptive
+- Engaging and insightful about the space's character and purpose
+- Consider the intelligent analysis provided but enhance it with your own architectural insights
 
 You can respond with natural language text - you are NOT required to use JSON format for description requests.
 
-Please describe what you see in the scene in a way that would be helpful and interesting to a user.`;
+Analyze the scene intelligently and describe it as a cohesive architectural or interior space, noting how the elements relate to each other, what kind of environment or room this represents, its potential purpose or function, and the overall design aesthetic or style.`;
   }
 
   /**
@@ -1041,7 +1170,7 @@ Please describe what you see in the scene in a way that would be helpful and int
       
       let systemPrompt: string;
       if (isDescriptionRequest) {
-        systemPrompt = this.generateDescriptionSystemPrompt(sceneDescription);
+        systemPrompt = this.generateDescriptionSystemPrompt(sceneDescription, sceneObjects);
       } else {
         systemPrompt = this.generateSystemPrompt(sceneDescription, objectIds, selectedObjectId, selectedObjectIds);
       }
