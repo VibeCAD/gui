@@ -53,6 +53,7 @@ export const AISidebar: React.FC<AISidebarProps> = ({
     updateObject,
     addObject,
     removeObject,
+    renameObject,
     startImport,
     importSuccess,
     setImportError,
@@ -260,8 +261,21 @@ export const AISidebar: React.FC<AISidebarProps> = ({
 
         case 'create':
           if (command.type) {
-            // Generate a robust unique ID (avoids same-millisecond collisions when executing multiple creates at once)
-            const newId = `${command.type}-${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now()}`;
+            // Use provided name or generate a robust unique ID
+            let newId = command.name;
+            if (newId) {
+                // Check for uniqueness
+                if (sceneObjects.some(obj => obj.id === newId)) {
+                    // Append a suffix to make it unique
+                    const uniqueSuffix = Math.random().toString(36).substring(2, 7);
+                    const oldId = newId;
+                    newId = `${newId}-${uniqueSuffix}`;
+                    addToResponseLog(`Warning: Object name "${oldId}" already exists. Renaming to "${newId}".`);
+                }
+            } else {
+                newId = `${command.type}-${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now()}`;
+            }
+            
             const newObj: SceneObject = {
               id: newId,
               type: command.type,
@@ -302,6 +316,16 @@ export const AISidebar: React.FC<AISidebarProps> = ({
           if (command.objectId) {
             console.log('Deleting object with ID:', command.objectId);
             removeObject(command.objectId);
+          }
+          break;
+
+        case 'rename':
+          if (command.objectId && command.name) {
+            if (sceneObjects.some(obj => obj.id === command.name)) {
+              addToResponseLog(`Error: An object with the name "${command.name}" already exists.`);
+            } else {
+              renameObject(command.objectId, command.name);
+            }
           }
           break;
 

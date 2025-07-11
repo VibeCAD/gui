@@ -27,6 +27,16 @@ export const createRemoveObjectAction = (object: any): UndoAction => ({
   }
 })
 
+export const createRenameAction = (newId: string, oldId: string, object: any): UndoAction => ({
+    type: 'RENAME',
+    timestamp: Date.now(),
+    payload: { newId, oldId, object },
+    inverse: {
+        type: 'RENAME',
+        payload: { newId: oldId, oldId: newId, object }
+    }
+})
+
 export const createUpdateObjectAction = (objectId: string, newValues: any, previousValues: any): UndoAction => ({
   type: 'UPDATE_OBJECT',
   timestamp: Date.now(),

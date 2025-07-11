@@ -9,6 +9,7 @@ export const SceneGraph: React.FC = () => {
     multiSelectMode,
     objectVisibility,
     objectLocked,
+    renameObject,
     setSelectedObjectId,
     setObjectVisibility,
     setObjectLocked,
@@ -17,6 +18,22 @@ export const SceneGraph: React.FC = () => {
     isObjectVisible,
     isObjectLocked,
   } = useSceneStore();
+
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [newName, setNewName] = React.useState('');
+
+  const handleRename = (objectId: string) => {
+    if (newName.trim() && newName !== objectId) {
+      if (sceneObjects.some(obj => obj.id === newName)) {
+        console.error("An object with this name already exists.");
+        // Maybe show a toast or some other feedback to the user
+      } else {
+        renameObject(objectId, newName.trim());
+      }
+    }
+    setEditingId(null);
+    setNewName('');
+  };
 
   const selectObjectById = (objectId: string) => {
     const object = sceneObjects.find(obj => obj.id === objectId);
@@ -65,7 +82,36 @@ export const SceneGraph: React.FC = () => {
               title={`${isLocked ? '[LOCKED] ' : ''}${!isVisible ? '[HIDDEN] ' : ''}Click to select this object`}
             >
               <span className="object-type">{obj.type}</span>
-              <span className="object-id">{obj.id}</span>
+              {editingId === obj.id ? (
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  onBlur={() => handleRename(obj.id)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleRename(obj.id);
+                    if (e.key === 'Escape') {
+                      setEditingId(null);
+                      setNewName('');
+                    }
+                  }}
+                  autoFocus
+                  className="object-id-input"
+                />
+              ) : (
+                <span 
+                  className="object-id"
+                  onDoubleClick={() => {
+                    if (!isLocked) {
+                      setEditingId(obj.id);
+                      setNewName(obj.id);
+                    }
+                  }}
+                  title={isLocked ? 'Unlock to rename' : 'Double-click to rename'}
+                >
+                  {obj.id}
+                </span>
+              )}
               <div className="object-controls">
                 <button
                   className={`object-control-btn ${isVisible ? 'visible' : 'hidden'}`}
