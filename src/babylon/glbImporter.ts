@@ -1,4 +1,4 @@
-import { Scene, SceneLoader, AssetContainer, Mesh, StandardMaterial, Color3, Vector3 } from 'babylonjs';
+import { Scene, SceneLoader, AssetContainer, Mesh, StandardMaterial, Color3, Vector3, Matrix } from 'babylonjs';
 import type { SceneObject, ImportError, ImportErrorType, PrimitiveType, Boundary } from '../types/types';
 import { integrateImportedMesh } from './objectFactory';
 import { SceneManager } from './sceneManager';
@@ -128,6 +128,42 @@ export class ModelImporter {
   }
 
   /**
+   * Adjusts the mesh pivot to its bottom center, ensuring it sits properly on the floor
+   * @param mesh The mesh to adjust
+   */
+  private adjustPivotToBottom(mesh: Mesh): void {
+    console.log('🎯 Adjusting pivot to bottom center');
+    
+    // Force update of world matrix
+    mesh.computeWorldMatrix(true);
+    
+    // Get the bounding info in world space
+    const boundingInfo = mesh.getBoundingInfo();
+    const worldMin = boundingInfo.boundingBox.minimumWorld;
+    const worldMax = boundingInfo.boundingBox.maximumWorld;
+    
+    // Calculate the center bottom point in world space
+    const bottomCenterWorld = new Vector3(
+      (worldMin.x + worldMax.x) / 2,
+      worldMin.y,
+      (worldMin.z + worldMax.z) / 2
+    );
+    
+    // Convert to local space
+    const worldToLocal = new Matrix();
+    mesh.getWorldMatrix().invertToRef(worldToLocal);
+    const bottomCenterLocal = Vector3.TransformCoordinates(bottomCenterWorld, worldToLocal);
+    
+    // Create a pivot at the bottom center
+    mesh.setPivotPoint(bottomCenterLocal);
+    
+    // Adjust position so the bottom sits at y=0
+    mesh.position.y = 0;
+    
+    console.log(`✅ Pivot adjusted to bottom center at local (${bottomCenterLocal.x.toFixed(3)}, ${bottomCenterLocal.y.toFixed(3)}, ${bottomCenterLocal.z.toFixed(3)})`);
+  }
+
+  /**
    * Imports a 3D model file and converts it to a SceneObject
    * @param file The 3D model file to import (GLB, STL, or OBJ)
    * @param autoScale Whether to automatically scale the model to fit reference cube (default: true)
@@ -194,6 +230,9 @@ export class ModelImporter {
 
       // Apply auto-scaling to fit within reference cube
       const scaleFactor = this.applyAutoScaling(mergedMesh, autoScale);
+      
+      // Adjust pivot to bottom center so object sits properly on floor
+      this.adjustPivotToBottom(mergedMesh);
       
       // Optionally center the mesh at origin (after scaling)
       // This is commented out for now to maintain backward compatibility
