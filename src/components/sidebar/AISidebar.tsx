@@ -356,6 +356,26 @@ export const AISidebar: React.FC<AISidebarProps> = ({
           redo();
           console.log('🔄 AI Command: Redo action executed');
           break;
+
+        case 'texture':
+          if (command.objectId && command.textureId) {
+            // Get the function from the store
+            const { applyTextureToObject } = useSceneStore.getState();
+            
+            // Apply texture to the object
+            applyTextureToObject(
+              command.objectId, 
+              command.textureId, 
+              command.textureType || 'diffuse'
+            );
+            
+            console.log(`🎨 Applied texture ${command.textureId} to object ${command.objectId} as ${command.textureType || 'diffuse'}`);
+          } else if (!command.objectId) {
+            console.warn('❌ Texture command missing objectId');
+          } else if (!command.textureId) {
+            console.warn('❌ Texture command missing textureId');
+          }
+          break;
       }
     } catch (error) {
       console.error('Error executing scene command:', error);
@@ -482,14 +502,24 @@ export const AISidebar: React.FC<AISidebarProps> = ({
       // Get the updated scene objects
       const currentSceneObjects = useSceneStore.getState().sceneObjects;
       
+      // Get current selection
+      const { selectedObjectId: currentSelectedId, selectedObjectIds: currentSelectedIds } = useSceneStore.getState();
+      
       // Debug: Log current scene objects before AI call
       console.log('🔍 Current scene objects at AI call time:');
       currentSceneObjects.forEach(obj => {
         console.log(`  - ${obj.id} (${obj.type}): position (${obj.position.x.toFixed(2)}, ${obj.position.y.toFixed(2)}, ${obj.position.z.toFixed(2)})`);
       });
+      
+      // Debug: Log current selection
+      if (currentSelectedId) {
+        console.log(`🎯 Currently selected object: ${currentSelectedId}`);
+      } else if (currentSelectedIds.length > 0) {
+        console.log(`🎯 Currently selected objects: ${currentSelectedIds.join(', ')}`);
+      }
 
       const aiService = createAIService(apiKey);
-      const result = await aiService.getSceneCommands(textInput, currentSceneObjects);
+      const result = await aiService.getSceneCommands(textInput, currentSceneObjects, currentSelectedId, currentSelectedIds);
       
       if (result.success && result.commands) {
         // Log the user prompt and AI response
@@ -555,7 +585,7 @@ export const AISidebar: React.FC<AISidebarProps> = ({
               id="ai-prompt"
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
-              placeholder="Try: 'move the cube to the right', 'make the cube blue', 'create a red sphere above the cube'"
+              placeholder="Try: 'move the cube to the right', 'make the cube blue', 'create a red sphere above the cube', 'apply wood texture', 'make it brick'"
               className="ai-text-input"
               disabled={isLoading || !sceneInitialized}
             />

@@ -3,7 +3,7 @@ import type { SceneObject } from '../types/types';
 import { Vector3 } from 'babylonjs';
 
 export interface SceneCommand {
-  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'undo' | 'redo' | 'describe' | 'rename';
+  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'undo' | 'redo' | 'describe' | 'rename' | 'texture';
   objectId?: string;
   name?: string;
   type?: 'cube' | 'sphere' | 'cylinder' | 'plane' | 'torus' | 'cone' | 
@@ -29,6 +29,11 @@ export interface SceneCommand {
   // New align-specific properties
   edge?: 'north' | 'south' | 'east' | 'west';
   offset?: number;
+  
+  // New texture-specific properties
+  textureId?: string;
+  textureType?: 'diffuse' | 'normal' | 'specular' | 'emissive';
+  textureName?: string; // For natural language texture descriptions
   description?: string;
 }
 
@@ -45,12 +50,32 @@ export interface AIServiceResult {
  */
 export class AIService {
   private openai: OpenAI;
+  private availableTextures: Array<{ id: string; name: string; tags: string[] }> = [];
 
   constructor(apiKey: string) {
     this.openai = new OpenAI({ 
       apiKey, 
       dangerouslyAllowBrowser: true 
     });
+    
+    // Initialize available textures
+    this.availableTextures = [
+      {
+        id: 'default-wood-floor-01',
+        name: 'Wood Floor - Natural',
+        tags: ['wood', 'floor', 'planks', 'natural', 'hardwood', 'wooden']
+      },
+      {
+        id: 'default-fabric-carpet-01',
+        name: 'Carpet - Gray Textured',
+        tags: ['carpet', 'fabric', 'gray', 'floor', 'textile', 'woven', 'grey']
+      },
+      {
+        id: 'default-brick-wall-01',
+        name: 'Brick Wall - Red Standard',
+        tags: ['brick', 'wall', 'red', 'masonry', 'exterior', 'classic', 'bricks']
+      }
+    ];
   }
 
   /**
@@ -191,6 +216,56 @@ export class AIService {
     };
 
     return colorMap[hex.toLowerCase()] || 'unknown';
+  }
+
+  /**
+   * Find a texture by name or description
+   */
+  private findTextureByDescription(description: string): { id: string; name: string } | undefined {
+    const lowerDesc = description.toLowerCase().trim();
+    
+    // Direct name match
+    const directMatch = this.availableTextures.find(texture => 
+      texture.name.toLowerCase() === lowerDesc
+    );
+    if (directMatch) {
+      return { id: directMatch.id, name: directMatch.name };
+    }
+    
+    // Check if any texture tags match the description
+    const tagMatch = this.availableTextures.find(texture => 
+      texture.tags.some(tag => lowerDesc.includes(tag) || tag.includes(lowerDesc))
+    );
+    if (tagMatch) {
+      return { id: tagMatch.id, name: tagMatch.name };
+    }
+    
+    // Fuzzy match on texture name
+    const nameMatch = this.availableTextures.find(texture => 
+      texture.name.toLowerCase().includes(lowerDesc) || 
+      lowerDesc.includes(texture.name.toLowerCase())
+    );
+    if (nameMatch) {
+      return { id: nameMatch.id, name: nameMatch.name };
+    }
+    
+    // Special cases for common descriptions
+    if (lowerDesc.includes('wood') || lowerDesc.includes('wooden') || lowerDesc.includes('hardwood')) {
+      const woodTexture = this.availableTextures.find(t => t.id.includes('wood'));
+      if (woodTexture) return { id: woodTexture.id, name: woodTexture.name };
+    }
+    
+    if (lowerDesc.includes('carpet') || lowerDesc.includes('rug') || lowerDesc.includes('fabric')) {
+      const carpetTexture = this.availableTextures.find(t => t.id.includes('carpet'));
+      if (carpetTexture) return { id: carpetTexture.id, name: carpetTexture.name };
+    }
+    
+    if (lowerDesc.includes('brick') || lowerDesc.includes('stone') || lowerDesc.includes('masonry')) {
+      const brickTexture = this.availableTextures.find(t => t.id.includes('brick'));
+      if (brickTexture) return { id: brickTexture.id, name: brickTexture.name };
+    }
+    
+    return undefined;
   }
 
   /**
@@ -494,7 +569,16 @@ export class AIService {
             ? ` rotated (${obj.rotation.x.toFixed(2)}, ${obj.rotation.y.toFixed(2)}, ${obj.rotation.z.toFixed(2)}) rad`
             : '';
           
-          return `${colorName} ${obj.type} "${obj.id}" (${sizeDesc}) at (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)})${rotationDesc}`;
+          // Include texture information if object has textures
+          let textureDesc = '';
+          if (obj.textureIds && obj.textureIds.diffuse) {
+            const texture = this.availableTextures.find(t => t.id === obj.textureIds?.diffuse);
+            if (texture) {
+              textureDesc = ` with ${texture.name}`;
+            }
+          }
+          
+          return `${colorName} ${obj.type} "${obj.id}" (${sizeDesc}) at (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)})${rotationDesc}${textureDesc}`;
         })
         .join(', ');
       description += `Objects: ${primitiveDescription}`;
@@ -512,7 +596,16 @@ export class AIService {
             ? ` rotated (${obj.rotation.x.toFixed(2)}, ${obj.rotation.y.toFixed(2)}, ${obj.rotation.z.toFixed(2)}) rad`
             : '';
           
-          return `${colorName} ${friendlyType} "${obj.id}" (${dimensions.width.toFixed(1)}×${dimensions.height.toFixed(1)}×${dimensions.depth.toFixed(1)}) at (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)})${rotationDesc}`;
+          // Include texture information if object has textures
+          let textureDesc = '';
+          if (obj.textureIds && obj.textureIds.diffuse) {
+            const texture = this.availableTextures.find(t => t.id === obj.textureIds?.diffuse);
+            if (texture) {
+              textureDesc = ` with ${texture.name}`;
+            }
+          }
+          
+          return `${colorName} ${friendlyType} "${obj.id}" (${dimensions.width.toFixed(1)}×${dimensions.height.toFixed(1)}×${dimensions.depth.toFixed(1)}) at (${obj.position.x.toFixed(1)}, ${obj.position.y.toFixed(1)}, ${obj.position.z.toFixed(1)})${rotationDesc}${textureDesc}`;
         })
         .join(', ');
       description += (description ? '. ' : '') + `Housing structures: ${housingDescription}`;
@@ -529,10 +622,27 @@ export class AIService {
   /**
    * Generate the system prompt for the AI with enhanced spatial reasoning
    */
-  private generateSystemPrompt(sceneDescription: string, objectIds: string[]): string {
+  private generateSystemPrompt(sceneDescription: string, objectIds: string[], selectedObjectId?: string | null, selectedObjectIds?: string[]): string {
+    // Determine selection description
+    let selectionDescription = '';
+    if (selectedObjectId) {
+      const selectedObj = objectIds.find(id => id === selectedObjectId);
+      if (selectedObj) {
+        selectionDescription = `Currently selected object: "${selectedObjectId}". `;
+      }
+    } else if (selectedObjectIds && selectedObjectIds.length > 0) {
+      selectionDescription = `Currently selected objects: ${selectedObjectIds.map(id => `"${id}"`).join(', ')}. `;
+    } else {
+      selectionDescription = 'No objects are currently selected. ';
+    }
+
     return `You are a 3D scene assistant with advanced spatial reasoning and precise positioning capabilities. You can modify a Babylon.js scene with millimeter-accurate positioning and automatic dimension matching.
 
 ${sceneDescription}
+
+${selectionDescription}
+
+IMPORTANT: When the user refers to "it", "the object", "selected object", or uses commands without specifying an object, apply the action to the currently selected object(s).
 
 Available actions:
 1. move: Move an object to x,y,z coordinates
@@ -546,6 +656,12 @@ Available actions:
 9. undo: Undo the last action performed on the scene
 10. redo: Redo the last undone action
 11. rename: Rename an object. Requires objectId and a new name.
+12. texture: Apply a texture to an object (wood, carpet, brick)
+
+AVAILABLE TEXTURES:
+- Wood Floor: Natural hardwood planks texture (use: "wood", "wooden", "hardwood", "wood floor")
+- Gray Carpet: Textured gray fabric carpet (use: "carpet", "gray carpet", "fabric", "rug")
+- Red Brick Wall: Classic red brick masonry (use: "brick", "brick wall", "red brick", "masonry")
 
 OBJECT TYPES:
 Basic: cube, sphere, cylinder, plane, torus, cone
@@ -672,6 +788,24 @@ UNDO/REDO COMMAND EXAMPLES:
 "Restore the last undone action":
 [{"action": "redo"}]
 
+TEXTURE COMMAND EXAMPLES:
+"Apply wood texture to the cube":
+[{"action": "texture", "objectId": "cube-id", "textureId": "default-wood-floor-01", "textureType": "diffuse"}]
+
+"Make the floor wooden":
+[{"action": "texture", "objectId": "floor-id", "textureId": "default-wood-floor-01", "textureType": "diffuse"}]
+
+"Add brick texture to the wall":
+[{"action": "texture", "objectId": "wall-id", "textureId": "default-brick-wall-01", "textureType": "diffuse"}]
+
+"Apply carpet to the plane":
+[{"action": "texture", "objectId": "plane-id", "textureId": "default-fabric-carpet-01", "textureType": "diffuse"}]
+
+"Give the cube a wooden texture":
+[{"action": "texture", "objectId": "cube-id", "textureId": "default-wood-floor-01", "textureType": "diffuse"}]
+
+"Make it brick":
+[{"action": "texture", "objectId": "selected-object-id", "textureId": "default-brick-wall-01", "textureType": "diffuse"}]
 
 
 HOUSING OBJECT LOGIC:
@@ -690,6 +824,9 @@ CRITICAL REQUIREMENTS:
 7. Ensure perfect contact - no gaps, no overlaps, just touching surfaces
 8. For rotation: ALWAYS provide rotation values in radians, not degrees
 9. When rotating objects, consider their current rotation state from the scene description
+10. For texture commands: If no object is specified but there's a selected object in the scene, apply texture to the selected object
+11. When applying textures, always use textureId (not textureName) in the final command
+12. Default to "diffuse" texture type if not specified
 
 DIMENSION MATCHING RULES:
 - Objects placed "on top of" automatically match the footprint (width × depth) of the reference object
@@ -759,7 +896,9 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
    */
   public async getSceneCommands(
     prompt: string, 
-    sceneObjects: SceneObject[]
+    sceneObjects: SceneObject[],
+    selectedObjectId?: string | null,
+    selectedObjectIds?: string[]
   ): Promise<AIServiceResult> {
     if (!prompt.trim()) {
       return {
@@ -772,7 +911,7 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
       const sceneDescription = this.describeScene(sceneObjects);
       const objectIds = sceneObjects.map(obj => obj.id);
       const spatialContext = this.extractSpatialContext(prompt, sceneObjects);
-      const systemPrompt = this.generateSystemPrompt(sceneDescription, objectIds);
+      const systemPrompt = this.generateSystemPrompt(sceneDescription, objectIds, selectedObjectId, selectedObjectIds);
 
       // Enhanced prompt with spatial context
       const enhancedPrompt = spatialContext.spatialRelationDetected 
@@ -800,7 +939,7 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
 
       try {
         const rawCommands = this.parseCommandsWithSpatialLogic(aiResponse, sceneObjects);
-        const commands = this.enhanceCommandsWithSpatialLogic(rawCommands, sceneObjects);
+        const commands = this.enhanceCommandsWithSpatialLogic(rawCommands, sceneObjects, selectedObjectId, selectedObjectIds);
         
         return {
           success: true,
@@ -957,10 +1096,45 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
   /**
    * Enhance the AI response with spatial intelligence
    */
-  private enhanceCommandsWithSpatialLogic(commands: SceneCommand[], sceneObjects: SceneObject[]): SceneCommand[] {
+  private enhanceCommandsWithSpatialLogic(commands: SceneCommand[], sceneObjects: SceneObject[], selectedObjectId?: string | null, selectedObjectIds?: string[]): SceneCommand[] {
     const enhancedCommands: SceneCommand[] = [];
     
     commands.forEach(command => {
+      // Handle texture commands - resolve texture names to IDs
+      if (command.action === 'texture') {
+        // If no object is specified but there's a selection, use the selected object
+        if (!command.objectId) {
+          if (selectedObjectId) {
+            command.objectId = selectedObjectId;
+            console.log(`🎯 Using selected object for texture: ${selectedObjectId}`);
+          } else if (selectedObjectIds && selectedObjectIds.length === 1) {
+            command.objectId = selectedObjectIds[0];
+            console.log(`🎯 Using selected object for texture: ${selectedObjectIds[0]}`);
+          } else if (selectedObjectIds && selectedObjectIds.length > 1) {
+            console.warn(`⚠️ Multiple objects selected, please specify which object to texture`);
+          }
+        }
+        
+        // If textureId is not provided but textureName is, try to find the texture
+        if (!command.textureId && command.textureName) {
+          const texture = this.findTextureByDescription(command.textureName);
+          if (texture) {
+            command.textureId = texture.id;
+            console.log(`🎨 Resolved texture "${command.textureName}" to ${texture.name} (${texture.id})`);
+          } else {
+            console.warn(`⚠️ Could not find texture matching "${command.textureName}"`);
+          }
+        }
+        
+        // Default to diffuse texture type if not specified
+        if (!command.textureType) {
+          command.textureType = 'diffuse';
+        }
+        
+        enhancedCommands.push(command);
+        return;
+      }
+      
       // Handle align commands - pass through without modification as they contain all needed info
       if (command.action === 'align') {
         enhancedCommands.push(command);
