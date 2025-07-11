@@ -76,3 +76,7 @@ pids/
 .rts2_cache_umd/
 
 .cursor/
+
+#Internal Docs
+
+docs/
