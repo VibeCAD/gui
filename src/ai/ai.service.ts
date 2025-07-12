@@ -1,9 +1,13 @@
 import OpenAI from 'openai';
 import type { SceneObject } from '../types/types';
 import { Vector3 } from 'babylonjs';
+import { spaceAnalysisService } from '../services/spaceAnalysisService';
+import type { SpaceAnalysisRequest, SpaceAnalysisResult } from '../services/spaceAnalysisService';
+import { furnitureDatabase } from '../data/furnitureDatabase';
+import type { FurnitureSpec } from '../data/furnitureDatabase';
 
 export interface SceneCommand {
-  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'undo' | 'redo' | 'describe' | 'rename' | 'texture';
+  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'undo' | 'redo' | 'describe' | 'rename' | 'texture' | 'analyze-space' | 'optimize-space' | 'furniture-info';
   objectId?: string;
   name?: string;
   type?: string;
@@ -28,6 +32,13 @@ export interface SceneCommand {
   textureType?: 'diffuse' | 'normal' | 'specular' | 'emissive';
   textureName?: string;
   description?: string;
+  
+  // New space optimization properties
+  roomId?: string;
+  targetObjectType?: string;
+  optimizationStrategy?: 'maximize' | 'comfort' | 'ergonomic' | 'aesthetic';
+  useSelectedObjects?: boolean;
+  analysisResult?: SpaceAnalysisResult;
   isCompositePart?: boolean;
 }
 
@@ -39,13 +50,14 @@ export interface AIServiceResult {
   aiResponse?: string;
 }
 
-/**
- * AI Service for handling OpenAI API interactions and scene command generation
- */
-export class AIService {
-  private openai: OpenAI;
-  private availableTextures: Array<{ id: string; name: string; tags: string[] }> = [];
-  private availableGlbObjects: string[] = [];
+  /**
+   * AI Service for handling OpenAI API interactions and scene command generation
+   */
+  export class AIService {
+    private openai: OpenAI;
+    private availableTextures: Array<{ id: string; name: string; tags: string[] }> = [];
+    private availableGlbObjects: string[] = [];
+    private getMeshById: ((id: string) => any) | null = null;
 
   // Static list of base dimensions for all object types
   private static readonly baseDimensions: { [key: string]: { width: number; height: number; depth: number } } = {
@@ -104,6 +116,126 @@ export class AIService {
         tags: ['brick', 'wall', 'red', 'masonry', 'exterior', 'classic', 'bricks']
       }
     ];
+  }
+
+  /**
+   * Set the mesh resolver function for space optimization
+   */
+  public setMeshResolver(getMeshById: (id: string) => any): void {
+    this.getMeshById = getMeshById;
+  }
+
+  /**
+   * Handle space optimization queries
+   */
+  public async handleSpaceOptimization(
+    prompt: string,
+    sceneObjects: SceneObject[],
+    selectedObjectIds?: string[]
+  ): Promise<SpaceAnalysisResult | null> {
+    const lowerPrompt = prompt.toLowerCase();
+    
+    // Check if this is a space optimization query
+    const isSpaceQuery = lowerPrompt.includes('how many') || 
+                        lowerPrompt.includes('fit') ||
+                        lowerPrompt.includes('space') ||
+                        lowerPrompt.includes('optimize') ||
+                        lowerPrompt.includes('layout') ||
+                        lowerPrompt.includes('arrange');
+    
+    if (!isSpaceQuery) {
+      return null;
+    }
+
+    // Find rooms in the scene
+    const rooms = sceneObjects.filter(obj => obj.type === 'custom-room');
+    if (rooms.length === 0) {
+      console.warn('No rooms found for space optimization');
+      return null;
+    }
+
+    // Use the first room (or could be made smarter)
+    const room = rooms[0];
+    
+    // Determine target object type from prompt
+    let targetObjectType: string | undefined;
+    const selectedObjects = selectedObjectIds ? 
+      sceneObjects.filter(obj => selectedObjectIds.includes(obj.id)) : 
+      undefined;
+
+    // Extract object type from prompt
+    for (const glbObject of this.availableGlbObjects) {
+      if (lowerPrompt.includes(glbObject.toLowerCase())) {
+        targetObjectType = glbObject;
+        break;
+      }
+    }
+
+    // Common object types
+    const commonTypes = ['desk', 'chair', 'table', 'sofa', 'bed', 'bookcase'];
+    for (const type of commonTypes) {
+      if (lowerPrompt.includes(type)) {
+        targetObjectType = type.charAt(0).toUpperCase() + type.slice(1);
+        break;
+      }
+    }
+
+    if (!this.getMeshById) {
+      console.warn('Mesh resolver not set, cannot perform space optimization');
+      return null;
+    }
+
+    try {
+      const request: SpaceAnalysisRequest = {
+        roomId: room.id,
+        targetObjectType,
+        selectedObjects,
+        strategy: this.extractOptimizationStrategy(lowerPrompt)
+      };
+
+      const result = await spaceAnalysisService.analyzeSpace(
+        request,
+        sceneObjects,
+        this.getMeshById
+      );
+
+      return result;
+    } catch (error) {
+      console.error('Space optimization failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Extract optimization strategy from prompt
+   */
+  private extractOptimizationStrategy(prompt: string): { name: 'maximize' | 'comfort' | 'ergonomic' | 'aesthetic'; priority: 'maximize' | 'comfort' | 'ergonomic' | 'aesthetic'; description: string } {
+    if (prompt.includes('comfort') || prompt.includes('comfortable')) {
+      return { name: 'comfort', priority: 'comfort', description: 'Optimize for comfort and accessibility' };
+    } else if (prompt.includes('ergonomic') || prompt.includes('ergonomics')) {
+      return { name: 'ergonomic', priority: 'ergonomic', description: 'Optimize for ergonomic layout' };
+    } else if (prompt.includes('aesthetic') || prompt.includes('beautiful') || prompt.includes('nice')) {
+      return { name: 'aesthetic', priority: 'aesthetic', description: 'Optimize for visual appeal' };
+    } else {
+      return { name: 'maximize', priority: 'maximize', description: 'Maximize capacity' };
+    }
+  }
+
+  /**
+   * Get furniture information for selected objects
+   */
+  public getFurnitureInfo(selectedObjects: SceneObject[]): {
+    specs: FurnitureSpec[];
+    summary: string;
+  } {
+    const specs = furnitureDatabase.getSpecsForObjects(selectedObjects);
+    
+    const summary = specs.map(spec => {
+      const dims = spec.dimensions;
+      return `${spec.name} (${spec.category}): ${dims.width.toFixed(1)}×${dims.height.toFixed(1)}×${dims.depth.toFixed(1)}m, needs ${spec.clearanceRequirements.access.toFixed(1)}m clearance`;
+    }).join('\n');
+
+    return { specs, summary };
   }
 
   /**
@@ -688,6 +820,9 @@ Available actions:
 10. redo: Redo the last undone action
 11. rename: Rename an object. Requires objectId and a new name.
 12. texture: Apply a texture to an object (wood, carpet, brick)
+13. analyze-space: Analyze how many objects can fit in a room or space
+14. optimize-space: Optimize the layout of objects in a room for maximum efficiency
+15. furniture-info: Get detailed information about furniture dimensions and space requirements
 
 AVAILABLE TEXTURES:
 - Wood Floor: Natural hardwood planks texture (use: "wood", "wooden", "hardwood", "wood floor")
@@ -742,6 +877,15 @@ QUANTITY HANDLING:
 - To calculate spacing, use the object dimensions provided under OBJECT DIMENSIONS. For example, to place two cubes (width 2) side-by-side with a 1-unit gap, their centers should be 3 units apart on the X-axis (e.g., at x=-1.5 and x=1.5).
 - Always provide explicit 'x', 'y', and 'z' that do not overlap with other existing or newly created objects.
 
+COMPOSITE OBJECT NAMING:
+- When creating composite objects (like "make a person out of blocks", "build a house", "create a car"), assign meaningful descriptive names to each component.
+- Use a consistent naming pattern: [main-object]-[component] (e.g., "person-head", "person-torso", "person-left-arm").
+- For humanoid figures: Use parts like head, torso, left-arm, right-arm, left-leg, right-leg.
+- For vehicles: Use parts like body, wheels, roof, etc.
+- For buildings: Use parts like foundation, walls, roof, door, windows, etc.
+- For furniture: Use parts like seat, back, legs, armrests, etc.
+- Always make the names descriptive enough that someone could understand what each part represents.
+
 ROTATION PRECISION:
 - Rotation values are in radians (not degrees)
 - rotationX: Rotation around X-axis (pitch)
@@ -782,8 +926,32 @@ SPATIAL COMMAND EXAMPLES:
 "Rename the sphere to 'red-ball'":
 [{"action": "rename", "objectId": "sphere-id", "name": "red-ball"}]
 
+COMPOSITE OBJECT EXAMPLES:
+"Make a person out of blocks":
+[{"action": "create", "type": "cube", "name": "person-head", "color": "#fce38a", "x": 0, "y": 5, "z": 0, "scaleX": 0.8, "scaleY": 0.8, "scaleZ": 0.8},
+ {"action": "create", "type": "cube", "name": "person-torso", "color": "#4ecdc4", "x": 0, "y": 3, "z": 0, "scaleX": 1.2, "scaleY": 1.5, "scaleZ": 0.8},
+ {"action": "create", "type": "cube", "name": "person-left-arm", "color": "#fce38a", "x": -1.5, "y": 3.5, "z": 0, "scaleX": 0.4, "scaleY": 1.2, "scaleZ": 0.4},
+ {"action": "create", "type": "cube", "name": "person-right-arm", "color": "#fce38a", "x": 1.5, "y": 3.5, "z": 0, "scaleX": 0.4, "scaleY": 1.2, "scaleZ": 0.4},
+ {"action": "create", "type": "cube", "name": "person-left-leg", "color": "#4ecdc4", "x": -0.4, "y": 1, "z": 0, "scaleX": 0.5, "scaleY": 1.5, "scaleZ": 0.5},
+ {"action": "create", "type": "cube", "name": "person-right-leg", "color": "#4ecdc4", "x": 0.4, "y": 1, "z": 0, "scaleX": 0.5, "scaleY": 1.5, "scaleZ": 0.5}]
+
+"Build a simple car":
+[{"action": "create", "type": "cube", "name": "car-body", "color": "#ff6b6b", "x": 0, "y": 1, "z": 0, "scaleX": 2, "scaleY": 0.8, "scaleZ": 1},
+ {"action": "create", "type": "cylinder", "name": "car-wheel-front-left", "color": "#808080", "x": -1.2, "y": 0.4, "z": 0.6, "scaleX": 0.4, "scaleY": 0.2, "scaleZ": 0.4},
+ {"action": "create", "type": "cylinder", "name": "car-wheel-front-right", "color": "#808080", "x": 1.2, "y": 0.4, "z": 0.6, "scaleX": 0.4, "scaleY": 0.2, "scaleZ": 0.4},
+ {"action": "create", "type": "cylinder", "name": "car-wheel-rear-left", "color": "#808080", "x": -1.2, "y": 0.4, "z": -0.6, "scaleX": 0.4, "scaleY": 0.2, "scaleZ": 0.4},
+ {"action": "create", "type": "cylinder", "name": "car-wheel-rear-right", "color": "#808080", "x": 1.2, "y": 0.4, "z": -0.6, "scaleX": 0.4, "scaleY": 0.2, "scaleZ": 0.4}]
+
+"Create a simple table":
+[{"action": "create", "type": "cube", "name": "table-top", "color": "#8B4513", "x": 0, "y": 1.5, "z": 0, "scaleX": 2, "scaleY": 0.1, "scaleZ": 1.2},
+ {"action": "create", "type": "cube", "name": "table-leg-1", "color": "#654321", "x": -0.8, "y": 0.75, "z": -0.5, "scaleX": 0.1, "scaleY": 1.5, "scaleZ": 0.1},
+ {"action": "create", "type": "cube", "name": "table-leg-2", "color": "#654321", "x": 0.8, "y": 0.75, "z": -0.5, "scaleX": 0.1, "scaleY": 1.5, "scaleZ": 0.1},
+ {"action": "create", "type": "cube", "name": "table-leg-3", "color": "#654321", "x": -0.8, "y": 0.75, "z": 0.5, "scaleX": 0.1, "scaleY": 1.5, "scaleZ": 0.1},
+ {"action": "create", "type": "cube", "name": "table-leg-4", "color": "#654321", "x": 0.8, "y": 0.75, "z": 0.5, "scaleX": 0.1, "scaleY": 1.5, "scaleZ": 0.1}]
+
 DESCRIBE COMMAND EXAMPLE:
 "What is in the scene?":
+
 [{"action": "describe", "description": "The scene contains a red cube and a green sphere."}]
 
 SCENE DESCRIPTION GUIDELINES:
@@ -864,6 +1032,34 @@ TEXTURE COMMAND EXAMPLES:
 "Make it brick":
 [{"action": "texture", "objectId": "selected-object-id", "textureId": "default-brick-wall-01", "textureType": "diffuse"}]
 
+SPACE OPTIMIZATION COMMAND EXAMPLES:
+"How many desks can fit in this room?":
+[{"action": "analyze-space", "roomId": "custom-room-1", "targetObjectType": "Desk", "optimizationStrategy": "maximize"}]
+
+"How many chairs can I fit in the room?":
+[{"action": "analyze-space", "roomId": "custom-room-1", "targetObjectType": "Chair"}]
+
+"Optimize the space for desks":
+[{"action": "optimize-space", "roomId": "custom-room-1", "targetObjectType": "Desk", "optimizationStrategy": "maximize"}]
+
+"How should I arrange chairs for comfort?":
+[{"action": "optimize-space", "roomId": "custom-room-1", "targetObjectType": "Chair", "optimizationStrategy": "comfort"}]
+
+"Analyze space for the selected objects":
+[{"action": "analyze-space", "roomId": "custom-room-1", "useSelectedObjects": true}]
+
+"Get furniture information for selected objects":
+[{"action": "furniture-info", "useSelectedObjects": true}]
+
+"How many of these chairs can fit?" (when chairs are selected):
+[{"action": "analyze-space", "roomId": "custom-room-1", "useSelectedObjects": true, "optimizationStrategy": "maximize"}]
+
+"What are the dimensions of the selected furniture?":
+[{"action": "furniture-info", "useSelectedObjects": true}]
+
+"Plan an office layout":
+[{"action": "optimize-space", "roomId": "custom-room-1", "targetObjectType": "Desk", "optimizationStrategy": "ergonomic"}]
+
 
 HOUSING OBJECT LOGIC:
 - Roofs automatically match underlying structure dimensions
@@ -884,6 +1080,12 @@ CRITICAL REQUIREMENTS:
 10. For texture commands: If no object is specified but there's a selected object in the scene, apply texture to the selected object
 11. When applying textures, always use textureId (not textureName) in the final command
 12. Default to "diffuse" texture type if not specified
+13. For corner placement: ALWAYS use the actual dimensions (width×height×depth) shown in the scene description, NOT default values
+14. For wall alignment: Account for object dimensions to ensure only one face touches the wall
+15. For imported objects (GLB/STL/OBJ): Their pivot is at bottom center, so position.y represents the floor contact point
+16. When moving objects, ensure they don't sink below y=0 (the floor level)
+17. For composite objects: ALWAYS use meaningful, descriptive names following the [main-object]-[component] pattern
+18. When creating multiple objects that form a single conceptual entity, ensure all parts are properly named and positioned relative to each other
 
 DIMENSION MATCHING RULES:
 - Objects placed "on top of" automatically match the footprint (width × depth) of the reference object
@@ -1165,6 +1367,33 @@ Be concise and factual. Describe only what you can see.`;
     }
 
     try {
+      // First, check if this is a space optimization query
+      const spaceOptimizationResult = await this.handleSpaceOptimization(
+        prompt, 
+        sceneObjects, 
+        selectedObjectIds || (selectedObjectId ? [selectedObjectId] : undefined)
+      );
+
+      if (spaceOptimizationResult) {
+        // Return space optimization result as a command
+        const strategy = spaceOptimizationResult.request.strategy?.name || 'maximize';
+        const command: SceneCommand = {
+          action: 'analyze-space',
+          roomId: spaceOptimizationResult.request.roomId,
+          targetObjectType: spaceOptimizationResult.request.targetObjectType,
+          optimizationStrategy: strategy as 'maximize' | 'comfort' | 'ergonomic' | 'aesthetic',
+          useSelectedObjects: !!spaceOptimizationResult.request.selectedObjects,
+          analysisResult: spaceOptimizationResult
+        };
+
+        return {
+          success: true,
+          commands: [command],
+          userPrompt: prompt,
+          aiResponse: this.formatSpaceOptimizationResponse(spaceOptimizationResult)
+        };
+      }
+
       const sceneDescription = this.describeScene(sceneObjects);
       const objectIds = sceneObjects.map(obj => obj.id);
       const spatialContext = this.extractSpatialContext(prompt, sceneObjects);
@@ -1242,6 +1471,47 @@ Be concise and factual. Describe only what you can see.`;
         userPrompt: prompt
       };
     }
+  }
+
+  /**
+   * Format space optimization result for AI response
+   */
+  private formatSpaceOptimizationResponse(result: SpaceAnalysisResult): string {
+    const { optimization, furnitureSpec, roomAnalysis, recommendations } = result;
+    
+    let response = `## Space Analysis Results\n\n`;
+    
+    // Main result
+    if (optimization.maxObjects === 0) {
+      response += `❌ **No ${furnitureSpec.type} objects can fit in this room.**\n\n`;
+      response += `The room is too small. Minimum area needed: ${furnitureSpec.constraints.minRoomSize}m²\n`;
+      response += `Current room area: ${roomAnalysis.area.toFixed(1)}m²\n\n`;
+    } else {
+      response += `✅ **Maximum ${furnitureSpec.type} objects that can fit: ${optimization.maxObjects}**\n\n`;
+      response += `- Space efficiency: ${(optimization.efficiency * 100).toFixed(1)}%\n`;
+      response += `- Object dimensions: ${furnitureSpec.dimensions.width.toFixed(1)}×${furnitureSpec.dimensions.height.toFixed(1)}×${furnitureSpec.dimensions.depth.toFixed(1)}m\n`;
+      response += `- Required clearance: ${furnitureSpec.clearanceRequirements.access.toFixed(1)}m\n`;
+      response += `- Room area: ${roomAnalysis.area.toFixed(1)}m²\n\n`;
+    }
+
+    // Recommendations
+    if (recommendations.length > 0) {
+      response += `## Recommendations\n\n`;
+      recommendations.forEach(rec => {
+        response += `- ${rec}\n`;
+      });
+      response += `\n`;
+    }
+
+    // Alternative options
+    if (result.alternativeOptions.length > 0) {
+      response += `## Alternative Options\n\n`;
+      result.alternativeOptions.forEach(alt => {
+        response += `- ${alt.objectType}: ${alt.maxCount} objects (${(alt.efficiency * 100).toFixed(1)}% efficiency)\n`;
+      });
+    }
+
+    return response;
   }
 
   /**
