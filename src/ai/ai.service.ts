@@ -683,7 +683,7 @@ Available actions:
 5. delete: Remove an object
 6. rotate: Rotate an object by rotationX, rotationY, rotationZ angles in radians
 7. align: Align an object to a specific edge of another object with perfect perpendicularity and flush contact
-8. describe: Provide a simple, user-friendly description of the current scene without technical details like coordinates or dimensions.
+8. describe: Provide a simple, user-friendly description of the current scene without technical details like coordinates or dimensions. Use the fewest words possible.
 9. undo: Undo the last action performed on the scene
 10. redo: Redo the last undone action
 11. rename: Rename an object. Requires objectId and a new name.
@@ -1125,31 +1125,27 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
    * Generate a system prompt for description requests that allows natural language responses
    */
   private generateDescriptionSystemPrompt(sceneDescription: string, sceneObjects: SceneObject[]): string {
-    const intelligentAnalysis = this.generateIntelligentRoomDescription(sceneObjects);
-    const roomAnalysis = this.analyzeRoomStructure(sceneObjects);
-    
-    let contextualInfo = '';
-    if (roomAnalysis.rooms.length > 0 || roomAnalysis.walls.length > 0 || roomAnalysis.furniture.length > 0) {
-      contextualInfo = `\n\nINTELLIGENT ANALYSIS: ${intelligentAnalysis}\n\nThis analysis identifies the space as a "${roomAnalysis.layout}" with ${roomAnalysis.rooms.length} room(s), ${roomAnalysis.walls.length} wall(s), ${roomAnalysis.doors.length} door(s), ${roomAnalysis.windows.length} window(s), ${roomAnalysis.roofs.length} roof(s), and ${roomAnalysis.furniture.length} piece(s) of furniture.`;
-    }
+    // Use the simple description method instead of complex analysis
+    const simpleDescription = this.describeSceneSimple(sceneObjects);
 
-    return `You are an intelligent 3D architectural assistant. Your task is to provide a natural, conversational description of the current scene with special attention to room layouts, architectural features, and spatial relationships.
+    return `You are a 3D scene assistant. Provide a brief, clear description of what's in the scene.
 
-TECHNICAL SCENE DATA:
-${sceneDescription}${contextualInfo}
+SCENE DATA:
+${sceneDescription}
 
 Your response should be:
-- Written in natural, conversational language that sounds like an architect or interior designer
-- Intelligent about room layouts, building structures, and spatial arrangements
-- Focused on the overall composition and how elements work together
-- Able to identify room types, architectural styles, and functional arrangements
-- Free of technical details like coordinates, dimensions, or object IDs
-- Engaging and insightful about the space's character and purpose
-- Consider the intelligent analysis provided but enhance it with your own architectural insights
+- Simple and direct (1-2 sentences maximum)
+- Focus only on what objects are present
+- No technical details like coordinates or dimensions
+- No flowery language or architectural commentary
+- Just state what's there plainly
 
-You can respond with natural language text - you are NOT required to use JSON format for description requests.
+Example good responses:
+- "The scene contains a red cube and a blue sphere."
+- "There's an empty room with gray walls."
+- "The scene has a wooden table with a chair beside it."
 
-Analyze the scene intelligently and describe it as a cohesive architectural or interior space, noting how the elements relate to each other, what kind of environment or room this represents, its potential purpose or function, and the overall design aesthetic or style.`;
+Be concise and factual. Describe only what you can see.`;
   }
 
   /**
