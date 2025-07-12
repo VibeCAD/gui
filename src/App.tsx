@@ -64,6 +64,7 @@ function App() {
     currentColor,
     isLoading,
     apiKey,
+    aiProvider,
     showApiKeyInput,
     responseLog,
     wireframeMode,
@@ -95,6 +96,7 @@ function App() {
     setCurrentColor,
     setIsLoading,
     setApiKey,
+    setAiProvider,
     setShowApiKeyInput,
     addToResponseLog,
     setWireframeMode,
@@ -252,6 +254,35 @@ function App() {
     addObject(newObj);
     setSelectedObjectId(newId);
     setActiveDropdown(null);
+  }
+
+  /**
+   * Helper function to create a test room automatically
+   * Creates a 13x13 unit room using predefined coordinates
+   */
+  const createTestRoom = () => {
+    if (!sceneInitialized) return;
+    
+    console.log('🏠 Creating test room - 13x13 units');
+    
+    // Calculate SVG coordinates for a 13x13 unit room
+    // 13 units / 0.05 scale = 260 SVG units
+    // Center in 400x400 SVG space: (200, 200)
+    // Square from (70, 70) to (330, 330)
+    const testRoomData = {
+      points: [
+        { x: 70, y: 70 },    // Top-left
+        { x: 330, y: 70 },   // Top-right
+        { x: 330, y: 330 },  // Bottom-right
+        { x: 70, y: 330 }    // Bottom-left
+      ],
+      name: 'Test Room 13x13',
+      gridSize: 20,
+      drawingBounds: { width: 400, height: 400 }
+    };
+    
+    handleCreateCustomRoom(testRoomData);
+    console.log('✅ Test room created successfully');
   }
 
   const createModularRoom = () => {
@@ -669,14 +700,6 @@ function App() {
         gridSize: roomData.gridSize || 20,
         worldScale: SCALE,
         drawingBounds: roomData.drawingBounds || { width: 400, height: 400 }
-      },
-      metadata: {
-        floorPolygon: vertices2D.map(v => ({ x: v.x, z: v.y })),
-        gridInfo: {
-          gridSize: roomData.gridSize || 20,
-          worldScale: SCALE,
-          drawingBounds: roomData.drawingBounds || { width: 400, height: 400 }
-        }
       }
     }
 
@@ -998,7 +1021,7 @@ function App() {
               {movementEnabled ? `WASD (${movementSpeed.toFixed(2)})` : 'OFF'}
             </span>
           </span>
-          {/* Quick test button */}
+          {/* Quick test buttons */}
           <button 
             className="test-button"
             onClick={() => createPrimitive('cube')}
@@ -1014,6 +1037,22 @@ function App() {
             }}
           >
             🧪 Add Test Cube
+          </button>
+          <button 
+            className="test-button"
+            onClick={() => createTestRoom()}
+            disabled={!sceneInitialized}
+            style={{
+              marginLeft: '5px',
+              padding: '4px 8px',
+              backgroundColor: '#e74c3c',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            🏠 Add Test Room
           </button>
         </div>
         
@@ -1956,12 +1995,26 @@ function App() {
       <div className="api-key-setup">
         <div className="api-key-container">
           <h2>VibeCad - AI Scene Manipulation</h2>
-          <p>Enter your OpenAI API Key to enable AI-powered 3D scene manipulation:</p>
+          <p>Choose your AI provider and enter your API key to enable AI-powered 3D scene manipulation:</p>
+          
+          <div className="ai-provider-selection">
+            <label htmlFor="ai-provider">AI Provider:</label>
+            <select
+              id="ai-provider"
+              value={aiProvider}
+              onChange={(e) => setAiProvider(e.target.value as 'openai' | 'gemini')}
+              className="ai-provider-select"
+            >
+              <option value="openai">OpenAI (GPT-4)</option>
+              <option value="gemini">Google Gemini</option>
+            </select>
+          </div>
+
           <input
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-..."
+            placeholder={aiProvider === 'openai' ? 'sk-...' : 'AIza...'}
             className="api-key-input"
             onKeyPress={(e) => {
               if (e.key === 'Enter') {
@@ -1979,6 +2032,16 @@ function App() {
           <p className="api-key-note">
             Your API key is stored locally and never sent to our servers.
           </p>
+          {aiProvider === 'openai' && (
+            <p className="api-key-help">
+              Get your OpenAI API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">platform.openai.com</a>
+            </p>
+          )}
+          {aiProvider === 'gemini' && (
+            <p className="api-key-help">
+              Get your Gemini API key from <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
+            </p>
+          )}
         </div>
       </div>
     )
@@ -2007,6 +2070,7 @@ function App() {
         </div>
         <AISidebar 
           apiKey={apiKey}
+          aiProvider={aiProvider}
           sceneInitialized={sceneInitialized}
           sceneAPI={sceneAPI}
           onOpenCustomRoomModal={handleOpenCustomRoomModal}
