@@ -769,6 +769,15 @@ QUANTITY HANDLING:
 - Do NOT introduce a 'count' or 'quantity' property. Instead, output that many individual 'create' commands inside the JSON array.
 - When the user does not specify how the objects should be arranged, position them sensibly (e.g. in a straight line) **with at least one unit of empty space between their bounding boxes**.  For standard 2×2×2 cubes this means keeping their centres ≥ 2.2 units apart (e.g. –1.5 and 1.5 on the X axis).  Always provide explicit 'x', 'y', and 'z' that do not overlap with other objects.
 
+COMPOSITE OBJECT NAMING:
+- When creating composite objects (like "make a person out of blocks", "build a house", "create a car"), assign meaningful descriptive names to each component.
+- Use a consistent naming pattern: [main-object]-[component] (e.g., "person-head", "person-torso", "person-left-arm").
+- For humanoid figures: Use parts like head, torso, left-arm, right-arm, left-leg, right-leg.
+- For vehicles: Use parts like body, wheels, roof, etc.
+- For buildings: Use parts like foundation, walls, roof, door, windows, etc.
+- For furniture: Use parts like seat, back, legs, armrests, etc.
+- Always make the names descriptive enough that someone could understand what each part represents.
+
 ROTATION PRECISION:
 - Rotation values are in radians (not degrees)
 - rotationX: Rotation around X-axis (pitch)
@@ -820,9 +829,32 @@ SPATIAL COMMAND EXAMPLES:
 "Rename the sphere to 'red-ball'":
 [{"action": "rename", "objectId": "sphere-id", "name": "red-ball"}]
 
+COMPOSITE OBJECT EXAMPLES:
+"Make a person out of blocks":
+[{"action": "create", "type": "cube", "name": "person-head", "color": "#fce38a", "x": 0, "y": 5, "z": 0, "scaleX": 0.8, "scaleY": 0.8, "scaleZ": 0.8},
+ {"action": "create", "type": "cube", "name": "person-torso", "color": "#4ecdc4", "x": 0, "y": 3, "z": 0, "scaleX": 1.2, "scaleY": 1.5, "scaleZ": 0.8},
+ {"action": "create", "type": "cube", "name": "person-left-arm", "color": "#fce38a", "x": -1.5, "y": 3.5, "z": 0, "scaleX": 0.4, "scaleY": 1.2, "scaleZ": 0.4},
+ {"action": "create", "type": "cube", "name": "person-right-arm", "color": "#fce38a", "x": 1.5, "y": 3.5, "z": 0, "scaleX": 0.4, "scaleY": 1.2, "scaleZ": 0.4},
+ {"action": "create", "type": "cube", "name": "person-left-leg", "color": "#4ecdc4", "x": -0.4, "y": 1, "z": 0, "scaleX": 0.5, "scaleY": 1.5, "scaleZ": 0.5},
+ {"action": "create", "type": "cube", "name": "person-right-leg", "color": "#4ecdc4", "x": 0.4, "y": 1, "z": 0, "scaleX": 0.5, "scaleY": 1.5, "scaleZ": 0.5}]
+
+"Build a simple car":
+[{"action": "create", "type": "cube", "name": "car-body", "color": "#ff6b6b", "x": 0, "y": 1, "z": 0, "scaleX": 2, "scaleY": 0.8, "scaleZ": 1},
+ {"action": "create", "type": "cylinder", "name": "car-wheel-front-left", "color": "#808080", "x": -1.2, "y": 0.4, "z": 0.6, "scaleX": 0.4, "scaleY": 0.2, "scaleZ": 0.4},
+ {"action": "create", "type": "cylinder", "name": "car-wheel-front-right", "color": "#808080", "x": 1.2, "y": 0.4, "z": 0.6, "scaleX": 0.4, "scaleY": 0.2, "scaleZ": 0.4},
+ {"action": "create", "type": "cylinder", "name": "car-wheel-rear-left", "color": "#808080", "x": -1.2, "y": 0.4, "z": -0.6, "scaleX": 0.4, "scaleY": 0.2, "scaleZ": 0.4},
+ {"action": "create", "type": "cylinder", "name": "car-wheel-rear-right", "color": "#808080", "x": 1.2, "y": 0.4, "z": -0.6, "scaleX": 0.4, "scaleY": 0.2, "scaleZ": 0.4}]
+
+"Create a simple table":
+[{"action": "create", "type": "cube", "name": "table-top", "color": "#8B4513", "x": 0, "y": 1.5, "z": 0, "scaleX": 2, "scaleY": 0.1, "scaleZ": 1.2},
+ {"action": "create", "type": "cube", "name": "table-leg-1", "color": "#654321", "x": -0.8, "y": 0.75, "z": -0.5, "scaleX": 0.1, "scaleY": 1.5, "scaleZ": 0.1},
+ {"action": "create", "type": "cube", "name": "table-leg-2", "color": "#654321", "x": 0.8, "y": 0.75, "z": -0.5, "scaleX": 0.1, "scaleY": 1.5, "scaleZ": 0.1},
+ {"action": "create", "type": "cube", "name": "table-leg-3", "color": "#654321", "x": -0.8, "y": 0.75, "z": 0.5, "scaleX": 0.1, "scaleY": 1.5, "scaleZ": 0.1},
+ {"action": "create", "type": "cube", "name": "table-leg-4", "color": "#654321", "x": 0.8, "y": 0.75, "z": 0.5, "scaleX": 0.1, "scaleY": 1.5, "scaleZ": 0.1}]
+
 DESCRIBE COMMAND EXAMPLE:
 "What is in the scene?":
-[{"action": "describe", "description": "The scene contains a red cube at coordinates (0.0, 1.0, 0.0) and a green sphere at (2.0, 1.0, 0.0)."}]
+[{"action": "describe", "description": "The scene contains a red cube and a green sphere"}]
 
 ROTATION COMMAND EXAMPLES:
 "Rotate the blue cube 45 degrees around the Y-axis":
@@ -979,6 +1011,8 @@ CRITICAL REQUIREMENTS:
 14. For wall alignment: Account for object dimensions to ensure only one face touches the wall
 15. For imported objects (GLB/STL/OBJ): Their pivot is at bottom center, so position.y represents the floor contact point
 16. When moving objects, ensure they don't sink below y=0 (the floor level)
+17. For composite objects: ALWAYS use meaningful, descriptive names following the [main-object]-[component] pattern
+18. When creating multiple objects that form a single conceptual entity, ensure all parts are properly named and positioned relative to each other
 
 DIMENSION MATCHING RULES:
 - Objects placed "on top of" automatically match the footprint (width × depth) of the reference object
