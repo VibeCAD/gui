@@ -10,6 +10,8 @@ import { ExportButton } from './ExportButton';
 import { SpaceOptimizationPanel } from './SpaceOptimizationPanel';
 import { createGLBImporter } from '../../babylon/glbImporter';
 import { createSTLExporter } from '../../babylon/stlExporter';
+import { spaceAnalysisService } from '../../services/spaceAnalysisService';
+import type { SpaceAnalysisResult } from '../../services/spaceAnalysisService';
 
 interface AISidebarProps {
   apiKey: string;
@@ -278,9 +280,220 @@ export const AISidebar: React.FC<AISidebarProps> = ({
             console.warn('❌ Texture command missing textureId');
           }
           break;
+
+        case 'analyze-space':
+          handleSpaceAnalysisCommand(command);
+          break;
+
+        case 'optimize-space':
+          handleSpaceOptimizationCommand(command);
+          break;
+
+        case 'furniture-info':
+          handleFurnitureInfoCommand(command);
+          break;
       }
     } catch (error) {
       console.error('Error executing scene command:', error);
+    }
+  };
+
+  // Handler for space analysis commands
+  const handleSpaceAnalysisCommand = async (command: SceneCommand) => {
+    if (!sceneAPI) return;
+    
+    try {
+      console.log('🔍 Executing space analysis command:', command);
+      
+      // If the command already has analysis results, use them
+      if (command.analysisResult) {
+        const result = command.analysisResult;
+        
+        // Display the results
+        addToResponseLog(`Space Analysis: ${result.optimization.maxObjects} ${result.furnitureSpec.type}(s) can fit`);
+        addToResponseLog(`Space Efficiency: ${(result.optimization.efficiency * 100).toFixed(1)}%`);
+        
+        if (result.recommendations.length > 0) {
+          addToResponseLog(`Recommendations: ${result.recommendations.join(', ')}`);
+        }
+
+        // Place objects in the scene at optimal positions
+        if (result.optimization.maxObjects > 0 && result.optimization.layouts.length > 0) {
+          placeObjectsInScene(result.optimization.layouts, result.furnitureSpec.type);
+        }
+      } else {
+        // Run analysis if not already done
+        const getMeshById = (id: string) => {
+          const sceneManager = sceneAPI.getSceneManager();
+          return sceneManager?.getMeshById(id) || null;
+        };
+
+        // Get selected objects from the store
+        const { selectedObjectIds } = useSceneStore.getState();
+        const selectedObjects = command.useSelectedObjects ? 
+          sceneObjects.filter(obj => selectedObjectIds.includes(obj.id)) : 
+          undefined;
+        
+        const roomId = command.roomId || sceneObjects.find(obj => obj.type === 'custom-room')?.id;
+        
+        if (!roomId) {
+          addToResponseLog('Error: No room found for space analysis');
+          return;
+        }
+
+        const request = {
+          roomId,
+          targetObjectType: command.targetObjectType,
+          selectedObjects,
+          strategy: command.optimizationStrategy ? {
+            name: command.optimizationStrategy,
+            priority: command.optimizationStrategy,
+            description: `${command.optimizationStrategy} optimization strategy`
+          } : undefined
+        };
+
+        const result = await spaceAnalysisService.analyzeSpace(request, sceneObjects, getMeshById);
+        
+        // Display results
+        addToResponseLog(`Space Analysis: ${result.optimization.maxObjects} ${result.furnitureSpec.type}(s) can fit`);
+        addToResponseLog(`Space Efficiency: ${(result.optimization.efficiency * 100).toFixed(1)}%`);
+        
+        if (result.recommendations.length > 0) {
+          addToResponseLog(`Recommendations: ${result.recommendations.join(', ')}`);
+        }
+
+        // Place objects in the scene at optimal positions
+        if (result.optimization.maxObjects > 0 && result.optimization.layouts.length > 0) {
+          placeObjectsInScene(result.optimization.layouts, result.furnitureSpec.type);
+        }
+      }
+    } catch (error) {
+      console.error('Space analysis command failed:', error);
+      addToResponseLog(`Error: ${error instanceof Error ? error.message : 'Space analysis failed'}`);
+    }
+  };
+
+  // Handler for space optimization commands
+  const handleSpaceOptimizationCommand = async (command: SceneCommand) => {
+    if (!sceneAPI) return;
+    
+    try {
+      console.log('🎯 Executing space optimization command:', command);
+      
+      const getMeshById = (id: string) => {
+        const sceneManager = sceneAPI.getSceneManager();
+        return sceneManager?.getMeshById(id) || null;
+      };
+
+      // Get selected objects from the store
+      const { selectedObjectIds } = useSceneStore.getState();
+      const selectedObjects = command.useSelectedObjects ? 
+        sceneObjects.filter(obj => selectedObjectIds.includes(obj.id)) : 
+        undefined;
+      
+      const roomId = command.roomId || sceneObjects.find(obj => obj.type === 'custom-room')?.id;
+      
+      if (!roomId) {
+        addToResponseLog('Error: No room found for space optimization');
+        return;
+      }
+
+      const request = {
+        roomId,
+        targetObjectType: command.targetObjectType,
+        selectedObjects,
+        strategy: command.optimizationStrategy ? {
+          name: command.optimizationStrategy,
+          priority: command.optimizationStrategy,
+          description: `${command.optimizationStrategy} optimization strategy`
+        } : { name: 'maximize' as const, priority: 'maximize' as const, description: 'Maximize capacity' }
+      };
+
+      const result = await spaceAnalysisService.analyzeSpace(request, sceneObjects, getMeshById);
+      
+      // Display results
+      addToResponseLog(`Space Optimization: ${result.optimization.maxObjects} ${result.furnitureSpec.type}(s) optimally placed`);
+      addToResponseLog(`Space Efficiency: ${(result.optimization.efficiency * 100).toFixed(1)}%`);
+      
+      if (result.recommendations.length > 0) {
+        addToResponseLog(`Recommendations: ${result.recommendations.join(', ')}`);
+      }
+
+      // Place objects in the scene at optimal positions
+      if (result.optimization.maxObjects > 0 && result.optimization.layouts.length > 0) {
+        placeObjectsInScene(result.optimization.layouts, result.furnitureSpec.type);
+      }
+    } catch (error) {
+      console.error('Space optimization command failed:', error);
+      addToResponseLog(`Error: ${error instanceof Error ? error.message : 'Space optimization failed'}`);
+    }
+  };
+
+  // Handler for furniture info commands
+  const handleFurnitureInfoCommand = (command: SceneCommand) => {
+    try {
+      console.log('📋 Executing furniture info command:', command);
+      
+      // Get selected objects from the store
+      const { selectedObjectIds } = useSceneStore.getState();
+      const selectedObjects = command.useSelectedObjects ? 
+        sceneObjects.filter(obj => selectedObjectIds.includes(obj.id)) : 
+        [];
+      
+      if (selectedObjects.length === 0) {
+        addToResponseLog('Error: No objects selected for furniture information');
+        return;
+      }
+
+      // Get furniture information from the AI service
+      const aiService = createAIService('dummy-key', []); // API key not needed for this function
+      const furnitureInfo = aiService.getFurnitureInfo(selectedObjects);
+      
+      if (furnitureInfo.specs.length > 0) {
+        addToResponseLog(`Furniture Information:`);
+        addToResponseLog(furnitureInfo.summary);
+      } else {
+        addToResponseLog('No furniture specifications found for selected objects');
+      }
+    } catch (error) {
+      console.error('Furniture info command failed:', error);
+      addToResponseLog(`Error: ${error instanceof Error ? error.message : 'Furniture info failed'}`);
+    }
+  };
+
+  // Helper function to place objects in the scene from optimization layouts
+  const placeObjectsInScene = (layouts: any[], objectType: string) => {
+    try {
+      console.log(`🏗️ Placing ${layouts.length} optimized ${objectType} objects in scene`);
+      
+      // Clear existing optimized objects of this type
+      const existingOptimizedObjects = sceneObjects.filter(obj => 
+        obj.id.startsWith(`optimized-${objectType.toLowerCase()}`)
+      );
+      
+      existingOptimizedObjects.forEach(obj => {
+        removeObject(obj.id);
+      });
+
+      // Place new objects at optimal positions
+      layouts.forEach((layout, index) => {
+        const objectId = `optimized-${objectType.toLowerCase()}-${index + 1}`;
+        
+        addObject({
+          id: objectId,
+          type: objectType,
+          position: layout.position,
+          scale: new Vector3(1, 1, 1),
+          rotation: layout.rotation || new Vector3(0, 0, 0),
+          color: '#4CAF50', // Green color for optimized objects
+          isNurbs: false
+        });
+      });
+      
+      addToResponseLog(`✅ Placed ${layouts.length} optimized ${objectType} objects in scene`);
+    } catch (error) {
+      console.error('Error placing objects in scene:', error);
+      addToResponseLog(`Error: Could not place objects in scene`);
     }
   };
 

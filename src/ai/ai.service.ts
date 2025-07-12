@@ -167,7 +167,13 @@ export interface AIServiceResult {
                         lowerPrompt.includes('space') ||
                         lowerPrompt.includes('optimize') ||
                         lowerPrompt.includes('layout') ||
-                        lowerPrompt.includes('arrange');
+                        lowerPrompt.includes('arrange') ||
+                        lowerPrompt.includes('can i arrange') ||
+                        lowerPrompt.includes('how can i arrange') ||
+                        lowerPrompt.includes('how to arrange') ||
+                        lowerPrompt.includes('place') ||
+                        lowerPrompt.includes('position') ||
+                        lowerPrompt.includes('room layout');
     
     if (!isSpaceQuery) {
       return null;
@@ -197,13 +203,24 @@ export interface AIServiceResult {
       }
     }
 
-    // Common object types
-    const commonTypes = ['desk', 'chair', 'table', 'sofa', 'bed', 'bookcase'];
-    for (const type of commonTypes) {
-      if (lowerPrompt.includes(type)) {
-        targetObjectType = type.charAt(0).toUpperCase() + type.slice(1);
-        break;
+    // Common object types with variations
+    const commonTypes = [
+      { names: ['desk', 'desks'], type: 'Desk' },
+      { names: ['chair', 'chairs'], type: 'Chair' },
+      { names: ['table', 'tables'], type: 'Table' },
+      { names: ['sofa', 'sofas', 'couch', 'couches'], type: 'Sofa' },
+      { names: ['bed', 'beds'], type: 'Bed Single' },
+      { names: ['bookcase', 'bookcases', 'bookshelf', 'bookshelves'], type: 'Bookcase' }
+    ];
+    
+    for (const typeGroup of commonTypes) {
+      for (const name of typeGroup.names) {
+        if (lowerPrompt.includes(name)) {
+          targetObjectType = typeGroup.type;
+          break;
+        }
       }
+      if (targetObjectType) break;
     }
 
     if (!this.getMeshById) {
@@ -1129,11 +1146,20 @@ SPACE OPTIMIZATION COMMAND EXAMPLES:
 "How many chairs can I fit in the room?":
 [{"action": "analyze-space", "roomId": "custom-room-1", "targetObjectType": "Chair"}]
 
-"Optimize the space for desks":
+"How can I arrange desks in this room?":
 [{"action": "optimize-space", "roomId": "custom-room-1", "targetObjectType": "Desk", "optimizationStrategy": "maximize"}]
 
 "How should I arrange chairs for comfort?":
 [{"action": "optimize-space", "roomId": "custom-room-1", "targetObjectType": "Chair", "optimizationStrategy": "comfort"}]
+
+"Optimize the space for desks":
+[{"action": "optimize-space", "roomId": "custom-room-1", "targetObjectType": "Desk", "optimizationStrategy": "maximize"}]
+
+"Arrange furniture in this room":
+[{"action": "optimize-space", "roomId": "custom-room-1", "targetObjectType": "Chair", "optimizationStrategy": "maximize"}]
+
+"Place desks optimally":
+[{"action": "optimize-space", "roomId": "custom-room-1", "targetObjectType": "Desk", "optimizationStrategy": "maximize"}]
 
 "Analyze space for the selected objects":
 [{"action": "analyze-space", "roomId": "custom-room-1", "useSelectedObjects": true}]
