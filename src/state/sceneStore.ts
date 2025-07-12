@@ -106,6 +106,7 @@ interface SceneState {
     redoHistory: UndoAction[]
     canUndo: boolean
     canRedo: boolean
+    _isExecutingUndo?: boolean
 }
 
 // Store Actions Interface
@@ -115,6 +116,7 @@ interface SceneActions {
     removeObject: (objectId: string) => void
     updateObject: (objectId: string, updates: Partial<SceneObject>) => void
     renameObject: (oldId: string, newId: string) => void
+    _renameObject: (oldId: string, newId: string) => void
     setSceneObjects: (objects: SceneObject[]) => void
     clearAllObjects: () => void
     
@@ -332,14 +334,18 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             redoHistory: [],
             canUndo: false,
             canRedo: false,
+            _isExecutingUndo: false,
             
             // Actions
             addObject: (object) => {
                 set((state) => ({
                     sceneObjects: [...state.sceneObjects, object]
                 }))
-                // Track for undo
-                get().pushUndoAction(createAddObjectAction(object))
+                // Track for undo only if not executing an undo/redo action
+                const state = get()
+                if (!state._isExecutingUndo) {
+                    get().pushUndoAction(createAddObjectAction(object))
+                }
             },
             
             removeObject: (objectId) => {
@@ -352,8 +358,10 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                         selectedObjectId: state.selectedObjectId === objectId ? null : state.selectedObjectId,
                         selectedObjectIds: state.selectedObjectIds.filter(id => id !== objectId)
                     }))
-                    // Track for undo
-                    get().pushUndoAction(createRemoveObjectAction(objectToRemove))
+                    // Track for undo only if not executing an undo/redo action
+                    if (!state._isExecutingUndo) {
+                        get().pushUndoAction(createRemoveObjectAction(objectToRemove))
+                    }
                 }
             },
             
@@ -387,33 +395,41 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                         )
                     }))
                     
-                    // Track for undo - also clone Vector3s in updates for consistency
-                    const clonedUpdates: any = {}
-                    Object.keys(updates).forEach(key => {
-                        const value = updates[key as keyof typeof updates]
-                        if (value instanceof Vector3) {
-                            clonedUpdates[key] = value.clone()
-                        } else {
-                            clonedUpdates[key] = value
-                        }
-                    })
-                    
-                    get().pushUndoAction(createUpdateObjectAction(objectId, clonedUpdates, previousValues))
-                    console.log(`🔄 Undo: Tracked object update for ${objectId}:`, Object.keys(clonedUpdates))
+                    // Track for undo only if not executing an undo/redo action
+                    if (!state._isExecutingUndo) {
+                        // Clone Vector3s in updates for consistency
+                        const clonedUpdates: any = {}
+                        Object.keys(updates).forEach(key => {
+                            const value = updates[key as keyof typeof updates]
+                            if (value instanceof Vector3) {
+                                clonedUpdates[key] = value.clone()
+                            } else {
+                                clonedUpdates[key] = value
+                            }
+                        })
+                        
+                        get().pushUndoAction(createUpdateObjectAction(objectId, clonedUpdates, previousValues))
+                        console.log(`🔄 Undo: Tracked object update for ${objectId}:`, Object.keys(clonedUpdates))
+                    }
                 }
             },
             
             renameObject: (oldId: string, newId: string) => {
-                const { sceneObjects, pushUndoAction } = get()
+                const state = get()
+                const { sceneObjects } = state
                 const objectToRename = sceneObjects.find(obj => obj.id === oldId)
                 if (!objectToRename || sceneObjects.some(obj => obj.id === newId)) {
                     console.warn(`Cannot rename: oldId ${oldId} not found or newId ${newId} already exists.`)
                     return
                 }
 
-                pushUndoAction(createRenameAction(newId, oldId, objectToRename))
-                
-                // Perform the actual rename
+                if (!state._isExecutingUndo) {
+                    get().pushUndoAction(createRenameAction(newId, oldId, objectToRename))
+                }
+                get()._renameObject(oldId, newId)
+            },
+            
+            _renameObject: (oldId: string, newId: string) => {
                 set((state) => ({
                     sceneObjects: state.sceneObjects.map(obj => 
                         obj.id === oldId ? { ...obj, id: newId } : obj
@@ -523,8 +539,10 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                     set((state) => ({
                         objectVisibility: { ...state.objectVisibility, [objectId]: visible }
                     }))
-                    // Track for undo
-                    get().pushUndoAction(createSetObjectVisibilityAction(objectId, visible, previousVisible))
+                    // Track for undo only if not executing an undo/redo action
+                    if (!state._isExecutingUndo) {
+                        get().pushUndoAction(createSetObjectVisibilityAction(objectId, visible, previousVisible))
+                    }
                 }
             },
             
@@ -536,8 +554,10 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                     set((state) => ({
                         objectLocked: { ...state.objectLocked, [objectId]: locked }
                     }))
-                    // Track for undo
-                    get().pushUndoAction(createSetObjectLockedAction(objectId, locked, previousLocked))
+                    // Track for undo only if not executing an undo/redo action
+                    if (!state._isExecutingUndo) {
+                        get().pushUndoAction(createSetObjectLockedAction(objectId, locked, previousLocked))
+                    }
                 }
             },
             
@@ -1091,14 +1111,8 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 console.log('🔄 Undoing action:', lastAction.type, 'Payload:', lastAction.payload)
                 console.log('🔄 Full undo history:', state.undoHistory.map(a => a.type))
                 
-                // Execute the inverse action WITHOUT tracking it for undo (to avoid recursion)
-                const tempPushUndoAction = get().pushUndoAction
-                get().pushUndoAction = () => {} // Temporarily disable undo tracking
-                
+                // Execute the inverse action
                 get().executeUndoAction(lastAction.inverse)
-                
-                // Restore undo tracking
-                get().pushUndoAction = tempPushUndoAction
                 
                 // Update undo/redo state
                 set({
@@ -1119,14 +1133,8 @@ export const useSceneStore = create<SceneState & SceneActions>()(
                 
                 console.log('🔄 Redoing action:', lastUndoneAction.type)
                 
-                // Re-execute the original action WITHOUT tracking it for undo (to avoid recursion)
-                const tempPushUndoAction = get().pushUndoAction
-                get().pushUndoAction = () => {} // Temporarily disable undo tracking
-                
+                // Re-execute the original action
                 get().executeUndoAction(lastUndoneAction)
-                
-                // Restore undo tracking
-                get().pushUndoAction = tempPushUndoAction
                 
                 // Update undo/redo state
                 set({
@@ -1151,31 +1159,49 @@ export const useSceneStore = create<SceneState & SceneActions>()(
             },
 
             executeUndoAction: (action) => {
-                switch (action.type) {
-                    case 'ADD_OBJECT':
-                        get().removeObject(action.payload.object.id)
-                        break
-                    case 'REMOVE_OBJECT':
-                        get().addObject(action.payload.object)
-                        break
-                    case 'UPDATE_OBJECT':
-                        get().updateObject(action.payload.objectId, action.payload.updates)
-                        break
-                    case 'RENAME':
-                        get().renameObject(action.payload.oldId, action.payload.newId)
-                        break
-                    case 'SET_OBJECT_LOCKED':
-                        get().setObjectLocked(action.payload.objectId, action.payload.locked)
-                        break
-                    case 'SET_OBJECT_VISIBILITY':
-                        get().setObjectVisibility(action.payload.objectId, action.payload.visible)
-                        break
-                    case 'BATCH_DELETE':
-                        action.payload.objects.forEach((obj: SceneObject) => get().addObject(obj))
-                        break
-                    case 'BATCH_ADD':
-                        action.payload.objects.forEach((obj: SceneObject) => get().removeObject(obj.id))
-                        break
+                console.log('🔄 executeUndoAction:', action.type, action.payload);
+                
+                // Set flag to prevent recursive undo tracking
+                set({ _isExecutingUndo: true });
+                
+                try {
+                    switch (action.type) {
+                        case 'ADD_OBJECT':
+                            // When undoing ADD, we remove the object
+                            get().removeObject(action.payload.objectId)
+                            break
+                        case 'REMOVE_OBJECT':
+                            // When undoing REMOVE, we add the object back
+                            get().addObject(action.payload.object)
+                            break
+                        case 'UPDATE_OBJECT':
+                            // Execute the inverse update
+                            get().updateObject(action.payload.objectId, action.payload.updates)
+                            break
+                        case 'RENAME':
+                            // Execute the inverse rename
+                            get()._renameObject(action.payload.oldId, action.payload.newId)
+                            break
+                        case 'SET_OBJECT_LOCKED':
+                            // Set to the locked state in the action
+                            get().setObjectLocked(action.payload.objectId, action.payload.locked)
+                            break
+                        case 'SET_OBJECT_VISIBILITY':
+                            // Set to the visible state in the action
+                            get().setObjectVisibility(action.payload.objectId, action.payload.visible)
+                            break
+                        case 'BATCH_DELETE':
+                            // When undoing BATCH_DELETE, add all objects back
+                            action.payload.objects.forEach((obj: SceneObject) => get().addObject(obj))
+                            break
+                        case 'BATCH_ADD':
+                            // When undoing BATCH_ADD, remove all objects
+                            action.payload.objectIds.forEach((id: string) => get().removeObject(id))
+                            break
+                    }
+                } finally {
+                    // Clear the flag
+                    set({ _isExecutingUndo: false });
                 }
             }
         }),

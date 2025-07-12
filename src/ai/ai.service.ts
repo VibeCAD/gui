@@ -786,6 +786,14 @@ DESCRIBE COMMAND EXAMPLE:
 "What is in the scene?":
 [{"action": "describe", "description": "The scene contains a red cube and a green sphere."}]
 
+SCENE DESCRIPTION GUIDELINES:
+- When describing scenes, use the fewest words possible
+- Focus on essential information: object types, colors, and general relationships
+- Avoid verbose object names and precise coordinates unless specifically requested
+- Use simple, clear language for better user experience
+- For describe commands, provide only the essential summary (e.g., "Red cube and blue sphere" instead of full details)
+
+
 ROTATION COMMAND EXAMPLES:
 "Rotate the blue cube 45 degrees around the Y-axis":
 [{"action": "rotate", "objectId": "cube-id", "rotationX": 0, "rotationY": 0.785, "rotationZ": 0}]
