@@ -7,6 +7,7 @@ import { SceneGraph } from './SceneGraph';
 import { PropertiesPanel } from './PropertiesPanel';
 import { ImportButton } from './ImportButton';
 import { ExportButton } from './ExportButton';
+import { SpaceOptimizationPanel } from './SpaceOptimizationPanel';
 import { createGLBImporter } from '../../babylon/glbImporter';
 import { createSTLExporter } from '../../babylon/stlExporter';
 
@@ -594,6 +595,9 @@ export const AISidebar: React.FC<AISidebarProps> = ({
               objectCount={sceneObjects.filter(obj => obj.type !== 'ground').length}
             />
           </div>
+
+          {/* Space Optimization Panel */}
+          <SpaceOptimizationPanel sceneAPI={sceneAPI} />
 
           {/* Scene Graph Component */}
           <SceneGraph />

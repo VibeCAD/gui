@@ -1,6 +1,10 @@
 import OpenAI from 'openai';
 import type { SceneObject as BabylonSceneObject } from '../types/types';
 import { Vector3 } from 'babylonjs';
+import { spaceAnalysisService } from '../services/spaceAnalysisService';
+import type { SpaceAnalysisRequest, SpaceAnalysisResult } from '../services/spaceAnalysisService';
+import { furnitureDatabase } from '../data/furnitureDatabase';
+import type { FurnitureSpec } from '../data/furnitureDatabase';
 
 // Extend SceneObject to include metadata for this service's use
 type SceneObject = BabylonSceneObject & {
@@ -8,7 +12,7 @@ type SceneObject = BabylonSceneObject & {
 };
 
 export interface SceneCommand {
-  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'undo' | 'redo' | 'describe' | 'rename' | 'texture';
+  action: 'move' | 'color' | 'scale' | 'create' | 'delete' | 'rotate' | 'align' | 'undo' | 'redo' | 'describe' | 'rename' | 'texture' | 'analyze-space' | 'optimize-space' | 'furniture-info';
   objectId?: string;
   name?: string;
   type?: string;
@@ -36,6 +40,13 @@ export interface SceneCommand {
   textureType?: 'diffuse' | 'normal' | 'specular' | 'emissive';
   textureName?: string; // For natural language texture descriptions
   description?: string;
+  
+  // New space optimization properties
+  roomId?: string;
+  targetObjectType?: string;
+  optimizationStrategy?: 'maximize' | 'comfort' | 'ergonomic' | 'aesthetic';
+  useSelectedObjects?: boolean;
+  analysisResult?: SpaceAnalysisResult;
 }
 
 export interface AIServiceResult {
@@ -46,13 +57,14 @@ export interface AIServiceResult {
   aiResponse?: string;
 }
 
-/**
- * AI Service for handling OpenAI API interactions and scene command generation
- */
-export class AIService {
-  private openai: OpenAI;
-  private availableTextures: Array<{ id: string; name: string; tags: string[] }> = [];
-  private availableGlbObjects: string[] = [];
+  /**
+   * AI Service for handling OpenAI API interactions and scene command generation
+   */
+  export class AIService {
+    private openai: OpenAI;
+    private availableTextures: Array<{ id: string; name: string; tags: string[] }> = [];
+    private availableGlbObjects: string[] = [];
+    private getMeshById: ((id: string) => any) | null = null;
 
   // Default front face directions for different object types
   private defaultFrontFaces: { [key: string]: Vector3 } = {
@@ -130,6 +142,126 @@ export class AIService {
         tags: ['brick', 'wall', 'red', 'masonry', 'exterior', 'classic', 'bricks']
       }
     ];
+  }
+
+  /**
+   * Set the mesh resolver function for space optimization
+   */
+  public setMeshResolver(getMeshById: (id: string) => any): void {
+    this.getMeshById = getMeshById;
+  }
+
+  /**
+   * Handle space optimization queries
+   */
+  public async handleSpaceOptimization(
+    prompt: string,
+    sceneObjects: SceneObject[],
+    selectedObjectIds?: string[]
+  ): Promise<SpaceAnalysisResult | null> {
+    const lowerPrompt = prompt.toLowerCase();
+    
+    // Check if this is a space optimization query
+    const isSpaceQuery = lowerPrompt.includes('how many') || 
+                        lowerPrompt.includes('fit') ||
+                        lowerPrompt.includes('space') ||
+                        lowerPrompt.includes('optimize') ||
+                        lowerPrompt.includes('layout') ||
+                        lowerPrompt.includes('arrange');
+    
+    if (!isSpaceQuery) {
+      return null;
+    }
+
+    // Find rooms in the scene
+    const rooms = sceneObjects.filter(obj => obj.type === 'custom-room');
+    if (rooms.length === 0) {
+      console.warn('No rooms found for space optimization');
+      return null;
+    }
+
+    // Use the first room (or could be made smarter)
+    const room = rooms[0];
+    
+    // Determine target object type from prompt
+    let targetObjectType: string | undefined;
+    const selectedObjects = selectedObjectIds ? 
+      sceneObjects.filter(obj => selectedObjectIds.includes(obj.id)) : 
+      undefined;
+
+    // Extract object type from prompt
+    for (const glbObject of this.availableGlbObjects) {
+      if (lowerPrompt.includes(glbObject.toLowerCase())) {
+        targetObjectType = glbObject;
+        break;
+      }
+    }
+
+    // Common object types
+    const commonTypes = ['desk', 'chair', 'table', 'sofa', 'bed', 'bookcase'];
+    for (const type of commonTypes) {
+      if (lowerPrompt.includes(type)) {
+        targetObjectType = type.charAt(0).toUpperCase() + type.slice(1);
+        break;
+      }
+    }
+
+    if (!this.getMeshById) {
+      console.warn('Mesh resolver not set, cannot perform space optimization');
+      return null;
+    }
+
+    try {
+      const request: SpaceAnalysisRequest = {
+        roomId: room.id,
+        targetObjectType,
+        selectedObjects,
+        strategy: this.extractOptimizationStrategy(lowerPrompt)
+      };
+
+      const result = await spaceAnalysisService.analyzeSpace(
+        request,
+        sceneObjects,
+        this.getMeshById
+      );
+
+      return result;
+    } catch (error) {
+      console.error('Space optimization failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Extract optimization strategy from prompt
+   */
+  private extractOptimizationStrategy(prompt: string): { name: 'maximize' | 'comfort' | 'ergonomic' | 'aesthetic'; priority: 'maximize' | 'comfort' | 'ergonomic' | 'aesthetic'; description: string } {
+    if (prompt.includes('comfort') || prompt.includes('comfortable')) {
+      return { name: 'comfort', priority: 'comfort', description: 'Optimize for comfort and accessibility' };
+    } else if (prompt.includes('ergonomic') || prompt.includes('ergonomics')) {
+      return { name: 'ergonomic', priority: 'ergonomic', description: 'Optimize for ergonomic layout' };
+    } else if (prompt.includes('aesthetic') || prompt.includes('beautiful') || prompt.includes('nice')) {
+      return { name: 'aesthetic', priority: 'aesthetic', description: 'Optimize for visual appeal' };
+    } else {
+      return { name: 'maximize', priority: 'maximize', description: 'Maximize capacity' };
+    }
+  }
+
+  /**
+   * Get furniture information for selected objects
+   */
+  public getFurnitureInfo(selectedObjects: SceneObject[]): {
+    specs: FurnitureSpec[];
+    summary: string;
+  } {
+    const specs = furnitureDatabase.getSpecsForObjects(selectedObjects);
+    
+    const summary = specs.map(spec => {
+      const dims = spec.dimensions;
+      return `${spec.name} (${spec.category}): ${dims.width.toFixed(1)}×${dims.height.toFixed(1)}×${dims.depth.toFixed(1)}m, needs ${spec.clearanceRequirements.access.toFixed(1)}m clearance`;
+    }).join('\n');
+
+    return { specs, summary };
   }
 
   /**
@@ -732,6 +864,9 @@ Available actions:
 10. redo: Redo the last undone action
 11. rename: Rename an object. Requires objectId and a new name.
 12. texture: Apply a texture to an object (wood, carpet, brick)
+13. analyze-space: Analyze how many objects can fit in a room or space
+14. optimize-space: Optimize the layout of objects in a room for maximum efficiency
+15. furniture-info: Get detailed information about furniture dimensions and space requirements
 
 AVAILABLE TEXTURES:
 - Wood Floor: Natural hardwood planks texture (use: "wood", "wooden", "hardwood", "wood floor")
@@ -987,6 +1122,34 @@ TEXTURE COMMAND EXAMPLES:
 "Make it brick":
 [{"action": "texture", "objectId": "selected-object-id", "textureId": "default-brick-wall-01", "textureType": "diffuse"}]
 
+SPACE OPTIMIZATION COMMAND EXAMPLES:
+"How many desks can fit in this room?":
+[{"action": "analyze-space", "roomId": "custom-room-1", "targetObjectType": "Desk", "optimizationStrategy": "maximize"}]
+
+"How many chairs can I fit in the room?":
+[{"action": "analyze-space", "roomId": "custom-room-1", "targetObjectType": "Chair"}]
+
+"Optimize the space for desks":
+[{"action": "optimize-space", "roomId": "custom-room-1", "targetObjectType": "Desk", "optimizationStrategy": "maximize"}]
+
+"How should I arrange chairs for comfort?":
+[{"action": "optimize-space", "roomId": "custom-room-1", "targetObjectType": "Chair", "optimizationStrategy": "comfort"}]
+
+"Analyze space for the selected objects":
+[{"action": "analyze-space", "roomId": "custom-room-1", "useSelectedObjects": true}]
+
+"Get furniture information for selected objects":
+[{"action": "furniture-info", "useSelectedObjects": true}]
+
+"How many of these chairs can fit?" (when chairs are selected):
+[{"action": "analyze-space", "roomId": "custom-room-1", "useSelectedObjects": true, "optimizationStrategy": "maximize"}]
+
+"What are the dimensions of the selected furniture?":
+[{"action": "furniture-info", "useSelectedObjects": true}]
+
+"Plan an office layout":
+[{"action": "optimize-space", "roomId": "custom-room-1", "targetObjectType": "Desk", "optimizationStrategy": "ergonomic"}]
+
 
 HOUSING OBJECT LOGIC:
 - Roofs automatically match underlying structure dimensions
@@ -1094,6 +1257,33 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
     }
 
     try {
+      // First, check if this is a space optimization query
+      const spaceOptimizationResult = await this.handleSpaceOptimization(
+        prompt, 
+        sceneObjects, 
+        selectedObjectIds || (selectedObjectId ? [selectedObjectId] : undefined)
+      );
+
+      if (spaceOptimizationResult) {
+        // Return space optimization result as a command
+        const strategy = spaceOptimizationResult.request.strategy?.name || 'maximize';
+        const command: SceneCommand = {
+          action: 'analyze-space',
+          roomId: spaceOptimizationResult.request.roomId,
+          targetObjectType: spaceOptimizationResult.request.targetObjectType,
+          optimizationStrategy: strategy as 'maximize' | 'comfort' | 'ergonomic' | 'aesthetic',
+          useSelectedObjects: !!spaceOptimizationResult.request.selectedObjects,
+          analysisResult: spaceOptimizationResult
+        };
+
+        return {
+          success: true,
+          commands: [command],
+          userPrompt: prompt,
+          aiResponse: this.formatSpaceOptimizationResponse(spaceOptimizationResult)
+        };
+      }
+
       const sceneDescription = this.describeScene(sceneObjects);
       const objectIds = sceneObjects.map(obj => obj.id);
       const spatialContext = this.extractSpatialContext(prompt, sceneObjects);
@@ -1148,6 +1338,47 @@ Object IDs currently in scene: ${objectIds.join(', ')}`;
         userPrompt: prompt
       };
     }
+  }
+
+  /**
+   * Format space optimization result for AI response
+   */
+  private formatSpaceOptimizationResponse(result: SpaceAnalysisResult): string {
+    const { optimization, furnitureSpec, roomAnalysis, recommendations } = result;
+    
+    let response = `## Space Analysis Results\n\n`;
+    
+    // Main result
+    if (optimization.maxObjects === 0) {
+      response += `❌ **No ${furnitureSpec.type} objects can fit in this room.**\n\n`;
+      response += `The room is too small. Minimum area needed: ${furnitureSpec.constraints.minRoomSize}m²\n`;
+      response += `Current room area: ${roomAnalysis.area.toFixed(1)}m²\n\n`;
+    } else {
+      response += `✅ **Maximum ${furnitureSpec.type} objects that can fit: ${optimization.maxObjects}**\n\n`;
+      response += `- Space efficiency: ${(optimization.efficiency * 100).toFixed(1)}%\n`;
+      response += `- Object dimensions: ${furnitureSpec.dimensions.width.toFixed(1)}×${furnitureSpec.dimensions.height.toFixed(1)}×${furnitureSpec.dimensions.depth.toFixed(1)}m\n`;
+      response += `- Required clearance: ${furnitureSpec.clearanceRequirements.access.toFixed(1)}m\n`;
+      response += `- Room area: ${roomAnalysis.area.toFixed(1)}m²\n\n`;
+    }
+
+    // Recommendations
+    if (recommendations.length > 0) {
+      response += `## Recommendations\n\n`;
+      recommendations.forEach(rec => {
+        response += `- ${rec}\n`;
+      });
+      response += `\n`;
+    }
+
+    // Alternative options
+    if (result.alternativeOptions.length > 0) {
+      response += `## Alternative Options\n\n`;
+      result.alternativeOptions.forEach(alt => {
+        response += `- ${alt.objectType}: ${alt.maxCount} objects (${(alt.efficiency * 100).toFixed(1)}% efficiency)\n`;
+      });
+    }
+
+    return response;
   }
 
   /**
