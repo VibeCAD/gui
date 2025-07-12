@@ -64,6 +64,7 @@ function App() {
     currentColor,
     isLoading,
     apiKey,
+    aiProvider,
     showApiKeyInput,
     responseLog,
     wireframeMode,
@@ -95,6 +96,7 @@ function App() {
     setCurrentColor,
     setIsLoading,
     setApiKey,
+    setAiProvider,
     setShowApiKeyInput,
     addToResponseLog,
     setWireframeMode,
@@ -1993,12 +1995,26 @@ function App() {
       <div className="api-key-setup">
         <div className="api-key-container">
           <h2>VibeCad - AI Scene Manipulation</h2>
-          <p>Enter your OpenAI API Key to enable AI-powered 3D scene manipulation:</p>
+          <p>Choose your AI provider and enter your API key to enable AI-powered 3D scene manipulation:</p>
+          
+          <div className="ai-provider-selection">
+            <label htmlFor="ai-provider">AI Provider:</label>
+            <select
+              id="ai-provider"
+              value={aiProvider}
+              onChange={(e) => setAiProvider(e.target.value as 'openai' | 'gemini')}
+              className="ai-provider-select"
+            >
+              <option value="openai">OpenAI (GPT-4)</option>
+              <option value="gemini">Google Gemini</option>
+            </select>
+          </div>
+
           <input
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-..."
+            placeholder={aiProvider === 'openai' ? 'sk-...' : 'AIza...'}
             className="api-key-input"
             onKeyPress={(e) => {
               if (e.key === 'Enter') {
@@ -2016,6 +2032,16 @@ function App() {
           <p className="api-key-note">
             Your API key is stored locally and never sent to our servers.
           </p>
+          {aiProvider === 'openai' && (
+            <p className="api-key-help">
+              Get your OpenAI API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">platform.openai.com</a>
+            </p>
+          )}
+          {aiProvider === 'gemini' && (
+            <p className="api-key-help">
+              Get your Gemini API key from <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
+            </p>
+          )}
         </div>
       </div>
     )
@@ -2044,6 +2070,7 @@ function App() {
         </div>
         <AISidebar 
           apiKey={apiKey}
+          aiProvider={aiProvider}
           sceneInitialized={sceneInitialized}
           sceneAPI={sceneAPI}
           onOpenCustomRoomModal={handleOpenCustomRoomModal}
